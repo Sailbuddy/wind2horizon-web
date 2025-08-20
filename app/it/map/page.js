@@ -1,14 +1,15 @@
 'use client'
 import dynamic from 'next/dynamic'
-const Map = dynamic(() => import('../../../components/Map'), { ssr: false })
+
+const GoogleMap = dynamic(() => import('@/components/GoogleMapClient'), { ssr: false })
 
 export default function MapPage() {
   return (
     <div>
       <div className="toolbar">
-        <span className="badge">Markers from /data/locations_it.json</span>
+        <span className="badge">Markers from Supabase (it)</span>
       </div>
-      <Map locale="it" />
+      <GoogleMap lang="it" />
     </div>
   )
 }

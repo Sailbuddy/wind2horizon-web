@@ -1,14 +1,16 @@
 'use client'
 import dynamic from 'next/dynamic'
-const Map = dynamic(() => import('../../../components/Map'), { ssr: false })
+
+// GoogleMapClient dynamisch laden (nur im Browser, kein SSR)
+const GoogleMap = dynamic(() => import('@/components/GoogleMapClient'), { ssr: false })
 
 export default function MapPage() {
   return (
     <div>
       <div className="toolbar">
-        <span className="badge">Markers from /data/locations_de.json</span>
+        <span className="badge">Markers from Supabase (de)</span>
       </div>
-      <Map locale="de" />
+      <GoogleMap lang="de" />
     </div>
   )
 }
