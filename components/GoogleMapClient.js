@@ -1,16 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import LayerPanel from './LayerPanel';
-import { defaultMarkerSvg } from './DefaultMarkerSvg';
-import { svgToDataUrl } from '../lib/utils';
+import { supabase } from '@/lib/supabaseClient';
+import LayerPanel from '@/components/LayerPanel';
+import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
+import { svgToDataUrl } from '@/lib/utils';
 
 export default function GoogleMapClient({ lang = 'de' }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
-  const markers = useRef([]);
-  const layerState = useRef(new Map());
+  const markers = useRef([]);              // google.maps.Marker[]
+  const layerState = useRef(new Map());    // Map<string, boolean>
   const [ready, setReady] = useState(false);
 
   // Google Maps Script laden (bewährte Variante)
@@ -64,7 +64,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
         },
         map: mapObj.current
       });
-      marker.category_id = row.category_id;
+
+      // String-Key für zuverlässigen Vergleich
+      marker._cat = String(row.category_id);
 
       marker.addListener('click', () => {
         const iw = new google.maps.InfoWindow({ content: `<div><strong>${title}</strong></div>` });
@@ -79,7 +81,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function applyLayerVisibility() {
     markers.current.forEach(m => {
-      const vis = layerState.current.get(m.category_id);
+      const vis = layerState.current.get(m._cat);  // String-Key
       m.setVisible(vis ?? true);
     });
   }
@@ -90,11 +92,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <LayerPanel
         lang={lang}
         onInit={(initialMap) => {
-          layerState.current = new Map(initialMap);
+          layerState.current = new Map(initialMap); // Map<string, boolean>
           applyLayerVisibility();
         }}
-        onToggle={(catId, visible) => {
-          layerState.current.set(catId, visible);
+        onToggle={(catKey, visible) => {
+          layerState.current.set(catKey, visible);  // catKey ist bereits String
           applyLayerVisibility();
         }}
       />
