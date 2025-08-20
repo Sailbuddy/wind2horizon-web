@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';         // relativ importieren
+import { supabase } from '../lib/supabaseClient';
 import LayerPanel from './LayerPanel';
 import { defaultMarkerSvg } from './DefaultMarkerSvg';
 import { svgToDataUrl } from '../lib/utils';
@@ -9,21 +9,21 @@ import { svgToDataUrl } from '../lib/utils';
 export default function GoogleMapClient({ lang = 'de' }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
-  const markers = useRef([]);           // google.maps.Marker[]
-  const layerState = useRef(new Map()); // category_id -> visible
+  const markers = useRef([]);
+  const layerState = useRef(new Map());
   const [ready, setReady] = useState(false);
 
-  // 1) Google Maps Script laden
+  // Google Maps Script laden (bewährte Variante)
   useEffect(() => {
     if (window.google?.maps) { setReady(true); return; }
     const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=marker&language=${lang}&loading=async`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=marker&language=${lang}`;
     s.async = true;
     s.onload = () => setReady(true);
     document.head.appendChild(s);
   }, [lang]);
 
-  // 2) Map initialisieren
+  // Map initialisieren
   useEffect(() => {
     if (!ready || !mapRef.current) return;
     mapObj.current = new google.maps.Map(mapRef.current, {
@@ -64,7 +64,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         },
         map: mapObj.current
       });
-      // eigene Property für Filter
       marker.category_id = row.category_id;
 
       marker.addListener('click', () => {
@@ -91,7 +90,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <LayerPanel
         lang={lang}
         onInit={(initialMap) => {
-          // Initialzustand der Layer vom Panel übernehmen
           layerState.current = new Map(initialMap);
           applyLayerVisibility();
         }}
