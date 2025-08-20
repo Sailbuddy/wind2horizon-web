@@ -1,14 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   i18n: {
-    locales: ['de', 'en', 'it', 'hr', 'fr'],
+    locales: ['de', 'en', 'hr', 'fr', 'it'],
     defaultLocale: 'de',
-    localeDetection: true
+    localeDetection: false, // <-- echtes boolean, NICHT "false"
   },
-  images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: '**' }
-    ]
-  }
-}
-module.exports = nextConfig
+  // weitere Optionen falls vorhanden …
+};
+
+module.exports = nextConfig;
