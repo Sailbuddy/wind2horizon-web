@@ -6,7 +6,7 @@ import LayerPanel from './LayerPanel';
 import { defaultMarkerSvg } from './DefaultMarkerSvg';
 import { svgToDataUrl } from '../lib/utils';
 
-export default function GoogleMapClient({ lang='de' }) {
+export default function GoogleMapClient({ lang = 'de' }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
   const markers = useRef([]);           // google.maps.Marker[]
@@ -17,7 +17,7 @@ export default function GoogleMapClient({ lang='de' }) {
   useEffect(() => {
     if (window.google?.maps) { setReady(true); return; }
     const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=marker&language=${lang}`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=marker&language=${lang}&loading=async`;
     s.async = true;
     s.onload = () => setReady(true);
     document.head.appendChild(s);
@@ -48,8 +48,8 @@ export default function GoogleMapClient({ lang='de' }) {
 
     (data || []).forEach(row => {
       const title =
-        (langCode==='de' && row.name_de) ||
-        (langCode==='hr' && row.name_hr) ||
+        (langCode === 'de' && row.name_de) ||
+        (langCode === 'hr' && row.name_hr) ||
         row.name_en || row.display_name || '—';
 
       const svg = row.categories?.icon_svg || defaultMarkerSvg;
@@ -64,6 +64,7 @@ export default function GoogleMapClient({ lang='de' }) {
         },
         map: mapObj.current
       });
+      // eigene Property für Filter
       marker.category_id = row.category_id;
 
       marker.addListener('click', () => {
@@ -89,6 +90,11 @@ export default function GoogleMapClient({ lang='de' }) {
       <div ref={mapRef} style={{ height: '100vh', width: '100%' }} />
       <LayerPanel
         lang={lang}
+        onInit={(initialMap) => {
+          // Initialzustand der Layer vom Panel übernehmen
+          layerState.current = new Map(initialMap);
+          applyLayerVisibility();
+        }}
         onToggle={(catId, visible) => {
           layerState.current.set(catId, visible);
           applyLayerVisibility();

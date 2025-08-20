@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function LayerPanel({ lang='de', onToggle }) {
+export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
   const [cats, setCats] = useState([]);
   const [state, setState] = useState(new Map());
 
@@ -12,7 +12,8 @@ export default function LayerPanel({ lang='de', onToggle }) {
       const { data, error } = await supabase
         .from('categories')
         .select('id,name_de,name_en,name_hr,icon_svg,is_default_on,sort_index')
-        .order('sort_index', { ascending: true });
+        .order('sort_index', { ascending: true })
+        .order('id', { ascending: true }); // stabile Zweitsortierung
 
       if (error) { console.error(error); return; }
 
@@ -20,13 +21,17 @@ export default function LayerPanel({ lang='de', onToggle }) {
       (data || []).forEach(c => m.set(c.id, !!c.is_default_on));
       setState(m);
       setCats(data || []);
+
+      // Initialzustand an den Parent (Map) melden,
+      // damit Marker direkt korrekt gefiltert werden
+      if (onInit) onInit(m);
     })();
-  }, []);
+  }, [onInit]);
 
   // Übersetzung pro Sprache wählen
   const t = (c) =>
-    (lang==='de' && c.name_de) ||
-    (lang==='hr' && c.name_hr) ||
+    (lang === 'de' && c.name_de) ||
+    (lang === 'hr' && c.name_hr) ||
     c.name_en ||
     c.name_de ||
     '–';
@@ -64,15 +69,15 @@ export default function LayerPanel({ lang='de', onToggle }) {
           font: 14px/1.25 system-ui, sans-serif;
         }
         .w2h-layer-panel .row {
-          display:flex;
-          align-items:center;
-          gap:8px;
-          margin:6px 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 6px 0;
         }
         .w2h-layer-panel .icon svg {
-          width:18px;
-          height:18px;
-          vertical-align:middle;
+          width: 18px;
+          height: 18px;
+          vertical-align: middle;
         }
       `}</style>
     </div>
