@@ -50,26 +50,31 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
 
-  // Mapping attribute_definitions.key -> canonical keys
-  const FIELD_MAP = {
-    address: ['formatted_address', 'vicinity'],
-    website: ['website', 'url'],
-    phone: ['formatted_phone_number', 'international_phone_number'],
-    description: ['editorial_summary.overview'],
-    opening_now: ['opening_hours.open_now'],
-    opening_hours: [
-      'opening_hours.weekday_text',
-      'opening_hours.weekday_text[0]',
-      'opening_hours.weekday_text[1]',
-      'opening_hours.weekday_text[2]',
-      'opening_hours.weekday_text[3]',
-      'opening_hours.weekday_text[4]',
-      'opening_hours.weekday_text[5]',
-      'opening_hours.weekday_text[6]'
-    ],
-    rating: ['rating'],
-    rating_total: ['user_ratings_total'],
-    price: ['price_level'],
+  // Mapping per attribute_id (robust gegen RLS auf attribute_definitions)
+  // IDs aus deinem Export:
+  // 5=formatted_address, 28=vicinity, 29=website, 25=url, 30=formatted_phone_number, 34=international_phone_number,
+  // 14=opening_hours.open_now, 16=opening_hours.weekday_text, 37..43=weekday_text[0..6], 22=rating, 26=user_ratings_total,
+  // 21=price_level, 33=editorial_summary.overview
+  const FIELD_MAP_BY_ID = {
+    5: 'address',
+    28: 'address',
+    29: 'website',
+    25: 'website',
+    30: 'phone',
+    34: 'phone',
+    14: 'opening_now',
+    16: 'opening_hours',
+    37: 'opening_hours',
+    38: 'opening_hours',
+    39: 'opening_hours',
+    40: 'opening_hours',
+    41: 'opening_hours',
+    42: 'opening_hours',
+    43: 'opening_hours',
+    22: 'rating',
+    26: 'rating_total',
+    21: 'price',
+    33: 'description',
   };
 
   function buildInfoContent(row, kv, iconSvgRaw, langCode) {
@@ -97,7 +102,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     let ratingHtml = '';
     if (rating || rating === 0) {
-      const stars = '★'.repeat(Math.round(rating || 0)) + '☆'.repeat(5 - Math.round(rating || 0));
+      const r = Math.max(0, Math.min(5, Math.round(rating || 0)));
+      const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
       ratingHtml = `<div class="iw-row iw-rating">${stars} ${rating?.toFixed ? rating.toFixed(1) : '0.0'}${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
     }
     let priceHtml = '';
@@ -157,7 +163,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }, [ready, lang]);
 
   // ----------------------------
-  // Marker + Zusatzdaten laden (2-STEP-LOAD mit Debug)
+  // Marker + Zusatzdaten laden (2-STEP-LOAD-FREE, nur location_values)
   // ----------------------------
   async function loadMarkers(langCode) {
     const { data: locs, error: e1 } = await supabase
@@ -165,32 +171,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .select('id,lat,lng,category_id,display_name,name_de,name_en,name_hr, categories:category_id ( icon_svg )');
     if (e1) { console.error(e1); return; }
 
-    // NOTE: attribute_definitions are currently blocked by RLS (attrIdToKey size was 0)
-    // Fallback: map attribute_id directly to canonical keys (from your export)
-    // IDs reference: 5=formatted_address, 28=vicinity, 29=website, 25=url, 30=formatted_phone_number,
-    // 34=international_phone_number, 14=open_now, 16=weekday_text, 37..43=weekday_text[0..6],
-    // 22=rating, 26=user_ratings_total, 21=price_level, 33=editorial_summary.overview
-    const FIELD_MAP_BY_ID = {
-      5: 'address',
-      28: 'address',
-      29: 'website',
-      25: 'website',
-      30: 'phone',
-      34: 'phone',
-      14: 'opening_now',
-      16: 'opening_hours',
-      37: 'opening_hours',
-      38: 'opening_hours',
-      39: 'opening_hours',
-      40: 'opening_hours',
-      41: 'opening_hours',
-      42: 'opening_hours',
-      43: 'opening_hours',
-      22: 'rating',
-      26: 'rating_total',
-      21: 'price',
-      33: 'description',
-    };
+    // Nur location_values laden, Mapping erfolgt per attribute_id
+    const { data: kvRows, error: e2 } = await supabase
+      .from('location_values')
+      .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code');
+    if (e2) { console.warn('location_values load:', e2.message); }
     console.log('[w2h] kvRows count =', (kvRows || []).length);
 
     const kvByLoc = new Map();
@@ -198,6 +183,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const locId = r.location_id;
       const canon = FIELD_MAP_BY_ID[r.attribute_id];
       if (!canon) return;
+
       const val = r.value_text ?? r.value_option ??
                   (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
                   (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
@@ -208,24 +194,22 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const obj = kvByLoc.get(locId);
 
       if (canon === 'opening_hours') {
-        obj.opening_hours = (obj.opening_hours || '') + (obj.opening_hours ? '
-' : '') + val;
+        obj.opening_hours = (obj.opening_hours || '') + (obj.opening_hours ? '\n' : '') + val;
       } else if (canon === 'address') {
-        // language-specific address not needed; take latest
         obj.address = obj.address || val; // keep first non-empty
       } else if (canon === 'website') {
         obj.website = obj.website || val;
       } else if (canon === 'phone') {
         obj.phone = obj.phone || val;
       } else if (canon === 'description') {
-        // prefer current UI language if provided; values are not flagged per lang here, keep first
         if (!obj.description || (r.language_code && r.language_code === langCode)) obj.description = val;
       } else {
         obj[canon] = val;
       }
     });
 
-    markers.current.forEach(m => m.setMap(null));(m => m.setMap(null));
+    // alte Marker entfernen
+    markers.current.forEach(m => m.setMap(null));
     markers.current = [];
 
     (locs || []).forEach(row => {
