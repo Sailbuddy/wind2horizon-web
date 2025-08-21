@@ -12,6 +12,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const markers = useRef([]);
   const layerState = useRef(new Map());
   const infoWin = useRef(null);
+  const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
 
   // -------------------------------------------------
@@ -161,6 +162,19 @@ export default function GoogleMapClient({ lang = 'de' }) {
     21: 'price',
     33: 'description',
   };
+
+  function getMarkerIcon(catId, svgMarkup) {
+    const key = String(catId ?? 'default');
+    if (iconCache.current.has(key)) return iconCache.current.get(key);
+    const rawSvg = (svgMarkup && String(svgMarkup).trim().startsWith('<')) ? svgMarkup : defaultMarkerSvg;
+    const icon = {
+      url: svgToDataUrl(rawSvg),
+      scaledSize: new google.maps.Size(30, 30),
+      anchor: new google.maps.Point(15, 30)
+    };
+    iconCache.current.set(key, icon);
+    return icon;
+  }
 
   function buildInfoContent(row, kv, iconSvgRaw, langCode) {
     const title = escapeHtml(pickName(row, langCode));
@@ -339,11 +353,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const marker = new google.maps.Marker({
         position: { lat: row.lat, lng: row.lng },
         title,
-        icon: {
-          url: svgToDataUrl(svg),
-          scaledSize: new google.maps.Size(28, 28),
-          anchor: new google.maps.Point(14, 28)
-        },
+        icon: getMarkerIcon(row.category_id, svg),
         map: mapObj.current
       });
 
