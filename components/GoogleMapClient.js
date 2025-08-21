@@ -11,9 +11,95 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const mapObj = useRef(null);
   const markers = useRef([]);              // google.maps.Marker[]
   const layerState = useRef(new Map());    // Map<string, boolean>
+  const infoWin = useRef(null);            // Singleton InfoWindow
   const [ready, setReady] = useState(false);
 
-  // Google Maps Script laden (bewährte Variante)
+  // ----------------------------
+  // Helpers
+  // ----------------------------
+  function escapeHtml(str = '') {
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function pickName(row, langCode) {
+    return (
+      (langCode === 'de' && row.name_de) ||
+      (langCode === 'hr' && row.name_hr) ||
+      (langCode === 'en' && row.name_en) ||
+      row.display_name ||
+      row.name_de ||
+      row.name_en ||
+      '—'
+    );
+  }
+
+  function pickDescription(kv = {}, langCode) {
+    const keys = {
+      de: 'description_de',
+      en: 'description_en',
+      hr: 'description_hr',
+      fr: 'description_fr',
+      it: 'description_it',
+    };
+    const key = keys[langCode] || 'description_en';
+    return kv[key] || kv.description || '';
+  }
+
+  function buildInfoContent(row, kv, iconSvgRaw, langCode) {
+    const title = escapeHtml(pickName(row, langCode));
+    const address = escapeHtml(kv.address || kv.addr || '');
+    const website = kv.website || kv.url || '';
+    const phone = kv.phone || kv.tel || '';
+    const desc = escapeHtml(pickDescription(kv, langCode));
+
+    // Handliche Links
+    const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
+    const siteHref = website && website.startsWith('http') ? website : (website ? `https://${website}` : '');
+    const telHref = phone ? `tel:${phone.replace(/\s+/g, '')}` : '';
+
+    // Icon (SVG Rohmarkup; wenn leer → Default)
+    const svgMarkup = iconSvgRaw || defaultMarkerSvg;
+
+    // Buttons (nur rendern, wenn Daten vorhanden)
+    const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label('route', langCode)}</a>`;
+    const btnSite  = siteHref ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label('website', langCode)}</a>` : '';
+    const btnTel   = telHref  ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>` : '';
+
+    // HTML-Card
+    return `
+      <div class="w2h-iw">
+        <div class="iw-hd">
+          <span class="iw-ic">${svgMarkup}</span>
+          <div class="iw-title">${title}</div>
+        </div>
+        <div class="iw-bd">
+          ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
+          ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
+        </div>
+        <div class="iw-actions">
+          ${btnRoute}${btnSite}${btnTel}
+        </div>
+      </div>
+    `;
+  }
+
+  function label(key, langCode) {
+    const L = {
+      route:   { de: 'Route', en: 'Directions', it: 'Itinerario', hr: 'Ruta', fr: 'Itinéraire' },
+      website: { de: 'Website', en: 'Website',  it: 'Sito',       hr: 'Web',  fr: 'Site' },
+      call:    { de: 'Anrufen', en: 'Call',     it: 'Chiama',     hr: 'Nazovi', fr: 'Appeler' },
+    };
+    return (L[key] && (L[key][langCode] || L[key].en)) || key;
+  }
+
+  // ----------------------------
+  // Google Maps Script laden
+  // ----------------------------
   useEffect(() => {
     if (window.google?.maps) { setReady(true); return; }
     const s = document.createElement('script');
@@ -23,35 +109,57 @@ export default function GoogleMapClient({ lang = 'de' }) {
     document.head.appendChild(s);
   }, [lang]);
 
-  // Map initialisieren
+  // ----------------------------
+  // Map initialisieren + Marker laden
+  // ----------------------------
   useEffect(() => {
     if (!ready || !mapRef.current) return;
+
     mapObj.current = new google.maps.Map(mapRef.current, {
       center: { lat: 45.6, lng: 13.8 },
       zoom: 7,
     });
+
+    // InfoWindow Singleton
+    infoWin.current = new google.maps.InfoWindow();
+
     loadMarkers(lang);
   }, [ready, lang]);
 
+  // ----------------------------
+  // Marker + Zusatzdaten laden
+  // ----------------------------
   async function loadMarkers(langCode) {
-    const { data, error } = await supabase
+    // 1) Locations + Kategorie-Icon
+    const { data: locs, error: e1 } = await supabase
       .from('locations')
       .select(`
         id,lat,lng,category_id,display_name,name_de,name_en,name_hr,
         categories:category_id ( icon_svg )
       `);
-    if (error) { console.error(error); return; }
+
+    if (e1) { console.error(e1); return; }
+
+    // 2) Key-Value Zusatzinfos (optional)
+    const { data: kvRows, error: e2 } = await supabase
+      .from('location_values')
+      .select('location_id,key,value');
+
+    if (e2) { console.warn('location_values optional:', e2.message); }
+
+    // Map: location_id -> { key: value, ... }
+    const kvByLoc = new Map();
+    (kvRows || []).forEach(r => {
+      if (!kvByLoc.has(r.location_id)) kvByLoc.set(r.location_id, {});
+      kvByLoc.get(r.location_id)[r.key] = r.value;
+    });
 
     // alte Marker entfernen
     markers.current.forEach(m => m.setMap(null));
     markers.current = [];
 
-    (data || []).forEach(row => {
-      const title =
-        (langCode === 'de' && row.name_de) ||
-        (langCode === 'hr' && row.name_hr) ||
-        row.name_en || row.display_name || '—';
-
+    (locs || []).forEach(row => {
+      const title = pickName(row, langCode);
       const svg = row.categories?.icon_svg || defaultMarkerSvg;
 
       const marker = new google.maps.Marker({
@@ -65,12 +173,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
         map: mapObj.current
       });
 
-      // String-Key für zuverlässigen Vergleich
       marker._cat = String(row.category_id);
 
       marker.addListener('click', () => {
-        const iw = new google.maps.InfoWindow({ content: `<div><strong>${title}</strong></div>` });
-        iw.open({ map: mapObj.current, anchor: marker });
+        const kv = kvByLoc.get(row.id) || {};
+        const html = buildInfoContent(row, kv, svg, langCode);
+        infoWin.current.setContent(html);
+        infoWin.current.open({ map: mapObj.current, anchor: marker });
       });
 
       markers.current.push(marker);
@@ -79,14 +188,19 @@ export default function GoogleMapClient({ lang = 'de' }) {
     applyLayerVisibility();
   }
 
+  // ----------------------------
+  // Layer anwenden
+  // ----------------------------
   function applyLayerVisibility() {
     markers.current.forEach(m => {
-      const vis = layerState.current.get(m._cat);  // String-Key
+      const vis = layerState.current.get(m._cat);
       m.setVisible(vis ?? true);
     });
   }
 
-  // Schlanker Wrapper ohne Hover-Force
+  // ----------------------------
+  // Render
+  // ----------------------------
   return (
     <div className="w2h-map-wrap">
       <div ref={mapRef} className="w2h-map" />
@@ -94,11 +208,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <LayerPanel
         lang={lang}
         onInit={(initialMap) => {
-          layerState.current = new Map(initialMap); // Map<string, boolean>
+          layerState.current = new Map(initialMap);
           applyLayerVisibility();
         }}
         onToggle={(catKey, visible) => {
-          layerState.current.set(catKey, visible);  // catKey ist bereits String
+          layerState.current.set(catKey, visible);
           applyLayerVisibility();
         }}
       />
@@ -106,6 +220,58 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <style jsx>{`
         .w2h-map-wrap { position: relative; height: 100vh; width: 100%; }
         .w2h-map { height: 100%; width: 100%; }
+      `}</style>
+
+      {/* InfoWindow Styles global */}
+      <style jsx global>{`
+        .gm-style .w2h-iw {
+          max-width: 280px;
+          font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          color: #1a1a1a;
+        }
+        .gm-style .w2h-iw .iw-hd {
+          display: grid;
+          grid-template-columns: 22px 1fr;
+          gap: 8px;
+          align-items: center;
+          margin-bottom: 6px;
+        }
+        .gm-style .w2h-iw .iw-ic svg {
+          width: 20px; height: 20px;
+        }
+        .gm-style .w2h-iw .iw-title {
+          font-weight: 700;
+          font-size: 14px;
+        }
+        .gm-style .w2h-iw .iw-row {
+          margin: 6px 0;
+        }
+        .gm-style .w2h-iw .iw-addr {
+          white-space: normal;
+        }
+        .gm-style .w2h-iw .iw-desc {
+          color: #444;
+          white-space: normal;
+        }
+        .gm-style .w2h-iw .iw-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        .gm-style .w2h-iw .iw-btn {
+          display: inline-block;
+          padding: 6px 10px;
+          border-radius: 8px;
+          background: #1f6aa2;
+          color: #fff;
+          text-decoration: none;
+          font-weight: 600;
+          font-size: 12px;
+        }
+        .gm-style .w2h-iw .iw-btn:hover {
+          filter: brightness(0.95);
+        }
       `}</style>
     </div>
   );
