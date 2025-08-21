@@ -82,13 +82,57 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function label(key, langCode) {
     const L = {
-      route:   { de: 'Route', en: 'Directions', it: 'Itinerario', hr: 'Ruta', fr: 'Itinéraire' },
-      website: { de: 'Website', en: 'Website',  it: 'Sito',       hr: 'Web',  fr: 'Site' },
-      call:    { de: 'Anrufen', en: 'Call',     it: 'Chiama',     hr: 'Nazovi', fr: 'Appeler' },
-      open:    { de: 'Geöffnet', en: 'Open now', it: 'Aperto', hr: 'Otvoreno', fr: 'Ouvert' },
-      closed:  { de: 'Geschlossen', en: 'Closed', it: 'Chiuso', hr: 'Zatvoreno', fr: 'Fermé' },
+      route:   { de: 'Route', en: 'Directions', it: 'Itinerario', hr: 'Ruta',  fr: 'Itinéraire' },
+      website: { de: 'Website', en: 'Website',  it: 'Sito',       hr: 'Web',   fr: 'Site' },
+      call:    { de: 'Anrufen', en: 'Call',     it: 'Chiama',     hr: 'Nazovi',fr: 'Appeler' },
+      open:    { de: 'Geöffnet', en: 'Open now', it: 'Aperto',    hr: 'Otvoreno', fr: 'Ouvert' },
+      closed:  { de: 'Geschlossen', en: 'Closed', it: 'Chiuso',   hr: 'Zatvoreno', fr: 'Fermé' },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
+  }
+
+  // -------------------------------------------------
+  // Öffnungszeiten: Internationalisierung der Wochentage
+  // -------------------------------------------------
+  const DAY_OUTPUT = {
+    de: ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'],
+    en: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+    it: ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'],
+    fr: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'],
+    hr: ['Ponedjeljak', 'Utorak', 'Srijeda', 'Četvrtak', 'Petak', 'Subota', 'Nedjelja'],
+  };
+  const DAY_ALIASES = new Map([
+    // EN
+    ['monday',0],['mon',0],['tuesday',1],['tue',1],['tues',1],['wednesday',2],['wed',2],
+    ['thursday',3],['thu',3],['thur',3],['thurs',3],['friday',4],['fri',4],['saturday',5],['sat',5],
+    ['sunday',6],['sun',6],
+    // DE
+    ['montag',0],['mo',0],['dienstag',1],['di',1],['mittwoch',2],['mi',2],['donnerstag',3],['do',3],
+    ['freitag',4],['fr',4],['samstag',5],['sa',5],['sonntag',6],['so',6],
+    // IT
+    ['lunedì',0],['lunedi',0],['lun',0],['martedì',1],['martedi',1],['mar',1],['mercoledì',2],
+    ['mercoledi',2],['mer',2],['giovedì',3],['giovedi',3],['gio',3],['venerdì',4],['venerdi',4],['ven',4],
+    ['sabato',5],['sab',5],['domenica',6],['dom',6],
+    // FR
+    ['lundi',0],['lun',0],['mardi',1],['mar',1],['mercredi',2],['mer',2],['jeudi',3],['jeu',3],
+    ['vendredi',4],['ven',4],['samedi',5],['sam',5],['dimanche',6],['dim',6],
+    // HR
+    ['ponedjeljak',0],['pon',0],['utorak',1],['uto',1],['srijeda',2],['sri',2],
+    ['četvrtak',3],['cetvrtak',3],['čet',3],['cet',3],['petak',4],['pet',4],
+    ['subota',5],['sub',5],['nedjelja',6],['ned',6],
+  ]);
+  function localizeHoursLine(line = '', langCode = 'de') {
+    const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
+    if (!m) return line;
+    const head = m[1].trim();
+    const rest = m[2].trim();
+    const idx = DAY_ALIASES.get(head.toLowerCase());
+    if (idx === undefined) return line;
+    const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
+    return `${outDay}: ${rest}`;
+  }
+  function localizeHoursList(list = [], langCode = 'de') {
+    return list.map((ln) => localizeHoursLine(String(ln), langCode));
   }
 
   // Mapping per attribute_id (robust gegen RLS auf attribute_definitions)
@@ -137,10 +181,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const priceLevel = kv.price ? parseInt(kv.price) : null;
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
 
-    // Öffnungszeiten (Array) aus bevorzugter Sprache
+    // Öffnungszeiten (Array) aus bevorzugter Sprache → danach lokalisiert ausgeben
     const hoursByLang = kv.hoursByLang || {};
     let hoursArr = null;
     for (const L of pref) if (hoursByLang[L]?.length) { hoursArr = hoursByLang[L]; break; }
+    const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
 
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref = website && website.startsWith('http') ? website : (website ? `https://${website}` : '');
@@ -170,8 +215,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (kv.opening_now !== undefined) {
       openingHtml += `<div class="iw-row iw-open">${openNow ? '🟢 ' + label('open', langCode) : '🔴 ' + label('closed', langCode)}</div>`;
     }
-    if (hoursArr && hoursArr.length) {
-      openingHtml += '<ul class="iw-hours">' + hoursArr.map(h => `<li>${escapeHtml(String(h))}</li>`).join('') + '</ul>';
+    if (hoursLocalized && hoursLocalized.length) {
+      openingHtml += '<ul class="iw-hours">' + hoursLocalized.map(h => `<li>${escapeHtml(String(h))}</li>`).join('') + '</ul>';
     }
 
     return `
