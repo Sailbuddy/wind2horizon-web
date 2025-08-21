@@ -86,9 +86,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
     });
   }
 
+  // ⬇️ NEUER RETURN-BLOCK mit Wrapper + Hover-Open
   return (
-    <>
-      <div ref={mapRef} style={{ height: '100vh', width: '100%' }} />
+    <div
+      className="w2h-map-wrap"
+      onMouseEnter={() => {
+        // Panel per Hover öffnen (Klasse "closed" entfernen)
+        const el = document.getElementById('w2h-layer-panel');
+        if (el) el.classList.remove('closed');
+      }}
+      onMouseLeave={() => {
+        // Panel bei MouseLeave schließen
+        const el = document.getElementById('w2h-layer-panel');
+        if (el) el.classList.add('closed');
+      }}
+    >
+      <div ref={mapRef} className="w2h-map" />
+
       <LayerPanel
         lang={lang}
         onInit={(initialMap) => {
@@ -100,6 +114,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
           applyLayerVisibility();
         }}
       />
-    </>
+
+      {/* lokale Styles für Positionierung */}
+      <style jsx>{`
+        .w2h-map-wrap { position: relative; height: 100vh; width: 100%; }
+        .w2h-map { height: 100%; width: 100%; }
+      `}</style>
+
+      {/* kleine Hover-Absicherung: Falls dein LayerPanel die Klassen nutzt,
+          erzwingen wir "auf" bei Hover – selbst wenn es intern zu ist */}
+      <style jsx global>{`
+        .w2h-map-wrap:hover #w2h-layer-panel {
+          transform: none !important;
+          opacity: 1 !important;
+          visibility: visible !important;
+          pointer-events: auto !important;
+        }
+      `}</style>
+    </div>
   );
 }
