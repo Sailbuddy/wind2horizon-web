@@ -165,27 +165,39 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .select('id,lat,lng,category_id,display_name,name_de,name_en,name_hr, categories:category_id ( icon_svg )');
     if (e1) { console.error(e1); return; }
 
-    // 1) attribute_definitions -> Map(attribute_id -> key)
-    const { data: attrs, error: eA } = await supabase
-      .from('attribute_definitions')
-      .select('attribute_id,key');
-    if (eA) { console.error('attr defs error', eA); }
-    const attrIdToKey = new Map((attrs || []).map(a => [a.attribute_id, a.key]));
-    console.log('[w2h] attrIdToKey size =', attrIdToKey.size);
-
-    // 2) location_values (roh)
-    const { data: kvRows, error: e2 } = await supabase
-      .from('location_values')
-      .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code');
-    if (e2) { console.warn('location_values load:', e2.message); }
+    // NOTE: attribute_definitions are currently blocked by RLS (attrIdToKey size was 0)
+    // Fallback: map attribute_id directly to canonical keys (from your export)
+    // IDs reference: 5=formatted_address, 28=vicinity, 29=website, 25=url, 30=formatted_phone_number,
+    // 34=international_phone_number, 14=open_now, 16=weekday_text, 37..43=weekday_text[0..6],
+    // 22=rating, 26=user_ratings_total, 21=price_level, 33=editorial_summary.overview
+    const FIELD_MAP_BY_ID = {
+      5: 'address',
+      28: 'address',
+      29: 'website',
+      25: 'website',
+      30: 'phone',
+      34: 'phone',
+      14: 'opening_now',
+      16: 'opening_hours',
+      37: 'opening_hours',
+      38: 'opening_hours',
+      39: 'opening_hours',
+      40: 'opening_hours',
+      41: 'opening_hours',
+      42: 'opening_hours',
+      43: 'opening_hours',
+      22: 'rating',
+      26: 'rating_total',
+      21: 'price',
+      33: 'description',
+    };
     console.log('[w2h] kvRows count =', (kvRows || []).length);
 
     const kvByLoc = new Map();
     (kvRows || []).forEach(r => {
       const locId = r.location_id;
-      const key = attrIdToKey.get(r.attribute_id);
-      if (!key) return; // unbekanntes Attribut
-
+      const canon = FIELD_MAP_BY_ID[r.attribute_id];
+      if (!canon) return;
       const val = r.value_text ?? r.value_option ??
                   (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
                   (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
@@ -195,19 +207,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
       const obj = kvByLoc.get(locId);
 
-      // canonical mapping
-      for (const [canon, list] of Object.entries(FIELD_MAP)) {
-        if (list.includes(key)) {
-          if (canon === 'opening_hours') {
-            obj.opening_hours = (obj.opening_hours || '') + (obj.opening_hours ? '\n' : '') + val;
-          } else {
-            obj[canon] = val;
-          }
-        }
+      if (canon === 'opening_hours') {
+        obj.opening_hours = (obj.opening_hours || '') + (obj.opening_hours ? '
+' : '') + val;
+      } else if (canon === 'address') {
+        // language-specific address not needed; take latest
+        obj.address = obj.address || val; // keep first non-empty
+      } else if (canon === 'website') {
+        obj.website = obj.website || val;
+      } else if (canon === 'phone') {
+        obj.phone = obj.phone || val;
+      } else if (canon === 'description') {
+        // prefer current UI language if provided; values are not flagged per lang here, keep first
+        if (!obj.description || (r.language_code && r.language_code === langCode)) obj.description = val;
+      } else {
+        obj[canon] = val;
       }
     });
 
-    markers.current.forEach(m => m.setMap(null));
+    markers.current.forEach(m => m.setMap(null));(m => m.setMap(null));
     markers.current = [];
 
     (locs || []).forEach(row => {
