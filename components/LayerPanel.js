@@ -68,11 +68,13 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
 
   return (
     <>
-      {/* kleiner Toggle-Button; auf Desktop öffnet ohnehin dein Hover */}
+      {/* Toggle-Button: Hover öffnet, Klick als Fallback (Touch/Mobile) */}
       <button
         ref={buttonRef}
         className="w2h-layer-toggle"
         type="button"
+        onMouseEnter={() => setOpen(true)}
+        onFocus={() => setOpen(true)}
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
         aria-controls="w2h-layer-panel"
@@ -81,12 +83,15 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
         <span className="dot" /> {label}
       </button>
 
+      {/* Panel: offen solange Maus drüber */}
       <div
         id="w2h-layer-panel"
         ref={panelRef}
         className={`w2h-layer-panel ${open ? 'open' : 'closed'}`}
         role="group"
         aria-label={label}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
       >
         {cats.map(c => {
           const key = String(c.id);
@@ -120,7 +125,10 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
           font: 14px/1.2 system-ui, sans-serif; cursor: pointer;
           display: inline-flex; align-items: center; gap: 8px;
         }
-        .w2h-layer-toggle .dot { width: 8px; height: 8px; border-radius: 50%; background: #1f6aa2; display: inline-block; }
+        .w2h-layer-toggle .dot {
+          width: 8px; height: 8px; border-radius: 50%;
+          background: #1f6aa2; display: inline-block;
+        }
 
         .w2h-layer-panel {
           position: absolute;
@@ -132,10 +140,16 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
           transition: transform .18s ease, opacity .18s ease, visibility .18s;
         }
         .w2h-layer-panel.closed {
-          transform: translateY(-8px); opacity: 0; visibility: hidden; pointer-events: none;
+          transform: translateY(-8px);
+          opacity: 0; visibility: hidden; pointer-events: none;
         }
-        .w2h-layer-panel .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; white-space: nowrap; }
-        .w2h-layer-panel .icon svg { width: 18px; height: 18px; vertical-align: middle; }
+        .w2h-layer-panel .row {
+          display: flex; align-items: center; gap: 8px;
+          margin: 6px 0; white-space: nowrap;
+        }
+        .w2h-layer-panel .icon svg {
+          width: 18px; height: 18px; vertical-align: middle;
+        }
 
         @media (max-width: 767px) {
           .w2h-layer-toggle { top: 56px; }
