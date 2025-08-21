@@ -57,14 +57,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
     phone: ['formatted_phone_number', 'international_phone_number'],
     description: ['editorial_summary.overview'],
     opening_now: ['opening_hours.open_now'],
-    opening_hours: ['opening_hours.weekday_text',
-                    'opening_hours.weekday_text[0]',
-                    'opening_hours.weekday_text[1]',
-                    'opening_hours.weekday_text[2]',
-                    'opening_hours.weekday_text[3]',
-                    'opening_hours.weekday_text[4]',
-                    'opening_hours.weekday_text[5]',
-                    'opening_hours.weekday_text[6]'],
+    opening_hours: [
+      'opening_hours.weekday_text',
+      'opening_hours.weekday_text[0]',
+      'opening_hours.weekday_text[1]',
+      'opening_hours.weekday_text[2]',
+      'opening_hours.weekday_text[3]',
+      'opening_hours.weekday_text[4]',
+      'opening_hours.weekday_text[5]',
+      'opening_hours.weekday_text[6]'
+    ],
     rating: ['rating'],
     rating_total: ['user_ratings_total'],
     price: ['price_level'],
@@ -93,18 +95,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const btnSite  = siteHref ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label('website', langCode)}</a>` : '';
     const btnTel   = telHref  ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>` : '';
 
-    // Rating + Price
     let ratingHtml = '';
-    if (rating) {
-      const stars = '★'.repeat(Math.round(rating)) + '☆'.repeat(5 - Math.round(rating));
-      ratingHtml = `<div class="iw-row iw-rating">${stars} ${rating.toFixed(1)}${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
+    if (rating || rating === 0) {
+      const stars = '★'.repeat(Math.round(rating || 0)) + '☆'.repeat(5 - Math.round(rating || 0));
+      ratingHtml = `<div class="iw-row iw-rating">${stars} ${rating?.toFixed ? rating.toFixed(1) : '0.0'}${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
     }
     let priceHtml = '';
     if (priceLevel !== null && !isNaN(priceLevel)) {
-      priceHtml = `<div class="iw-row iw-price">${'€'.repeat(priceLevel)}</div>`;
+      const p = Math.max(0, Math.min(4, priceLevel));
+      priceHtml = `<div class="iw-row iw-price">${'€'.repeat(p || 0)}</div>`;
     }
 
-    // Öffnungszeiten
     let openingHtml = '';
     if (kv.opening_now !== undefined) {
       openingHtml += `<div class="iw-row iw-open">${openNow ? '🟢 ' + label('open', langCode) : '🔴 ' + label('closed', langCode)}</div>`;
@@ -156,28 +157,45 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }, [ready, lang]);
 
   // ----------------------------
-  // Marker + Zusatzdaten laden
+  // Marker + Zusatzdaten laden (2-STEP-LOAD mit Debug)
   // ----------------------------
   async function loadMarkers(langCode) {
     const { data: locs, error: e1 } = await supabase
       .from('locations')
-      .select(`id,lat,lng,category_id,display_name,name_de,name_en,name_hr, categories:category_id ( icon_svg )`);
+      .select('id,lat,lng,category_id,display_name,name_de,name_en,name_hr, categories:category_id ( icon_svg )');
     if (e1) { console.error(e1); return; }
 
+    // 1) attribute_definitions -> Map(attribute_id -> key)
+    const { data: attrs, error: eA } = await supabase
+      .from('attribute_definitions')
+      .select('attribute_id,key');
+    if (eA) { console.error('attr defs error', eA); }
+    const attrIdToKey = new Map((attrs || []).map(a => [a.attribute_id, a.key]));
+    console.log('[w2h] attrIdToKey size =', attrIdToKey.size);
+
+    // 2) location_values (roh)
     const { data: kvRows, error: e2 } = await supabase
       .from('location_values')
-      .select(`location_id, attribute:attribute_id ( key ), value_text, value_number, value_option, value_bool, value_json, language_code`);
-    if (e2) { console.warn('location_values optional:', e2.message); }
+      .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code');
+    if (e2) { console.warn('location_values load:', e2.message); }
+    console.log('[w2h] kvRows count =', (kvRows || []).length);
 
     const kvByLoc = new Map();
     (kvRows || []).forEach(r => {
       const locId = r.location_id;
-      const key = r.attribute?.key;
-      if (!key) return;
-      const val = r.value_text ?? r.value_option ?? (r.value_number !== null ? String(r.value_number) : '') ?? (r.value_bool !== null ? String(r.value_bool) : '') ?? (r.value_json ? JSON.stringify(r.value_json) : '');
+      const key = attrIdToKey.get(r.attribute_id);
+      if (!key) return; // unbekanntes Attribut
+
+      const val = r.value_text ?? r.value_option ??
+                  (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
+                  (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
+                  (r.value_json ? JSON.stringify(r.value_json) : '');
       if (!val) return;
+
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
       const obj = kvByLoc.get(locId);
+
+      // canonical mapping
       for (const [canon, list] of Object.entries(FIELD_MAP)) {
         if (list.includes(key)) {
           if (canon === 'opening_hours') {
@@ -204,6 +222,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       marker._cat = String(row.category_id);
       marker.addListener('click', () => {
         const kv = kvByLoc.get(row.id) || {};
+        console.log('[w2h] kvForLocation', row.id, kv);
         const html = buildInfoContent(row, kv, svg, langCode);
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
