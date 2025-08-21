@@ -52,8 +52,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function buildInfoContent(row, kv, iconSvgRaw, langCode) {
     const title = escapeHtml(pickName(row, langCode));
-    const address = escapeHtml(kv.address || kv.addr || '');
-    const website = kv.website || kv.url || '';
+    const address = escapeHtml(kv[`address_${langCode}`] || kv.address || kv.addr || '');
+    const website = kv.website || kv.url || kv.link || kv.homepage || kv.site || kv.google_website || '';
     const phone = kv.phone || kv.tel || '';
     const desc = escapeHtml(pickDescription(kv, langCode));
 
@@ -140,18 +140,51 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     if (e1) { console.error(e1); return; }
 
-    // 2) Key-Value Zusatzinfos (optional)
+    // 2) Key-Value Zusatzinfos (optional) – neue Schema-Variante
+    // location_values hat KEIN (key,value), sondern attribute_id + language_code + value_*
+    // -> wir joinen attribute_definitions, um den Key-Namen zu bekommen
     const { data: kvRows, error: e2 } = await supabase
       .from('location_values')
-      .select('location_id,key,value');
+      .select(`
+        location_id,
+        attribute_id,
+        value_text,
+        value_number,
+        value_option,
+        language_code,
+        attribute:attribute_id ( key, data_type )
+      `);
 
     if (e2) { console.warn('location_values optional:', e2.message); }
 
     // Map: location_id -> { key: value, ... }
     const kvByLoc = new Map();
     (kvRows || []).forEach(r => {
-      if (!kvByLoc.has(r.location_id)) kvByLoc.set(r.location_id, {});
-      kvByLoc.get(r.location_id)[r.key] = r.value;
+      const locId = r.location_id;
+      const keyName = r.attribute?.key; // z. B. 'address', 'website', 'phone', 'description'
+      if (!keyName) return;
+
+      // Wert zusammenbauen (bevorzugt Text)
+      const val =
+        (r.value_text ?? null) ??
+        (r.value_option ?? null) ??
+        (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '');
+      if (!val) return;
+
+      if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
+      const obj = kvByLoc.get(locId);
+
+      // Sprach-spezifische Keys ablegen (description/address)
+      const lc = (r.language_code || '').toLowerCase();
+      if ((keyName === 'description' || keyName === 'address') && lc) {
+        obj[`${keyName}_${lc}`] = val; // z. B. description_de, address_en
+        // zusätzlich eine Default-Adresse setzen, falls noch nicht vorhanden
+        if (keyName === 'address' && !obj.address) obj.address = val;
+        return;
+      }
+
+      // Generische Keys ablegen
+      obj[keyName] = val; // z. B. website, phone, google_map_url, price_level, rating
     });
 
     // alte Marker entfernen
