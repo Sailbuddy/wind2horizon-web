@@ -1,4 +1,6 @@
+// app/it/layout.js
 import '../globals.css'
+import Link from 'next/link'
 import LanguageNav from '../../components/LanguageNav'
 
 export const metadata = {
@@ -11,15 +13,18 @@ export default function LocaleLayout({ children }) {
       <body>
         <div className="nav">
           <span className="badge">W2H • IT</span>
-          <a className="button" href="/it">Home</a>
-          <a className="button" href="/it/map">Map</a>
-          <a className="button" href="/it/auth">Login</a>
-          <a className="button" href="/it/vouchers">Vouchers</a>
-          <a className="button" href="/it/partner">Partner</a>
-          <div style={{marginLeft:'auto'}}>
+          {/* Home & Map beide auf die Sprach-Startseite */}
+          <Link className="button" href="/it" locale={false}>Home</Link>
+          <Link className="button" href="/it" locale={false}>Map</Link>
+          <Link className="button" href="/it/auth" locale={false}>Login</Link>
+          <Link className="button" href="/it/vouchers" locale={false}>Vouchers</Link>
+          <Link className="button" href="/it/partner" locale={false}>Partner</Link>
+
+          <div style={{ marginLeft: 'auto' }}>
             <LanguageNav current="it" />
           </div>
         </div>
+
         <main className="container">{children}</main>
         <div className="footer">© Wind2Horizon</div>
       </body>
