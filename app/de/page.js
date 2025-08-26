@@ -1,2 +1,5 @@
-import Map from '../../components/Map';
-export default function LangHome() { return <Map locale="de" />; }
+import GoogleMapClient from '../../components/GoogleMapsClient';
+
+export default function LangHome() {
+  return <GoogleMapClient lang="de" />;
+}
