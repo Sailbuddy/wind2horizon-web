@@ -6,10 +6,7 @@ const nextConfig = {
     localeDetection: false,
   },
   async redirects() {
-    return [
-      // Nur Root → /de (alles andere AUS für den Test)
-      { source: '/', destination: '/de', permanent: true },
-    ];
+    return [];
   },
 };
 module.exports = nextConfig;
