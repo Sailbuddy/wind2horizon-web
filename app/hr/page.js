@@ -1,16 +1,7 @@
-import Link from 'next/link'
+// app/hr/page.js
+import MapPage from './map/page';
 
 export default function Page() {
-  return (
-    <div>
-      <h1>Wind2Horizon</h1>
-      <p>Mehrsprachiger Starter. Wähle einen Bereich:</p>
-      <ul>
-        <li><Link href='/hr/map'>Karte</Link></li>
-        <li><Link href='/hr/auth'>Login</Link></li>
-        <li><Link href='/hr/vouchers'>Gutscheine</Link></li>
-        <li><Link href='/hr/partner'>Partner</Link></li>
-      </ul>
-    </div>
-  )
+  // Karte direkt als Startseite für /hr
+  return <MapPage />;
 }
