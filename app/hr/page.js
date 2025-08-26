@@ -1,2 +1,2 @@
-import Map from '../../components/map'
-export default function LangHome() { return <Map locale="hr" /> }
+import Map from '../../components/Map';
+export default function LangHome() { return <Map locale="hr" />; }
