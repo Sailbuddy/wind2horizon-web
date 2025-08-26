@@ -1,7 +1,2 @@
-// app/en/page.js
-import MapPage from './map/page';
-
-export default function Page() {
-  // Karte direkt als Startseite für /en
-  return <MapPage />;
-}
+import Map from '../../components/map'
+export default function LangHome() { return <Map locale="en" /> }
