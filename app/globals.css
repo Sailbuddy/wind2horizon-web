@@ -1,14 +1,6 @@
-/* ===== Base ===== */
 * { box-sizing: border-box; }
-html, body {
-  height: 100%;
-  margin: 0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
-  background: #39d0fa; /* W2H Seitenhintergrund */
-}
+html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji'; }
 a { color: inherit; text-decoration: none; }
-
-/* ===== Layout / UI bestehend ===== */
 .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
 .nav { display: flex; gap: 1rem; padding: .75rem 1rem; background: #f6f7f9; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; z-index: 10; }
 .badge { padding: .25rem .5rem; border-radius: .375rem; background: #eef2ff; border: 1px solid #c7d2fe; font-size: .8rem; }
@@ -19,62 +11,3 @@ a { color: inherit; text-decoration: none; }
 .footer { padding: .75rem 1rem; border-top: 1px solid #e5e7eb; color: #64748b; }
 .button { padding: .5rem .75rem; border: 1px solid #e5e7eb; border-radius: .5rem; background: white; cursor: pointer; }
 .button:hover { background: #f8fafc; }
-
-/* ===== Hero Section (neu) ===== */
-/* Lege dein Bild unter /public/images/hero-adriatic.jpg ab
-   oder passe die URL unten an */
-.w2h-hero {
-  position: relative;
-  min-height: clamp(360px, 55vh, 680px);
-  background-image: url('/images/hero-adriatic.jpg');
-  background-size: cover;
-  background-position: center 40%;
-  background-repeat: no-repeat;
-  display: grid;
-  place-items: center;
-}
-
-.w2h-hero__overlay {
-  text-align: center;
-  padding: 2rem;
-  backdrop-filter: saturate(120%) brightness(1.05);
-  color: white;
-  text-shadow: 0 2px 14px rgba(0,0,0,.35);
-}
-
-.w2h-hero__title {
-  font-size: clamp(2rem, 4.2vw, 4rem);
-  font-weight: 800;
-  margin: 0 0 .25rem;
-}
-
-.w2h-hero__subtitle {
-  font-size: clamp(1rem, 1.8vw, 1.35rem);
-  margin: 0 0 1.5rem;
-  opacity: .95;
-}
-
-.w2h-hero__cta {
-  display: inline-block;
-  padding: .85rem 1.25rem;
-  border-radius: 999px;
-  background: white;
-  color: #0b3556;
-  font-weight: 700;
-  text-decoration: none;
-  transition: transform .06s ease, box-shadow .2s ease;
-  box-shadow: 0 6px 18px rgba(0,0,0,.18);
-}
-.w2h-hero__cta:hover { transform: translateY(-1px); }
-
-/* ===== Intro Abschnitt (neu) ===== */
-.w2h-intro {
-  max-width: 980px;
-  margin: 2rem auto 3rem;
-  padding: 0 1.25rem;
-  color: #083047;
-}
-.w2h-intro p {
-  font-size: clamp(1rem, 1.2vw, 1.15rem);
-  line-height: 1.6;
-}
