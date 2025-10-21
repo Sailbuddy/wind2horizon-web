@@ -176,202 +176,120 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return icon;
   }
 
+  
+  // Tabs: i18n-Labels
+  const TAB_LABELS = {
+    overview: { de: 'Übersicht', en: 'Overview', it: 'Panoramica', hr: 'Pregled', fr: 'Aperçu' },
+    details:  { de: 'Details',   en: 'Details',   it: 'Dettagli',  hr: 'Detalji', fr: 'Détails' },
+    safety:   { de: 'Sicherheit',en: 'Safety',    it: 'Sicurezza', hr: 'Sigurnost', fr: 'Sécurité' },
+    contact:  { de: 'Kontakt',   en: 'Contact',   it: 'Contatti',  hr: 'Kontakt', fr: 'Contact' },
+    route:    { de: 'Route',     en: 'Route',     it: 'Percorso',  hr: 'Ruta', fr: 'Itinéraire' },
+    website:  { de: 'Website',   en: 'Website',   it: 'Sito web',  hr: 'Web-stranica', fr: 'Site web' },
+    call:     { de: 'Anrufen',   en: 'Call',      it: 'Chiama',    hr: 'Nazovi', fr: 'Appeler' },
+    open_now: { de: 'Jetzt geöffnet', en: 'Open now', it: 'Aperto ora', hr: 'Otvoreno sada', fr: 'Ouvert maintenant' },
+  };
+
   function buildInfoContent(row, kv, iconSvgRaw, langCode) {
-    const title = escapeHtml(pickName(row, langCode));
-    const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
+    const L = (TAB_LABELS.overview[langCode] ? langCode : 'de');
+    const title = escapeHtml(pickName(row, L));
+    const desc = escapeHtml(pickDescriptionFromRow(row, L) || kv.description || '');
 
     // Adresse: sprachabhängig auswählen
     const addrByLang = kv.addressByLang || {};
-    const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
+    const pref = [L, 'de', 'en', 'it', 'fr', 'hr'];
     let addrSel = '';
-    for (const L of pref) if (addrByLang[L]) { addrSel = addrByLang[L]; break; }
+    for (const p of pref) if (addrByLang[p]) { addrSel = addrByLang[p]; break; }
     const address = escapeHtml(addrSel || kv.address || '');
 
+    // Öffnungszeiten
+    const openingNow = kv.opening_now === 'true' || kv.opening_now === true;
+    const hoursArr = [];
+    if (kv.opening_hours && Array.isArray(kv.opening_hours)) hoursArr.push(...kv.opening_hours);
+
+    // Rating / Preis
+    const rating = kv.rating ? parseFloat(kv.rating) : null;
+    const ratingTotal = kv.rating_total ? parseInt(kv.rating_total) : null;
+    const price = kv.price ? Math.max(0, Math.min(4, parseInt(kv.price))) : null;
+    const euros = Number.isFinite(price) ? '€'.repeat(price) : '';
+
+    // Kontakt
     const website = kv.website || '';
     const phone = kv.phone || '';
 
-    const rating = kv.rating ? parseFloat(kv.rating) : null;
-    const ratingTotal = kv.rating_total ? parseInt(kv.rating_total) : null;
-    const priceLevel = kv.price ? parseInt(kv.price) : null;
-    const openNow = kv.opening_now === 'true' || kv.opening_now === true;
+    // Sicherheit (optional – Panel nur sichtbar, wenn Inhalte vorhanden)
+    const safetyLis = []; // TODO: populate when we add danger_wind_*
 
-    // Öffnungszeiten (Array) aus bevorzugter Sprache → danach lokalisiert ausgeben
-    const hoursByLang = kv.hoursByLang || {};
-    let hoursArr = null;
-    for (const L of pref) if (hoursByLang[L]?.length) { hoursArr = hoursByLang[L]; break; }
-    const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
+    // Sichtbarkeit der Panels
+    const showOverview = true;
+    const showDetails  = Boolean(address || hoursArr.length);
+    const showSafety   = safetyLis.length > 0;
+    const showContact  = Boolean(website || phone);
 
-    const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
-    const siteHref = website && website.startsWith('http') ? website : (website ? `https://${website}` : '');
-    const telHref = phone ? `tel:${String(phone).replace(/\s+/g, '')}` : '';
+    const tabs = [
+      showOverview && { key:'overview', label:TAB_LABELS.overview[L] },
+      showDetails  && { key:'details',  label:TAB_LABELS.details[L]  },
+      showSafety   && { key:'safety',   label:TAB_LABELS.safety[L]   },
+      showContact  && { key:'contact',  label:TAB_LABELS.contact[L]  },
+    ].filter(Boolean);
+    const firstKey = tabs.length ? tabs[0].key : 'overview';
 
-    const svgMarkup = iconSvgRaw || defaultMarkerSvg;
+    // Panels content
+    const overviewLis = [];
+    if (openingNow) overviewLis.push(`<li class="iw-row iw-open">• ${TAB_LABELS.open_now[L]}</li>`);
+    if (rating !== null) overviewLis.push(`<li class="iw-row iw-rating">• ${rating.toFixed(1)}★${ratingTotal?` (${ratingTotal})`:''}</li>`);
+    if (euros) overviewLis.push(`<li class="iw-row iw-price">• ${euros}</li>`);
+    if (desc) overviewLis.push(`<li class="iw-row iw-desc">${desc}</li>`);
 
-    const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label('route', langCode)}</a>`;
-    const btnSite  = siteHref ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label('website', langCode)}</a>` : '';
-    const btnTel   = telHref  ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>` : '';
-
-    // Rating + Price
-    let ratingHtml = '';
-    if (rating || rating === 0) {
-      const r = Math.max(0, Math.min(5, Math.round(rating || 0)));
-      const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
-      ratingHtml = `<div class="iw-row iw-rating">${stars} ${rating?.toFixed ? rating.toFixed(1) : '0.0'}${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
-    }
-    let priceHtml = '';
-    if (priceLevel !== null && !isNaN(priceLevel)) {
-      const p = Math.max(0, Math.min(4, priceLevel));
-      priceHtml = `<div class="iw-row iw-price">${'€'.repeat(p || 0)}</div>`;
+    const detailsLis = [];
+    if (address) detailsLis.push(`<li class="iw-row">• ${address}</li>`);
+    if (hoursArr.length) {
+      if (openingNow) detailsLis.push(`<li class="iw-row iw-open">${TAB_LABELS.open_now[L]}</li>`);
+      detailsLis.push(`<li class="iw-row iw-hours">${hoursArr.map(h => escapeHtml(String(h))).join('<br/>')}</li>`);
     }
 
-    // Öffnungszeiten
-    let openingHtml = '';
-    if (kv.opening_now !== undefined) {
-      openingHtml += `<div class="iw-row iw-open">${openNow ? '🟢 ' + label('open', langCode) : '🔴 ' + label('closed', langCode)}</div>`;
-    }
-    if (hoursLocalized && hoursLocalized.length) {
-      openingHtml += '<ul class="iw-hours">' + hoursLocalized.map(h => `<li>${escapeHtml(String(h))}</li>`).join('') + '</ul>';
-    }
+    const safetyHtml = safetyLis.length ? `<ul class="iw-list">${safetyLis.join('')}</ul>` : '';
+
+    const contactBtns = `
+      <div class="iw-actions">
+        <a class="iw-btn" style="background:#2563eb" target="_blank" rel="noreferrer"
+           href="https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}">${TAB_LABELS.route[L]}</a>
+        ${website ? `<a class="iw-btn" style="background:#0d9488" target="_blank" rel="noreferrer" href="${website}">${TAB_LABELS.website[L]}</a>` : ''}
+        ${phone ? `<a class="iw-btn" style="background:#16a34a" href="tel:${phone}">${TAB_LABELS.call[L]}</a>` : ''}
+      </div>`;
+
+    const tabsHtml = tabs.map((t,i)=>`<button class="iw-tab ${i===0?'active':''}" data-w2h-tab="${t.key}">${t.label}</button>`).join('');
+
+    const panelsHtml = `
+      ${showOverview ? `<div class="iw-panel" data-w2h-panel="overview">${overviewLis.length?`<ul class="iw-list">${overviewLis.join('')}</ul>`:''}</div>`:''}
+      ${showDetails  ? `<div class="iw-panel" data-w2h-panel="details" hidden>${detailsLis.length?`<ul class="iw-list">${detailsLis.join('')}</ul>`:''}</div>`:''}
+      ${showSafety   ? `<div class="iw-panel" data-w2h-panel="safety" hidden>${safetyHtml}</div>`:''}
+      ${showContact  ? `<div class="iw-panel" data-w2h-panel="contact" hidden">${contactBtns}</div>`:''}
+    `;
 
     return `
       <div class="w2h-iw">
         <div class="iw-hd">
-          <span class="iw-ic">${svgMarkup}</span>
+          <div class="iw-ic">${iconSvgRaw || ''}</div>
           <div class="iw-title">${title}</div>
         </div>
-        <div class="iw-bd">
-          ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
-          ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
-          ${ratingHtml}
-          ${priceHtml}
-          ${openingHtml}
-        </div>
-        <div class="iw-actions">
-          ${btnRoute}${btnSite}${btnTel}
-        </div>
+        <div class="iw-tabs">${tabsHtml}</div>
+        <div class="iw-body">${panelsHtml}</div>
       </div>
+      <script>(function(){try{
+        var root = document.currentScript.previousElementSibling;
+        while (root && !root.classList.contains('w2h-iw')) root = root.previousElementSibling;
+        if(!root) return;
+        var btns = root.querySelectorAll('.iw-tab');
+        var panels = root.querySelectorAll('.iw-panel');
+        function show(key){
+          panels.forEach(function(p){ p.toggleAttribute('hidden', p.getAttribute('data-w2h-panel')!==key); });
+          btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-w2h-tab')===key); });
+        }
+        btns.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-w2h-tab')); }); });
+        show('${firstKey}');
+      }catch(e){console.warn('tabs init failed', e)}})();</script>
     `;
   }
-
-  // -------------------------------------------------
-  // Boot
-  // -------------------------------------------------
-  useEffect(() => {
-    let cancelled = false;
-
-    async function boot() {
-      try {
-        await loadGoogleMaps(lang);
-        if (cancelled || !mapRef.current) return;
-
-        mapObj.current = new google.maps.Map(mapRef.current, {
-          center: { lat: 45.6, lng: 13.8 },
-          zoom: 7,
-        });
-        infoWin.current = new google.maps.InfoWindow();
-        setBooted(true);
-      } catch (e) {
-        console.error('[w2h] Google Maps load failed:', e);
-      }
-    }
-
-    boot();
-    return () => { cancelled = true; };
-  }, [lang]);
-
-  // Daten laden, sobald Map bereit
-  useEffect(() => {
-    if (!booted || !mapObj.current) return;
-    loadMarkers(lang);
-  }, [booted, lang]);
-
-  // -------------------------------------------------
-  // Marker + Zusatzdaten laden
-  // -------------------------------------------------
-  async function loadMarkers(langCode) {
-    const { data: locs, error: e1 } = await supabase
-      .from('locations')
-      .select(`
-        id,lat,lng,category_id,display_name,
-        name_de,name_en,name_hr,name_it,name_fr,
-        description_de,description_en,description_hr,description_it,description_fr,
-        categories:category_id ( icon_svg )
-      `);
-    if (e1) { console.error(e1); return; }
-
-    const { data: kvRows, error: e2 } = await supabase
-      .from('location_values')
-      .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code');
-    if (e2) { console.warn('location_values load:', e2.message); }
-
-    const kvByLoc = new Map();
-    (kvRows || []).forEach(r => {
-      const locId = r.location_id;
-      const canon = FIELD_MAP_BY_ID[r.attribute_id];
-      if (!canon) return;
-
-      const val = r.value_text ?? r.value_option ??
-                  (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
-                  (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
-                  (r.value_json ? r.value_json : '');
-      if (val === '' || val === null || val === undefined) return;
-
-      if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
-      const obj = kvByLoc.get(locId);
-      const lc = (r.language_code || '').toLowerCase();
-
-      if (canon === 'opening_hours') {
-        obj.hoursByLang = obj.hoursByLang || {};
-        let arr = null;
-        if (Array.isArray(val)) arr = val;
-        else if (typeof val === 'string' && val.trim().startsWith('[')) {
-          try { arr = JSON.parse(val); } catch { arr = [String(val)]; }
-        }
-        if (!arr) arr = String(val).split('\n');
-        obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
-      } else if (canon === 'address') {
-        obj.addressByLang = obj.addressByLang || {};
-        if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || String(val);
-        else obj.address = obj.address || String(val);
-      } else if (canon === 'website' || canon === 'phone') {
-        obj[canon] = obj[canon] || String(val);
-      } else if (canon === 'description') {
-        if (!obj.description || (lc && lc === langCode)) obj.description = String(val);
-      } else {
-        obj[canon] = String(val);
-      }
-    });
-
-    // alte Marker entfernen
-    markers.current.forEach(m => m.setMap(null));
-    markers.current = [];
-
-    (locs || []).forEach(row => {
-      const title = pickName(row, langCode);
-      const svg = row.categories?.icon_svg || defaultMarkerSvg;
-
-      const marker = new google.maps.Marker({
-        position: { lat: row.lat, lng: row.lng },
-        title,
-        icon: getMarkerIcon(row.category_id, svg),
-        map: mapObj.current
-      });
-
-      marker._cat = String(row.category_id);
-      marker.addListener('click', () => {
-        const kv = kvByLoc.get(row.id) || {};
-        console.log('[w2h] kvForLocation', row.id, kv);
-        const html = buildInfoContent(row, kv, svg, langCode);
-        infoWin.current.setContent(html);
-        infoWin.current.open({ map: mapObj.current, anchor: marker });
-      });
-
-      markers.current.push(marker);
-    });
-
-    applyLayerVisibility();
-  }
-
   function applyLayerVisibility() {
     markers.current.forEach(m => {
       const vis = layerState.current.get(m._cat);
