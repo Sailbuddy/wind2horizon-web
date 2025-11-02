@@ -1,4 +1,5 @@
-// app/api/gphoto/route.ts
+// app/api/gphoto/route.ts 
+
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';     // kein Static Rendering
