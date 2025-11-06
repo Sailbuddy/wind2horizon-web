@@ -21,8 +21,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
+  // Route akzeptiert sowohl ?photo_reference= als auch ?photoreference=
   const photoUrl = (ref, max = 800) =>
-    `/api/gphoto?photo_reference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+    `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
 
   function escapeHtml(str = '') {
     return String(str)
@@ -33,9 +34,33 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .replaceAll("'", '&#39;');
   }
 
-  // Lightbox-Komponente
+  // Lightbox-Komponente (robuster: normalisiert Photos, Fallbacks + Platzhalter)
   function Lightbox({ gallery, onClose }) {
     if (!gallery) return null;
+
+    // 1) Fotos zu echtem Array normalisieren
+    let items = [];
+    try {
+      if (Array.isArray(gallery.photos)) {
+        items = gallery.photos;
+      } else if (typeof gallery.photos === 'string') {
+        const parsed = JSON.parse(gallery.photos);
+        items = Array.isArray(parsed) ? parsed : (parsed?.photos ?? []);
+      } else if (gallery.photos && typeof gallery.photos === 'object') {
+        items = Array.isArray(gallery.photos.photos) ? gallery.photos.photos : [];
+      }
+    } catch {
+      items = [];
+    }
+    // Sicherheitsfilter
+    items = items.filter(p => p && (p.photo_reference || p.photoreference));
+
+    // 2) kleine Debug-Hilfe: die ersten zwei URLs loggen
+    const ref0 = items[0]?.photo_reference || items[0]?.photoreference;
+    const ref1 = items[1]?.photo_reference || items[1]?.photoreference;
+    if (ref0) console.log('[w2h] photo[0]', photoUrl(ref0, 320));
+    if (ref1) console.log('[w2h] photo[1]', photoUrl(ref1, 320));
+
     return (
       <div
         className="w2h-lbx"
@@ -64,10 +89,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
         >
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:12}}>
             <h3 style={{fontSize:18,fontWeight:700,margin:0}}>
-              {gallery.title} – {gallery.photos.length} Fotos
+              {gallery.title} – {items.length} Fotos
             </h3>
             <button onClick={onClose} style={{fontSize:24,lineHeight:1,background:'transparent',border:'none',cursor:'pointer'}}>×</button>
           </div>
+
           <div
             style={{
               display: 'grid',
@@ -75,15 +101,38 @@ export default function GoogleMapClient({ lang = 'de' }) {
               gap: 12
             }}
           >
-            {gallery.photos.map((p) => (
-              <img
-                key={p.photo_reference}
-                src={photoUrl(p.photo_reference, Math.min(1200, p.width || 1200))}
-                alt=""
-                loading="lazy"
-                style={{width:'100%',borderRadius:10,display:'block'}}
-              />
-            ))}
+            {items.map((p, idx) => {
+              const ref = p.photo_reference || p.photoreference;
+              const w = Number(p.width || 0) || 640;
+              return (
+                <figure key={ref || idx} style={{margin:0}}>
+                  <div
+                    style={{
+                      background:'#fafafa',
+                      border:'1px solid #eee',
+                      borderRadius:10,
+                      minHeight:160,              // sichtbarer Platzhalter
+                      display:'flex',
+                      alignItems:'center',
+                      justifyContent:'center',
+                      overflow:'hidden'
+                    }}
+                  >
+                    <img
+                      src={photoUrl(ref, Math.min(1200, w))}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      style={{width:'100%',height:'auto',display:'block'}}
+                    />
+                  </div>
+                  {Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
+                    <figcaption style={{fontSize:12,color:'#666',padding:'6px 2px'}}
+                      dangerouslySetInnerHTML={{__html: p.html_attributions[0]}} />
+                  ) : null}
+                </figure>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -268,7 +317,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     // Fotos
     const photos = Array.isArray(kv.photos) ? kv.photos : [];
-    const firstRef = kv.first_photo_ref || photos[0]?.photo_reference || null;
+    const firstRef = kv.first_photo_ref || photos[0]?.photo_reference || photos[0]?.photoreference || null;
 
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref = website && website.startsWith('http') ? website : (website ? `https://${website}` : '');
@@ -404,7 +453,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }
         if (Array.isArray(arr) && arr.length) {
           obj.photos = arr;
-          obj.first_photo_ref = obj.first_photo_ref || arr[0]?.photo_reference || null;
+          obj.first_photo_ref = obj.first_photo_ref || arr[0]?.photo_reference || arr[0]?.photoreference || null;
         }
         return;
       }
