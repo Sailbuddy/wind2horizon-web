@@ -15,6 +15,81 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
 
+  // Galerie-Lightbox
+  const [gallery, setGallery] = useState(null);
+
+  // ---------------------------------------------
+  // Helpers: Google Photo Proxy + HTML escaper
+  // ---------------------------------------------
+  const photoUrl = (ref, max = 800) =>
+    `/api/gphoto?photo_reference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+
+  function escapeHtml(str = '') {
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  // Lightbox-Komponente
+  function Lightbox({ gallery, onClose }) {
+    if (!gallery) return null;
+    return (
+      <div
+        className="w2h-lbx"
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,.7)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: '#fff',
+            borderRadius: 14,
+            maxWidth: '1100px',
+            width: '95vw',
+            maxHeight: '90vh',
+            overflow: 'auto',
+            padding: 16,
+          }}
+        >
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:12}}>
+            <h3 style={{fontSize:18,fontWeight:700,margin:0}}>
+              {gallery.title} – {gallery.photos.length} Fotos
+            </h3>
+            <button onClick={onClose} style={{fontSize:24,lineHeight:1,background:'transparent',border:'none',cursor:'pointer'}}>×</button>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+              gap: 12
+            }}
+          >
+            {gallery.photos.map((p) => (
+              <img
+                key={p.photo_reference}
+                src={photoUrl(p.photo_reference, Math.min(1200, p.width || 1200))}
+                alt=""
+                loading="lazy"
+                style={{width:'100%',borderRadius:10,display:'block'}}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // -------------------------------------------------
   // Google Maps Loader (robust, ohne plugins.loader)
   // -------------------------------------------------
@@ -39,17 +114,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   // -------------------------------------------------
-  // Helpers
+  // Helpers (bestehend)
   // -------------------------------------------------
-  function escapeHtml(str = '') {
-    return String(str)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-  }
-
   // manchmal Encoding-Artefakte reparieren
   function repairMojibake(s = '') {
     return /Ã|Å|Â/.test(s) ? decodeURIComponent(escape(s)) : s;
@@ -88,6 +154,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       call:    { de: 'Anrufen', en: 'Call',     it: 'Chiama',     hr: 'Nazovi',fr: 'Appeler' },
       open:    { de: 'Geöffnet', en: 'Open now', it: 'Aperto',    hr: 'Otvoreno', fr: 'Ouvert' },
       closed:  { de: 'Geschlossen', en: 'Closed', it: 'Chiuso',   hr: 'Zatvoreno', fr: 'Fermé' },
+      photos:  { de: 'Fotos', en: 'Photos', it: 'Foto', hr: 'Fotografije', fr: 'Photos' },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
@@ -137,10 +204,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   // Mapping per attribute_id (robust gegen RLS auf attribute_definitions)
-  // IDs aus deinem Export:
-  // 5=formatted_address, 28=vicinity, 29=website, 25=url, 30=formatted_phone_number, 34=international_phone_number,
-  // 14=opening_hours.open_now, 16=opening_hours.weekday_text, 37..43=weekday_text[0..6], 22=rating, 26=user_ratings_total,
-  // 21=price_level, 33=editorial_summary.overview
+  // + 17 = photos (Sammelfeld)
   const FIELD_MAP_BY_ID = {
     5: 'address',
     28: 'address',
@@ -161,6 +225,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     26: 'rating_total',
     21: 'price',
     33: 'description',
+    17: 'photos',            //  👈 Sammelfeld
   };
 
   function getMarkerIcon(catId, svgMarkup) {
@@ -201,6 +266,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
     for (const L of pref) if (hoursByLang[L]?.length) { hoursArr = hoursByLang[L]; break; }
     const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
 
+    // Fotos
+    const photos = Array.isArray(kv.photos) ? kv.photos : [];
+    const firstRef = kv.first_photo_ref || photos[0]?.photo_reference || null;
+
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref = website && website.startsWith('http') ? website : (website ? `https://${website}` : '');
     const telHref = phone ? `tel:${String(phone).replace(/\s+/g, '')}` : '';
@@ -233,6 +302,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
       openingHtml += '<ul class="iw-hours">' + hoursLocalized.map(h => `<li>${escapeHtml(String(h))}</li>`).join('') + '</ul>';
     }
 
+    // Foto-Thumb & Fotos-Button
+    const thumbHtml = firstRef
+      ? `<img src="${photoUrl(firstRef, 400)}" alt="" loading="lazy" style="width:100%;border-radius:10px;margin:6px 0 10px 0;" />`
+      : '';
+
+    const btnPhotos = photos.length
+      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${photos.length})</button>`
+      : '';
+
     return `
       <div class="w2h-iw">
         <div class="iw-hd">
@@ -240,6 +318,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           <div class="iw-title">${title}</div>
         </div>
         <div class="iw-bd">
+          ${thumbHtml}
           ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
           ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
           ${ratingHtml}
@@ -247,7 +326,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           ${openingHtml}
         </div>
         <div class="iw-actions">
-          ${btnRoute}${btnSite}${btnTel}
+          ${btnRoute}${btnSite}${btnTel}${btnPhotos}
         </div>
       </div>
     `;
@@ -310,15 +389,33 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const canon = FIELD_MAP_BY_ID[r.attribute_id];
       if (!canon) return;
 
-      const val = r.value_text ?? r.value_option ??
-                  (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
-                  (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
-                  (r.value_json ? r.value_json : '');
-      if (val === '' || val === null || val === undefined) return;
-
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
       const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
+
+      if (canon === 'photos') {
+        // Sammelfeld Photos liegt in value_json (Array)
+        let arr = null;
+        if (Array.isArray(r.value_json)) arr = r.value_json;
+        else if (typeof r.value_json === 'string' && r.value_json.trim().startsWith('[')) {
+          try { arr = JSON.parse(r.value_json); } catch { arr = null; }
+        } else if (typeof r.value_text === 'string' && r.value_text.trim().startsWith('[')) {
+          try { arr = JSON.parse(r.value_text); } catch { arr = null; }
+        }
+        if (Array.isArray(arr) && arr.length) {
+          obj.photos = arr;
+          obj.first_photo_ref = obj.first_photo_ref || arr[0]?.photo_reference || null;
+        }
+        return;
+      }
+
+      const val =
+        r.value_text ?? r.value_option ??
+        (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
+        (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
+        (r.value_json ? r.value_json : '');
+
+      if (val === '' || val === null || val === undefined) return;
 
       if (canon === 'opening_hours') {
         obj.hoursByLang = obj.hoursByLang || {};
@@ -360,10 +457,20 @@ export default function GoogleMapClient({ lang = 'de' }) {
       marker._cat = String(row.category_id);
       marker.addListener('click', () => {
         const kv = kvByLoc.get(row.id) || {};
-        console.log('[w2h] kvForLocation', row.id, kv);
         const html = buildInfoContent(row, kv, svg, langCode);
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
+
+        // sobald DOM steht, Button für Galerie verbinden
+        google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+          const btn = document.getElementById(`phbtn-${row.id}`);
+          if (btn) {
+            btn.addEventListener('click', () => {
+              const photos = (kv.photos && Array.isArray(kv.photos)) ? kv.photos : [];
+              if (photos.length) setGallery({ title: pickName(row, langCode), photos });
+            });
+          }
+        });
       });
 
       markers.current.push(marker);
@@ -395,6 +502,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }}
       />
 
+      {/* Lightbox */}
+      <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
+
       <style jsx>{`
         .w2h-map-wrap { position: relative; height: 100vh; width: 100%; }
         .w2h-map { height: 100%; width: 100%; }
@@ -402,14 +512,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       {/* InfoWindow Styles global */}
       <style jsx global>{`
-        .gm-style .w2h-iw { max-width: 320px; font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #1a1a1a; }
+        .gm-style .w2h-iw { max-width: 340px; font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #1a1a1a; }
         .gm-style .w2h-iw .iw-hd { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; margin-bottom: 6px; }
         .gm-style .w2h-iw .iw-ic svg { width: 20px; height: 20px; }
         .gm-style .w2h-iw .iw-title { font-weight: 700; font-size: 14px; }
         .gm-style .w2h-iw .iw-row { margin: 6px 0; }
         .gm-style .w2h-iw .iw-desc { color: #444; white-space: normal; }
         .gm-style .w2h-iw .iw-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-        .gm-style .w2h-iw .iw-btn { display: inline-block; padding: 6px 10px; border-radius: 8px; background: #1f6aa2; color: #fff; text-decoration: none; font-weight: 600; font-size: 12px; }
+        .gm-style .w2h-iw .iw-btn { display: inline-block; padding: 6px 10px; border-radius: 8px; background: #1f6aa2; color: #fff; text-decoration: none; font-weight: 600; font-size: 12px; cursor: pointer; }
         .gm-style .w2h-iw .iw-btn:hover { filter: brightness(0.95); }
         .gm-style .w2h-iw .iw-rating { font-size: 13px; color: #f39c12; }
         .gm-style .w2h-iw .iw-price { font-size: 13px; color: #27ae60; }
