@@ -33,14 +33,29 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .replaceAll("'", '&#39;');
   }
 
-  // Lightbox: unterstützt User-URLs (p.url) UND Google-Refs (p.photo_reference / p.photoreference)
+  // Lightbox: unterstützt User-URLs (public_url/url/thumb) UND Google-Refs (photo_reference/photoreference)
   function Lightbox({ gallery, onClose }) {
     if (!gallery) return null;
 
-    // Normalisieren
-    let items = Array.isArray(gallery.photos) ? gallery.photos : [];
+    // Normalisieren (Array | JSON-String | {photos:[...]} → Array)
+    let items = [];
+    try {
+      if (Array.isArray(gallery.photos)) {
+        items = gallery.photos;
+      } else if (typeof gallery.photos === 'string') {
+        const parsed = JSON.parse(gallery.photos);
+        items = Array.isArray(parsed) ? parsed : (parsed?.photos ?? []);
+      } else if (gallery.photos && typeof gallery.photos === 'object') {
+        items = Array.isArray(gallery.photos.photos) ? gallery.photos.photos : [];
+      }
+    } catch {
+      items = [];
+    }
+
     // kleine Debug-Hilfe
-    if (items[0]?.url)  console.log('[w2h] user photo[0]', items[0].url);
+    if (items[0]?.public_url || items[0]?.url) {
+      console.log('[w2h] user photo[0]', items[0].public_url || items[0].url);
+    }
     if (items[0]?.photo_reference || items[0]?.photoreference) {
       const ref = items[0].photo_reference || items[0].photoreference;
       console.log('[w2h] google photo[0]', photoUrl(ref, 320));
@@ -87,11 +102,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
             }}
           >
             {items.map((p, idx) => {
-              const isUser = !!p.url;
-              const src = isUser ? (p.url || p.thumb || '') :
-                                   photoUrl(p.photo_reference || p.photoreference, Math.min(1200, Number(p.width || 0) || 640));
+              const isGoogle = !!(p.photo_reference || p.photoreference);
+              const isUser = !!(p.public_url || p.url || p.thumb);
+
+              let src = '';
+              if (isGoogle) {
+                const ref = p.photo_reference || p.photoreference;
+                const w = Math.min(1200, Number(p.width || 0) || 640);
+                src = photoUrl(ref, w);
+              } else if (isUser) {
+                // bevorzugt Thumb, sonst public_url/url mit Transform
+                src = p.thumb || (p.public_url ? `${p.public_url}?width=1200` : (p.url ? `${p.url}?width=1200` : ''));
+              }
+
+              if (!src) return null;
+
               return (
-                <figure key={p.url || p.photo_reference || p.photoreference || idx} style={{margin:0}}>
+                <figure key={p.public_url || p.url || p.photo_reference || p.photoreference || idx} style={{margin:0}}>
                   <div
                     style={{
                       background:'#fafafa',
@@ -113,16 +140,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
                     />
                   </div>
                   {/* Credits/Caption */}
-                  {isUser ? (
+                  {isGoogle ? (
+                    Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
+                      <figcaption style={{fontSize:12,color:'#666',padding:'6px 2px'}}
+                        dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }} />
+                    ) : null
+                  ) : (
                     (p.caption || p.author) ? (
                       <figcaption style={{fontSize:12,color:'#666',padding:'6px 2px'}}>
                         {escapeHtml([p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · '))}
                       </figcaption>
-                    ) : null
-                  ) : (
-                    Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
-                      <figcaption style={{fontSize:12,color:'#666',padding:'6px 2px'}}
-                        dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }} />
                     ) : null
                   )}
                 </figure>
@@ -228,7 +255,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
-    const rest = m[2].trim();
+    the rest = m[2].trim();
     const idx = DAY_ALIASES.get(head.toLowerCase());
     if (idx === undefined) return line;
     const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
@@ -299,8 +326,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function pickFirstThumb(photos) {
     if (!Array.isArray(photos) || !photos.length) return null;
-    const user = photos.find(p => p.url || p.thumb);
-    if (user) return user.thumb || `${user.url}?width=400`;
+    const user = photos.find(p => p.thumb || p.public_url || p.url);
+    if (user) return user.thumb || (user.public_url ? `${user.public_url}?width=400` : `${user.url}?width=400`);
     const g = photos.find(p => p.photo_reference || p.photoreference);
     if (g) return photoUrl(g.photo_reference || g.photoreference, 400);
     return null;
@@ -509,11 +536,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
     for (const loc of (locs || [])) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
-      const user = (userPhotosMap[loc.id] || []).map(p => ({
-        url: p.url, thumb: p.thumb, caption: p.caption, author: p.author, source: 'user'
-      }));
+      const userRaw = userPhotosMap[loc.id] || [];
+      const user = userRaw.map(p => ({
+        public_url: p.public_url || p.url || null,
+        url: p.url || p.public_url || null,
+        thumb: p.thumb || null,
+        caption: p.caption || null,
+        author: p.author || null,
+        source: 'user'
+      })).filter(u => u.public_url || u.url || u.thumb);
+
       obj.photos = mergePhotos(google, user);
-      // first_photo_ref ist jetzt generisch ein Thumb (für InfoWindow)
+      // generischer Thumb (für InfoWindow)
       obj.first_photo_ref = pickFirstThumb(obj.photos);
       kvByLoc.set(loc.id, obj);
     }
