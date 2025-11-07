@@ -21,6 +21,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
+  // Route akzeptiert ?photo_reference= oder ?photoreference=
   const photoUrl = (ref, max = 800) =>
     `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
 
@@ -111,8 +112,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 const w = Math.min(1200, Number(p.width || 0) || 640);
                 src = photoUrl(ref, w);
               } else if (isUser) {
-                // bevorzugt Thumb, sonst public_url/url mit Transform
-                src = p.thumb || (p.public_url ? `${p.public_url}?width=1200` : (p.url ? `${p.url}?width=1200` : ''));
+                // bevorzugt Thumb, sonst public_url/url (ohne Transform-Query – robust für Supabase)
+                src = p.thumb || p.public_url || p.url || '';
               }
 
               if (!src) return null;
@@ -237,16 +238,21 @@ export default function GoogleMapClient({ lang = 'de' }) {
     hr: ['Ponedjeljak', 'Utorak', 'Srijeda', 'Četvrtak', 'Petak', 'Subota', 'Nedjelja'],
   };
   const DAY_ALIASES = new Map([
+    // EN
     ['monday',0],['mon',0],['tuesday',1],['tue',1],['tues',1],['wednesday',2],['wed',2],
     ['thursday',3],['thu',3],['thur',3],['thurs',3],['friday',4],['fri',4],['saturday',5],['sat',5],
     ['sunday',6],['sun',6],
+    // DE
     ['montag',0],['mo',0],['dienstag',1],['di',1],['mittwoch',2],['mi',2],['donnerstag',3],['do',3],
     ['freitag',4],['fr',4],['samstag',5],['sa',5],['sonntag',6],['so',6],
+    // IT
     ['lunedì',0],['lunedi',0],['lun',0],['martedì',1],['martedi',1],['mar',1],['mercoledì',2],
     ['mercoledi',2],['mer',2],['giovedì',3],['giovedi',3],['gio',3],['venerdì',4],['venerdi',4],['ven',4],
     ['sabato',5],['sab',5],['domenica',6],['dom',6],
+    // FR
     ['lundi',0],['lun',0],['mardi',1],['mar',1],['mercredi',2],['mer',2],['jeudi',3],['jeu',3],
     ['vendredi',4],['ven',4],['samedi',5],['sam',5],['dimanche',6],['dim',6],
+    // HR
     ['ponedjeljak',0],['pon',0],['utorak',1],['uto',1],['srijeda',2],['sri',2],
     ['četvrtak',3],['cetvrtak',3],['čet',3],['cet',3],['petak',4],['pet',4],
     ['subota',5],['sub',5],['nedjelja',6],['ned',6],
@@ -255,7 +261,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
-    const rest = m[2].trim();       // <- fix
+    const rest = m[2].trim();             // <-- Fix: "const rest" (vorher Tippfehler)
     const idx = DAY_ALIASES.get(head.toLowerCase());
     if (idx === undefined) return line;
     const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
@@ -302,7 +308,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return icon;
   }
 
-  // --------- NEU: Google-Photos normalisieren + Merge mit User-Fotos ----------
+  // --------- Google-Photos normalisieren + Merge mit User-Fotos ----------
   function normalizeGooglePhotos(val) {
     try {
       let arr = null;
@@ -327,12 +333,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
   function pickFirstThumb(photos) {
     if (!Array.isArray(photos) || !photos.length) return null;
     const user = photos.find(p => p.thumb || p.public_url || p.url);
-    if (user) return user.thumb || (user.public_url ? `${user.public_url}?width=400` : `${user.url}?width=400`);
+    if (user) return user.thumb || user.public_url || user.url;
     const g = photos.find(p => p.photo_reference || p.photoreference);
     if (g) return photoUrl(g.photo_reference || g.photoreference, 400);
     return null;
   }
-  // ---------------------------------------------------------------------------
+  // -----------------------------------------------------------------------
 
   function buildInfoContent(row, kv, iconSvgRaw, langCode) {
     const title = escapeHtml(pickName(row, langCode));
@@ -359,7 +365,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     for (const L of pref) if (hoursByLang[L]?.length) { hoursArr = hoursByLang[L]; break; }
     const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
 
-    // Fotos (jetzt gemergt)
+    // Fotos (gemergt)
     const photos = Array.isArray(kv.photos) ? kv.photos : [];
     const firstThumb = pickFirstThumb(photos);
 
@@ -520,40 +526,52 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     });
 
-    // ---- NEU: User-Fotos aus eigener API holen und mergen (ABSOLUTE URL) ----
+    // ---- User-Fotos aus eigener API holen und mergen ----
     const ids = (locs || []).map(l => l.id);
     let userPhotosMap = {};
     try {
       if (ids.length) {
-        const origin =
-          (typeof window !== 'undefined' && window.location?.origin) ||
-          process.env.NEXT_PUBLIC_SITE_ORIGIN || // optionales Fallback in Vercel
-          '';
-        const url = `${origin}/api/user-photos?ids=${ids.join(',')}`;
+        const url = `/api/user-photos?ids=${ids.join(',')}`;
         console.log('[w2h] fetch user-photos:', url);
-
         const resp = await fetch(url, { cache: 'no-store' });
-        if (!resp.ok) {
-          console.warn('[w2h] user-photos HTTP', resp.status);
+        const j = await resp.json();
+
+        if (j?.ok && j.items) {
+          // alte (items-)Variante
+          userPhotosMap = j.items || {};
+        } else if (Array.isArray(j?.rows)) {
+          // aktuelle rows-Variante (wie in deinem Screenshot)
+          // rows: [{ location_id, public_url, width, height, caption, author }]
+          const map = {};
+          for (const r of j.rows) {
+            const entry = {
+              public_url: r.public_url || null,
+              url: r.public_url || null,
+              thumb: r.thumb || r.public_url || null,
+              caption: r.caption || null,
+              author: r.author || null,
+              source: 'user'
+            };
+            if (!map[r.location_id]) map[r.location_id] = [];
+            map[r.location_id].push(entry);
+          }
+          userPhotosMap = map;
         } else {
-          const j = await resp.json();
-          if (j?.ok) userPhotosMap = j.items || {};
-          else console.warn('[w2h] user-photos bad payload:', j);
+          userPhotosMap = {};
         }
       }
     } catch (e) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
-    // ------------------------------------------------------------------------
 
     for (const loc of (locs || [])) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
-      const userRaw = userPhotosMap[loc.id] || [];
-      const user = userRaw.map(p => ({
+
+      const user = (userPhotosMap[loc.id] || []).map(p => ({
         public_url: p.public_url || p.url || null,
         url: p.url || p.public_url || null,
-        thumb: p.thumb || null,
+        thumb: p.thumb || p.public_url || null,
         caption: p.caption || null,
         author: p.author || null,
         source: 'user'
@@ -564,6 +582,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       obj.first_photo_ref = pickFirstThumb(obj.photos);
       kvByLoc.set(loc.id, obj);
     }
+    // ----------------------------------------------------
 
     // alte Marker entfernen
     markers.current.forEach(m => m.setMap(null));
@@ -587,6 +606,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
+        // Galerie-Button verbinden
         google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
           const btn = document.getElementById(`phbtn-${row.id}`);
           if (btn) {
