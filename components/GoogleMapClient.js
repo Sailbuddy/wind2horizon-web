@@ -255,7 +255,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
-    the rest = m[2].trim();
+    const rest = m[2].trim();       // <- fix
     const idx = DAY_ALIASES.get(head.toLowerCase());
     if (idx === undefined) return line;
     const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
@@ -520,18 +520,31 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     });
 
-    // ---- NEU: User-Fotos aus eigener API holen und mergen ----
+    // ---- NEU: User-Fotos aus eigener API holen und mergen (ABSOLUTE URL) ----
     const ids = (locs || []).map(l => l.id);
     let userPhotosMap = {};
     try {
       if (ids.length) {
-        const resp = await fetch(`/api/user-photos?ids=${ids.join(',')}`, { cache: 'no-store' });
-        const j = await resp.json();
-        if (j?.ok) userPhotosMap = j.items || {};
+        const origin =
+          (typeof window !== 'undefined' && window.location?.origin) ||
+          process.env.NEXT_PUBLIC_SITE_ORIGIN || // optionales Fallback in Vercel
+          '';
+        const url = `${origin}/api/user-photos?ids=${ids.join(',')}`;
+        console.log('[w2h] fetch user-photos:', url);
+
+        const resp = await fetch(url, { cache: 'no-store' });
+        if (!resp.ok) {
+          console.warn('[w2h] user-photos HTTP', resp.status);
+        } else {
+          const j = await resp.json();
+          if (j?.ok) userPhotosMap = j.items || {};
+          else console.warn('[w2h] user-photos bad payload:', j);
+        }
       }
     } catch (e) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
+    // ------------------------------------------------------------------------
 
     for (const loc of (locs || [])) {
       const obj = kvByLoc.get(loc.id) || {};
@@ -551,7 +564,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       obj.first_photo_ref = pickFirstThumb(obj.photos);
       kvByLoc.set(loc.id, obj);
     }
-    // ----------------------------------------------------------
 
     // alte Marker entfernen
     markers.current.forEach(m => m.setMap(null));
