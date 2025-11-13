@@ -17,6 +17,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   // Galerie-Lightbox
   const [gallery, setGallery] = useState(null);
+  // Winddaten-Modal
+  const [windModal, setWindModal] = useState(null); // { row, kv }
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -163,6 +165,118 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   // -------------------------------------------------
+  // Winddaten-Modal (Basisversion)
+  // -------------------------------------------------
+  function WindModal({ data, onClose, lang }) {
+    if (!data) return null;
+    const { row, kv } = data;
+    const title = pickName(row, lang);
+    const info = kv.wind_profile_info || '';   // Text aus Attribut
+    // Widget-URL – später gern anpassen (station, lat/lng etc.)
+    const widgetUrl = `https://livewind.wind2horizon.com?lat=${encodeURIComponent(
+      row.lat
+    )}&lng=${encodeURIComponent(row.lng)}`;
+
+    return (
+      <div
+        className="w2h-windmodal"
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,.7)',
+          zIndex: 10000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: '#fff',
+            borderRadius: 16,
+            width: '95vw',
+            maxWidth: 640,
+            maxHeight: '90vh',
+            overflow: 'auto',
+            padding: 18,
+            boxShadow: '0 18px 45px rgba(15,23,42,.4)'
+          }}
+        >
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:12}}>
+            <h2 style={{margin:0,fontSize:18}}>
+              🌬️ Wind &amp; Schwell · <span style={{fontWeight:600}}>{title}</span>
+            </h2>
+            <button
+              onClick={onClose}
+              style={{fontSize:22,lineHeight:1,background:'transparent',border:'none',cursor:'pointer'}}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* A) Rosette – Platzhalter / Container */}
+          <section style={{marginBottom:16}}>
+            <h3 style={{margin:'0 0 6px',fontSize:15}}>Windrosette</h3>
+            <div
+              id="w2h-windrosette"
+              style={{
+                border:'1px solid #e5e7eb',
+                borderRadius:12,
+                padding:12,
+                textAlign:'center',
+                background:'#f9fafb'
+              }}
+            >
+              {/* Hier hängen wir im nächsten Schritt die echte Doppelrosette ein */}
+              <span style={{fontSize:12,color:'#6b7280'}}>
+                (Grafische Wind/Schwell-Rosette – folgt im nächsten Schritt)
+              </span>
+            </div>
+          </section>
+
+          {/* B) Hinweistext */}
+          <section style={{marginBottom:16}}>
+            <h3 style={{margin:'0 0 6px',fontSize:15}}>Wind/Schwell Hinweis</h3>
+            {info ? (
+              <p style={{margin:0,whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.5}}>
+                {info}
+              </p>
+            ) : (
+              <p style={{margin:0,fontSize:12,color:'#9ca3af'}}>
+                Für diesen Spot ist noch kein Wind/Schwell-Hinweis hinterlegt.
+              </p>
+            )}
+          </section>
+
+          {/* C) LiveWind-Widget */}
+          <section>
+            <h3 style={{margin:'0 0 6px',fontSize:15}}>LiveWind</h3>
+            <div
+              style={{
+                border:'1px solid #e5e7eb',
+                borderRadius:12,
+                padding:8,
+                background:'#f9fafb'
+              }}
+            >
+              <iframe
+                src={widgetUrl}
+                title="LiveWind"
+                style={{width:'100%',height:80,border:'none'}}
+              />
+              <p style={{margin:'6px 0 0',fontSize:11,color:'#9ca3af'}}>
+                (LiveWind-Widget – URL kann noch angepasst werden)
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------
   // Google Maps Loader
   // -------------------------------------------------
   function loadGoogleMaps(language) {
@@ -226,6 +340,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       open:    { de: 'Geöffnet', en: 'Open now', it: 'Aperto',    hr: 'Otvoreno', fr: 'Ouvert' },
       closed:  { de: 'Geschlossen', en: 'Closed', it: 'Chiuso',   hr: 'Zatvoreno', fr: 'Fermé' },
       photos:  { de: 'Fotos', en: 'Photos', it: 'Foto', hr: 'Fotografije', fr: 'Photos' },
+      wind:    { de: 'Winddaten', en: 'Wind data', it: 'Dati vento', hr: 'Podaci o vjetru', fr: 'Données vent' },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
@@ -261,7 +376,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
-    const rest = m[2].trim();             // <-- Fix: "const rest" (vorher Tippfehler)
+    const rest = m[2].trim();
     const idx = DAY_ALIASES.get(head.toLowerCase());
     if (idx === undefined) return line;
     const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
@@ -293,6 +408,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     21: 'price',
     33: 'description',
     17: 'photos',            //  👈 Google-Sammelfeld
+    // TODO: ID an deine echte Definition anpassen:
+    105: 'wind_profile_info', // Wind/Schwell Hinweis-Text
   };
 
   function getMarkerIcon(catId, svgMarkup) {
@@ -407,6 +524,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${photos.length})</button>`
       : '';
 
+    const hasWindBlock = !!(kv.wind_profile_info); // später gern erweitern (wind_profile JSON etc.)
+    const btnWind = hasWindBlock
+      ? `<button id="windbtn-${row.id}" class="iw-btn" style="background:#1d4ed8;">🌬️ ${label('wind', langCode)}</button>`
+      : '';
+
     return `
       <div class="w2h-iw">
         <div class="iw-hd">
@@ -422,7 +544,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           ${openingHtml}
         </div>
         <div class="iw-actions">
-          ${btnRoute}${btnSite}${btnTel}${btnPhotos}
+          ${btnRoute}${btnSite}${btnTel}${btnPhotos}${btnWind}
         </div>
       </div>
     `;
@@ -522,6 +644,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       } else if (canon === 'description') {
         if (!obj.description || (lc && lc === langCode)) obj.description = String(val);
       } else {
+        // generischer Fallback (z. B. wind_profile_info)
         obj[canon] = String(val);
       }
     });
@@ -606,13 +729,21 @@ export default function GoogleMapClient({ lang = 'de' }) {
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
-        // Galerie-Button verbinden
+        // Galerie-Button + Winddaten-Button verbinden
         google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
           const btn = document.getElementById(`phbtn-${row.id}`);
           if (btn) {
             btn.addEventListener('click', () => {
               const photos = (kv.photos && Array.isArray(kv.photos)) ? kv.photos : [];
               if (photos.length) setGallery({ title: pickName(row, langCode), photos });
+            });
+          }
+
+          const windBtn = document.getElementById(`windbtn-${row.id}`);
+          if (windBtn) {
+            windBtn.addEventListener('click', () => {
+              const latestKv = kvByLoc.get(row.id) || {};
+              setWindModal({ row, kv: latestKv });
             });
           }
         });
@@ -649,6 +780,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       {/* Lightbox */}
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
+
+      {/* Winddaten-Modal */}
+      <WindModal data={windModal} onClose={() => setWindModal(null)} lang={lang} />
 
       <style jsx>{`
         .w2h-map-wrap { position: relative; height: 100vh; width: 100%; }
