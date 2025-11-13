@@ -8,30 +8,20 @@ import { svgToDataUrl } from '@/lib/utils';
 
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
-const ANGLE: Record<string, number> = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
+const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
 
-type WindMap = Record<string, boolean>;
-
-function WindSwellRose({
-  size = 260,
-  wind = {},
-  swell = {},
-}: {
-  size?: number;
-  wind?: WindMap;
-  swell?: WindMap;
-}) {
+function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
   const cx = size / 2;
   const cy = size / 2;
-  const outerR = size * 0.40;
+  const outerR = size * 0.4;
   const innerR = size * 0.24;
   const arrowL = size * 0.085;
   const arrowW = size * 0.06;
 
-  const normBool = (m?: WindMap) => {
-    const out: WindMap = {};
+  const normBool = (m) => {
+    const out = {};
     DIRS.forEach((d) => {
-      out[d] = !!m?.[d];
+      out[d] = !!(m && m[d]);
     });
     return out;
   };
@@ -39,8 +29,8 @@ function WindSwellRose({
   const w = normBool(wind);
   const s = normBool(swell);
 
-  const arrow = (deg: number, r: number) => {
-    const rad = (deg - 90) * Math.PI / 180; // 0° = Norden
+  const arrow = (deg, r) => {
+    const rad = ((deg - 90) * Math.PI) / 180; // 0° = Norden
     const tipX = cx + Math.cos(rad) * (r - arrowL);
     const tipY = cy + Math.sin(rad) * (r - arrowL);
     const baseX = cx + Math.cos(rad) * r;
@@ -87,7 +77,7 @@ function WindSwellRose({
       {/* Labels */}
       {DIRS.map((d) => {
         const r = outerR + size * 0.08;
-        const rad = (ANGLE[d] - 90) * Math.PI / 180;
+        const rad = ((ANGLE[d] - 90) * Math.PI) / 180;
         const tx = cx + Math.cos(rad) * r;
         const ty = cy + Math.sin(rad) * r;
         return (
@@ -110,45 +100,26 @@ function WindSwellRose({
 }
 // -------------------------------------------------------------------
 
-type LangCode = 'de' | 'en' | 'it' | 'fr' | 'hr';
-
-type WindProfile = {
-  wind?: WindMap;
-  swell?: WindMap;
-};
-
-type WindHintMap = Record<string, string>;
-
-type GalleryPayload = {
-  title: string;
-  photos: any;
-};
-
-type WindModalState = {
-  id: number;
-  title: string;
-  windProfile: WindProfile | null;
-  windHint: WindHintMap;
-} | null;
-
-export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  const mapObj = useRef<google.maps.Map | null>(null);
-  const markers = useRef<google.maps.Marker[]>([]);
-  const layerState = useRef<Map<string, boolean>>(new Map());
-  const infoWin = useRef<google.maps.InfoWindow | null>(null);
-  const iconCache = useRef<Map<string, google.maps.Icon>>(
-    new Map()
-  );
-
+export default function GoogleMapClient({ lang = 'de' }) {
+  const mapRef = useRef(null);
+  const mapObj = useRef(null);
+  const markers = useRef([]);
+  const layerState = useRef(new Map());
+  const infoWin = useRef(null);
+  const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
-  const [gallery, setGallery] = useState<GalleryPayload | null>(null);
-  const [windModal, setWindModal] = useState<WindModalState>(null);
+
+  // Galerie-Lightbox
+  const [gallery, setGallery] = useState(null);
+
+  // Winddaten-Modal (mit Daten)
+  // modal: { id, title, windProfile, windHint }
+  const [windModal, setWindModal] = useState(null);
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
-  const photoUrl = (ref: string, max = 800) =>
+  const photoUrl = (ref, max = 800) =>
     `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
 
   function escapeHtml(str = '') {
@@ -160,16 +131,16 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
       .replaceAll("'", '&#39;');
   }
 
-  function Lightbox({ gallery, onClose }: { gallery: GalleryPayload | null; onClose: () => void }) {
+  function Lightbox({ gallery, onClose }) {
     if (!gallery) return null;
 
-    let items: any[] = [];
+    let items = [];
     try {
       if (Array.isArray(gallery.photos)) {
         items = gallery.photos;
       } else if (typeof gallery.photos === 'string') {
         const parsed = JSON.parse(gallery.photos);
-        items = Array.isArray(parsed) ? parsed : (parsed?.photos ?? []);
+        items = Array.isArray(parsed) ? parsed : parsed?.photos || [];
       } else if (gallery.photos && typeof gallery.photos === 'object') {
         items = Array.isArray(gallery.photos.photos) ? gallery.photos.photos : [];
       }
@@ -291,9 +262,11 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
                         dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }}
                       />
                     ) : null
-                  ) : (p.caption || p.author) ? (
+                  ) : p.caption || p.author ? (
                     <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
-                      {escapeHtml([p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · '))}
+                      {escapeHtml(
+                        [p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · '),
+                      )}
                     </figcaption>
                   ) : null}
                 </figure>
@@ -305,17 +278,13 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     );
   }
 
-  function WindModal({ modal, onClose }: { modal: WindModalState; onClose: () => void }) {
+  function WindModal({ modal, onClose }) {
     if (!modal) return null;
 
     const windProfile = modal.windProfile || null;
     const windHint = modal.windHint || {};
 
-    const hintText =
-      windHint[lang] ||
-      windHint.de ||
-      windHint.en ||
-      '';
+    const hintText = windHint[lang] || windHint.de || windHint.en || '';
 
     return (
       <div
@@ -429,37 +398,36 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
                 <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
-                  Hier binden wir im nächsten Schritt das LiveWind-Widget ein
-                  (z.&nbsp;B. Station in der Nähe dieses Spots).
+                  Hier binden wir im nächsten Schritt das LiveWind-Widget ein (z. B. Station in der
+                  Nähe dieses Spots).
                 </p>
               </div>
             </div>
           </div>
 
           <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning (windrelevant, Stationen, Layout)
-            folgt.
+            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning (windrelevant,
+            Stationen, Layout) folgt.
           </p>
         </div>
       </div>
     );
   }
 
-  function loadGoogleMaps(language: string) {
-    return new Promise<void>((resolve, reject) => {
-      // @ts-ignore
-      if (window.google?.maps) return resolve();
-      const existing = document.querySelector<HTMLScriptElement>('script[data-w2h-gmaps]');
+  function loadGoogleMaps(language) {
+    return new Promise((resolve, reject) => {
+      if (window.google && window.google.maps) return resolve();
+      const existing = document.querySelector('script[data-w2h-gmaps]');
       if (existing) {
         existing.addEventListener(
           'load',
           () => resolve(),
-          { once: true }
+          { once: true },
         );
         existing.addEventListener(
           'error',
           (e) => reject(e),
-          { once: true }
+          { once: true },
         );
         return;
       }
@@ -471,12 +439,12 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
       s.addEventListener(
         'load',
         () => resolve(),
-        { once: true }
+        { once: true },
       );
       s.addEventListener(
         'error',
         (e) => reject(e),
-        { once: true }
+        { once: true },
       );
       document.head.appendChild(s);
     });
@@ -486,7 +454,7 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     return /Ã|Å|Â/.test(s) ? decodeURIComponent(escape(s)) : s;
   }
 
-  function pickName(row: any, langCode: LangCode) {
+  function pickName(row, langCode) {
     const raw =
       (langCode === 'de' && row.name_de) ||
       (langCode === 'it' && row.name_it) ||
@@ -500,7 +468,7 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     return repairMojibake(raw);
   }
 
-  function pickDescriptionFromRow(row: any, langCode: LangCode) {
+  function pickDescriptionFromRow(row, langCode) {
     return (
       (langCode === 'de' && row.description_de) ||
       (langCode === 'it' && row.description_it) ||
@@ -511,20 +479,32 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     );
   }
 
-  function label(key: string, langCode: LangCode) {
-    const L: Record<string, Record<string, string>> = {
-      route: { de: 'Route', en: 'Directions', it: 'Itinerario', hr: 'Ruta', fr: 'Itinéraire' },
+  function label(key, langCode) {
+    const L = {
+      route: {
+        de: 'Route',
+        en: 'Directions',
+        it: 'Itinerario',
+        hr: 'Ruta',
+        fr: 'Itinéraire',
+      },
       website: { de: 'Website', en: 'Website', it: 'Sito', hr: 'Web', fr: 'Site' },
       call: { de: 'Anrufen', en: 'Call', it: 'Chiama', hr: 'Nazovi', fr: 'Appeler' },
       open: { de: 'Geöffnet', en: 'Open now', it: 'Aperto', hr: 'Otvoreno', fr: 'Ouvert' },
       closed: { de: 'Geschlossen', en: 'Closed', it: 'Chiuso', hr: 'Zatvoreno', fr: 'Fermé' },
       photos: { de: 'Fotos', en: 'Photos', it: 'Foto', hr: 'Fotografije', fr: 'Photos' },
-      wind: { de: 'Winddaten', en: 'Wind data', it: 'Dati vento', hr: 'Podaci o vjetru', fr: 'Données vent' },
+      wind: {
+        de: 'Winddaten',
+        en: 'Wind data',
+        it: 'Dati vento',
+        hr: 'Podaci o vjetru',
+        fr: 'Données vent',
+      },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
 
-  const DAY_OUTPUT: Record<LangCode, string[]> = {
+  const DAY_OUTPUT = {
     de: ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'],
     en: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
     it: ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'],
@@ -532,23 +512,95 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     hr: ['Ponedjeljak', 'Utorak', 'Srijeda', 'Četvrtak', 'Petak', 'Subota', 'Nedjelja'],
   };
 
-  const DAY_ALIASES = new Map<string, number>([
-    ['monday', 0], ['mon', 0], ['tuesday', 1], ['tue', 1], ['tues', 1], ['wednesday', 2], ['wed', 2],
-    ['thursday', 3], ['thu', 3], ['thur', 3], ['thurs', 3], ['friday', 4], ['fri', 4], ['saturday', 5], ['sat', 5],
-    ['sunday', 6], ['sun', 6],
-    ['montag', 0], ['mo', 0], ['dienstag', 1], ['di', 1], ['mittwoch', 2], ['mi', 2], ['donnerstag', 3], ['do', 3],
-    ['freitag', 4], ['fr', 4], ['samstag', 5], ['sa', 5], ['sonntag', 6], ['so', 6],
-    ['lunedì', 0], ['lunedi', 0], ['lun', 0], ['martedì', 1], ['martedi', 1], ['mar', 1], ['mercoledì', 2],
-    ['mercoledi', 2], ['mer', 2], ['giovedì', 3], ['giovedi', 3], ['gio', 3], ['venerdì', 4], ['venerdi', 4], ['ven', 4],
-    ['sabato', 5], ['sab', 5], ['domenica', 6], ['dom', 6],
-    ['lundi', 0], ['lun', 0], ['mardi', 1], ['mar', 1], ['mercredi', 2], ['mer', 2], ['jeudi', 3], ['jeu', 3],
-    ['vendredi', 4], ['ven', 4], ['samedi', 5], ['sam', 5], ['dimanche', 6], ['dim', 6],
-    ['ponedjeljak', 0], ['pon', 0], ['utorak', 1], ['uto', 1], ['srijeda', 2], ['sri', 2],
-    ['četvrtak', 3], ['cetvrtak', 3], ['čet', 3], ['cet', 3], ['petak', 4], ['pet', 4],
-    ['subota', 5], ['sub', 5], ['nedjelja', 6], ['ned', 6],
+  const DAY_ALIASES = new Map([
+    // EN
+    ['monday', 0],
+    ['mon', 0],
+    ['tuesday', 1],
+    ['tue', 1],
+    ['tues', 1],
+    ['wednesday', 2],
+    ['wed', 2],
+    ['thursday', 3],
+    ['thu', 3],
+    ['thur', 3],
+    ['thurs', 3],
+    ['friday', 4],
+    ['fri', 4],
+    ['saturday', 5],
+    ['sat', 5],
+    ['sunday', 6],
+    ['sun', 6],
+    // DE
+    ['montag', 0],
+    ['mo', 0],
+    ['dienstag', 1],
+    ['di', 1],
+    ['mittwoch', 2],
+    ['mi', 2],
+    ['donnerstag', 3],
+    ['do', 3],
+    ['freitag', 4],
+    ['fr', 4],
+    ['samstag', 5],
+    ['sa', 5],
+    ['sonntag', 6],
+    ['so', 6],
+    // IT
+    ['lunedì', 0],
+    ['lunedi', 0],
+    ['lun', 0],
+    ['martedì', 1],
+    ['martedi', 1],
+    ['mar', 1],
+    ['mercoledì', 2],
+    ['mercoledi', 2],
+    ['mer', 2],
+    ['giovedì', 3],
+    ['giovedi', 3],
+    ['gio', 3],
+    ['venerdì', 4],
+    ['venerdi', 4],
+    ['ven', 4],
+    ['sabato', 5],
+    ['sab', 5],
+    ['domenica', 6],
+    ['dom', 6],
+    // FR
+    ['lundi', 0],
+    ['lun', 0],
+    ['mardi', 1],
+    ['mar', 1],
+    ['mercredi', 2],
+    ['mer', 2],
+    ['jeudi', 3],
+    ['jeu', 3],
+    ['vendredi', 4],
+    ['ven', 4],
+    ['samedi', 5],
+    ['sam', 5],
+    ['dimanche', 6],
+    ['dim', 6],
+    // HR
+    ['ponedjeljak', 0],
+    ['pon', 0],
+    ['utorak', 1],
+    ['uto', 1],
+    ['srijeda', 2],
+    ['sri', 2],
+    ['četvrtak', 3],
+    ['cetvrtak', 3],
+    ['čet', 3],
+    ['cet', 3],
+    ['petak', 4],
+    ['pet', 4],
+    ['subota', 5],
+    ['sub', 5],
+    ['nedjelja', 6],
+    ['ned', 6],
   ]);
 
-  function localizeHoursLine(line = '', langCode: LangCode = 'de') {
+  function localizeHoursLine(line = '', langCode = 'de') {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
@@ -559,11 +611,12 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     return `${outDay}: ${rest}`;
   }
 
-  function localizeHoursList(list: any[] = [], langCode: LangCode = 'de') {
+  function localizeHoursList(list = [], langCode = 'de') {
     return list.map((ln) => localizeHoursLine(String(ln), langCode));
   }
 
-  const FIELD_MAP_BY_ID: Record<number, string> = {
+  // Mapping per ID (bestehende Felder)
+  const FIELD_MAP_BY_ID = {
     5: 'address',
     28: 'address',
     29: 'website',
@@ -586,21 +639,20 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     17: 'photos',
   };
 
-  const FIELD_MAP_BY_KEY: Record<string, string> = {
+  // Mapping per Attribut-Key (für neue Wind-Felder etc.)
+  const FIELD_MAP_BY_KEY = {
     wind_profile: 'wind_profile',
     wind_swell_profile: 'wind_profile',
     wind_hint: 'wind_hint',
     wind_note: 'wind_hint',
   };
 
-  function getMarkerIcon(catId: number | null, svgMarkup: string | null) {
+  function getMarkerIcon(catId, svgMarkup) {
     const key = String(catId ?? 'default');
-    if (iconCache.current.has(key)) return iconCache.current.get(key)!;
+    if (iconCache.current.has(key)) return iconCache.current.get(key);
     const rawSvg =
-      svgMarkup && String(svgMarkup).trim().startsWith('<')
-        ? svgMarkup
-        : defaultMarkerSvg;
-    const icon: google.maps.Icon = {
+      svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
+    const icon = {
       url: svgToDataUrl(rawSvg),
       scaledSize: new google.maps.Size(30, 30),
       anchor: new google.maps.Point(15, 30),
@@ -609,9 +661,9 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     return icon;
   }
 
-  function normalizeGooglePhotos(val: any) {
+  function normalizeGooglePhotos(val) {
     try {
-      let arr: any[] | null = null;
+      let arr = null;
       if (Array.isArray(val)) arr = val;
       else if (typeof val === 'string' && val.trim().startsWith('[')) arr = JSON.parse(val);
       if (!Array.isArray(arr)) return [];
@@ -629,11 +681,11 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     }
   }
 
-  function mergePhotos(googleArr: any[], userArr: any[]) {
+  function mergePhotos(googleArr, userArr) {
     return [...(userArr || []), ...(googleArr || [])];
   }
 
-  function pickFirstThumb(photos: any[]) {
+  function pickFirstThumb(photos) {
     if (!Array.isArray(photos) || !photos.length) return null;
     const user = photos.find((p) => p.thumb || p.public_url || p.url);
     if (user) return user.thumb || user.public_url || user.url;
@@ -642,12 +694,12 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     return null;
   }
 
-  function buildInfoContent(row: any, kv: any, iconSvgRaw: string | null, langCode: LangCode) {
+  function buildInfoContent(row, kv, iconSvgRaw, langCode) {
     const title = escapeHtml(pickName(row, langCode));
     const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
 
     const addrByLang = kv.addressByLang || {};
-    const pref: LangCode[] = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
+    const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
     let addrSel = '';
     for (const L of pref) {
       if (addrByLang[L]) {
@@ -666,9 +718,9 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
 
     const hoursByLang = kv.hoursByLang || {};
-    let hoursArr: any[] | null = null;
+    let hoursArr = null;
     for (const L of pref) {
-      if (hoursByLang[L]?.length) {
+      if (hoursByLang[L] && hoursByLang[L].length) {
         hoursArr = hoursByLang[L];
         break;
       }
@@ -687,12 +739,12 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
 
     const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label(
       'route',
-      langCode
+      langCode,
     )}</a>`;
     const btnSite = siteHref
       ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label(
           'website',
-          langCode
+          langCode,
         )}</a>`
       : '';
     const btnTel = telHref
@@ -704,12 +756,12 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
       const r = Math.max(0, Math.min(5, Math.round(rating || 0)));
       const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
       ratingHtml = `<div class="iw-row iw-rating">${stars} ${
-        rating?.toFixed ? rating.toFixed(1) : '0.0'
+        rating && rating.toFixed ? rating.toFixed(1) : '0.0'
       }${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
     }
 
     let priceHtml = '';
-    if (priceLevel !== null && !isNaN(priceLevel)) {
+    if (priceLevel !== null && !Number.isNaN(priceLevel)) {
       const p = Math.max(0, Math.min(4, priceLevel));
       priceHtml = `<div class="iw-row iw-price">${'€'.repeat(p || 0)}</div>`;
     }
@@ -717,14 +769,13 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     let openingHtml = '';
     if (kv.opening_now !== undefined) {
       openingHtml += `<div class="iw-row iw-open">${
-        openNow ? '🟢 ' + label('open', langCode) : '🔴 ' + label('closed', langCode)
+        openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`
       }</div>`;
     }
     if (hoursLocalized && hoursLocalized.length) {
-      openingHtml +=
-        '<ul class="iw-hours">' +
-        hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('') +
-        '</ul>';
+      openingHtml += `<ul class="iw-hours">${hoursLocalized
+        .map((h) => `<li>${escapeHtml(String(h))}</li>`)
+        .join('')}</ul>`;
     }
 
     const thumbHtml = firstThumb
@@ -734,13 +785,13 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     const btnPhotos = photos.length
       ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label(
           'photos',
-          langCode
+          langCode,
         )} (${photos.length})</button>`
       : '';
 
     const btnWind = `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
       'wind',
-      langCode
+      langCode,
     )}</button>`;
 
     return `
@@ -772,13 +823,10 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
         await loadGoogleMaps(lang);
         if (cancelled || !mapRef.current) return;
 
-        // @ts-ignore
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
         });
-
-        // @ts-ignore
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
       } catch (e) {
@@ -794,10 +842,10 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
 
   useEffect(() => {
     if (!booted || !mapObj.current) return;
-    loadMarkers(lang as LangCode);
+    loadMarkers(lang);
   }, [booted, lang]);
 
-  async function loadMarkers(langCode: LangCode) {
+  async function loadMarkers(langCode) {
     const { data: locs, error: e1 } = await supabase
       .from('locations')
       .select(`
@@ -806,7 +854,6 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
         description_de,description_en,description_hr,description_it,description_fr,
         categories:category_id ( icon_svg )
       `);
-
     if (e1) {
       console.error(e1);
       return;
@@ -815,23 +862,22 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     const { data: kvRows, error: e2 } = await supabase
       .from('location_values')
       .select(
-        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code, attribute_definitions:attribute_id ( key )'
+        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code, attribute_definitions:attribute_id ( key )',
       );
-
     if (e2) {
       console.warn('location_values load:', e2.message);
     }
 
-    const kvByLoc = new Map<number, any>();
+    const kvByLoc = new Map();
 
-    (kvRows || []).forEach((r: any) => {
-      const locId = r.location_id as number;
-      const key = r.attribute_definitions?.key || null;
+    (kvRows || []).forEach((r) => {
+      const locId = r.location_id;
+      const key = (r.attribute_definitions && r.attribute_definitions.key) || null;
       const canon = FIELD_MAP_BY_ID[r.attribute_id] || (key && FIELD_MAP_BY_KEY[key]);
       if (!canon) return;
 
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
-      const obj = kvByLoc.get(locId)!;
+      const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
 
       // ------------------------------------------------------------
@@ -848,13 +894,15 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
         console.warn(
           `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}.`,
           'Der zusätzliche Eintrag wird ignoriert.',
-          r
+          r,
         );
-        return;
+        return; // verhindert, dass der zweite Wert überschreibt oder Fehler verursacht
       }
 
       if (canon === 'photos') {
-        const google = normalizeGooglePhotos(r.value_json ?? r.value_text ?? null);
+        const google = normalizeGooglePhotos(
+          r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
+        );
         if (google.length) {
           obj.photos = (obj.photos || []).concat(google);
         }
@@ -864,11 +912,12 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
       if (canon === 'wind_profile') {
         try {
           const j =
-            typeof r.value_json === 'object'
+            r.value_json && typeof r.value_json === 'object'
               ? r.value_json
               : JSON.parse(r.value_json || '{}');
           obj.wind_profile = j || null;
-        } catch {
+        } catch (err) {
+          console.warn('[w2h] wind_profile JSON parse failed', err);
           obj.wind_profile = null;
         }
         return;
@@ -888,16 +937,14 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
         (r.value_number !== null && r.value_number !== undefined
           ? String(r.value_number)
           : '') ??
-        (r.value_bool !== null && r.value_bool !== undefined
-          ? String(r.value_bool)
-          : '') ??
+        (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
         (r.value_json ? r.value_json : '');
 
       if (val === '' || val === null || val === undefined) return;
 
       if (canon === 'opening_hours') {
         obj.hoursByLang = obj.hoursByLang || {};
-        let arr: any[] | null = null;
+        let arr = null;
         if (Array.isArray(val)) arr = val;
         else if (typeof val === 'string' && val.trim().startsWith('[')) {
           try {
@@ -921,9 +968,8 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
       }
     });
 
-    const ids = (locs || []).map((l: any) => l.id);
-    let userPhotosMap: Record<number, any[]> = {};
-
+    const ids = (locs || []).map((l) => l.id);
+    let userPhotosMap = {};
     try {
       if (ids.length) {
         const url = `/api/user-photos?ids=${ids.join(',')}`;
@@ -931,10 +977,10 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
         const resp = await fetch(url, { cache: 'no-store' });
         const j = await resp.json();
 
-        if (j?.ok && j.items) {
+        if (j && j.ok && j.items) {
           userPhotosMap = j.items || {};
-        } else if (Array.isArray(j?.rows)) {
-          const map: Record<number, any[]> = {};
+        } else if (Array.isArray(j && j.rows)) {
+          const map = {};
           for (const r of j.rows) {
             const entry = {
               public_url: r.public_url || null,
@@ -979,41 +1025,30 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
     markers.current.forEach((m) => m.setMap(null));
     markers.current = [];
 
-    for (const row of locs || []) {
+    (locs || []).forEach((row) => {
       const title = pickName(row, langCode);
-      const svg = row.categories?.icon_svg || defaultMarkerSvg;
+      const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
 
-      // @ts-ignore
       const marker = new google.maps.Marker({
         position: { lat: row.lat, lng: row.lng },
         title,
         icon: getMarkerIcon(row.category_id, svg),
-        map: mapObj.current!,
-      }) as any;
+        map: mapObj.current,
+      });
 
       marker._cat = String(row.category_id);
-
       marker.addListener('click', () => {
         const kv = kvByLoc.get(row.id) || {};
         const html = buildInfoContent(row, kv, svg, langCode);
-        infoWin.current!.setContent(html);
-        infoWin.current!.open({
-          map: mapObj.current!,
-          anchor: marker,
-        });
+        infoWin.current.setContent(html);
+        infoWin.current.open({ map: mapObj.current, anchor: marker });
 
-        // @ts-ignore
         google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
           const btn = document.getElementById(`phbtn-${row.id}`);
           if (btn) {
             btn.addEventListener('click', () => {
               const photos = kv.photos && Array.isArray(kv.photos) ? kv.photos : [];
-              if (photos.length) {
-                setGallery({
-                  title: pickName(row, langCode),
-                  photos,
-                });
-              }
+              if (photos.length) setGallery({ title: pickName(row, langCode), photos });
             });
           }
 
@@ -1032,13 +1067,13 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
       });
 
       markers.current.push(marker);
-    }
+    });
 
     applyLayerVisibility();
   }
 
   function applyLayerVisibility() {
-    markers.current.forEach((m: any) => {
+    markers.current.forEach((m) => {
       const vis = layerState.current.get(m._cat);
       m.setVisible(vis ?? true);
     });
@@ -1050,11 +1085,11 @@ export default function GoogleMapClient({ lang = 'de' }: { lang?: LangCode }) {
 
       <LayerPanel
         lang={lang}
-        onInit={(initialMap: Map<string, boolean>) => {
+        onInit={(initialMap) => {
           layerState.current = new Map(initialMap);
           applyLayerVisibility();
         }}
-        onToggle={(catKey: string, visible: boolean) => {
+        onToggle={(catKey, visible) => {
           layerState.current.set(catKey, visible);
           applyLayerVisibility();
         }}
