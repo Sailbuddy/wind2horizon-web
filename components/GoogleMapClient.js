@@ -120,7 +120,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
-  // Route akzeptiert ?photo_reference= oder ?photoreference=
   const photoUrl = (ref, max = 800) =>
     `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
 
@@ -133,11 +132,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .replaceAll("'", '&#39;');
   }
 
-  // Lightbox: unterstützt User-URLs (public_url/url/thumb) UND Google-Refs (photo_reference/photoreference)
   function Lightbox({ gallery, onClose }) {
     if (!gallery) return null;
 
-    // Normalisieren (Array | JSON-String | {photos:[...]} → Array)
     let items = [];
     try {
       if (Array.isArray(gallery.photos)) {
@@ -152,7 +149,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       items = [];
     }
 
-    // kleine Debug-Hilfe
     if (items[0]?.public_url || items[0]?.url) {
       console.log('[w2h] user photo[0]', items[0].public_url || items[0].url);
     }
@@ -211,7 +207,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 const w = Math.min(1200, Number(p.width || 0) || 640);
                 src = photoUrl(ref, w);
               } else if (isUser) {
-                // bevorzugt Thumb, sonst public_url/url (ohne Transform-Query – robust für Supabase)
                 src = p.thumb || p.public_url || p.url || '';
               }
 
@@ -239,7 +234,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
                       style={{width:'100%',height:'auto',display:'block'}}
                     />
                   </div>
-                  {/* Credits/Caption */}
                   {isGoogle ? (
                     Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
                       <figcaption style={{fontSize:12,color:'#666',padding:'6px 2px'}}
@@ -261,7 +255,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     );
   }
 
-  // --- Winddaten-Modal (mit Rosette & Hinweistext, LiveWind Platzhalter) ----
   function WindModal({ modal, onClose }) {
     if (!modal) return null;
 
@@ -322,7 +315,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
               alignItems: 'flex-start',
             }}
           >
-            {/* Links: Doppel-Windrose */}
             <div
               style={{
                 background: '#fff',
@@ -345,7 +337,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
               )}
             </div>
 
-            {/* Rechts: Hinweis + LiveWind-Platzhalter */}
             <div style={{ display: 'grid', gap: 12 }}>
               <div
                 style={{
@@ -390,11 +381,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       </div>
     );
   }
-  // -------------------------------------------------
 
-  // -------------------------------------------------
-  // Google Maps Loader
-  // -------------------------------------------------
   function loadGoogleMaps(language) {
     return new Promise((resolve, reject) => {
       if (window.google?.maps) return resolve();
@@ -415,9 +402,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     });
   }
 
-  // -------------------------------------------------
-  // Helpers (bestehend)
-  // -------------------------------------------------
   function repairMojibake(s = '') {
     return /Ã|Å|Â/.test(s) ? decodeURIComponent(escape(s)) : s;
   }
@@ -469,21 +453,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
     hr: ['Ponedjeljak', 'Utorak', 'Srijeda', 'Četvrtak', 'Petak', 'Subota', 'Nedjelja'],
   };
   const DAY_ALIASES = new Map([
-    // EN
     ['monday',0],['mon',0],['tuesday',1],['tue',1],['tues',1],['wednesday',2],['wed',2],
     ['thursday',3],['thu',3],['thur',3],['thurs',3],['friday',4],['fri',4],['saturday',5],['sat',5],
     ['sunday',6],['sun',6],
-    // DE
     ['montag',0],['mo',0],['dienstag',1],['di',1],['mittwoch',2],['mi',2],['donnerstag',3],['do',3],
     ['freitag',4],['fr',4],['samstag',5],['sa',5],['sonntag',6],['so',6],
-    // IT
     ['lunedì',0],['lunedi',0],['lun',0],['martedì',1],['martedi',1],['mar',1],['mercoledì',2],
     ['mercoledi',2],['mer',2],['giovedì',3],['giovedi',3],['gio',3],['venerdì',4],['venerdi',4],['ven',4],
     ['sabato',5],['sab',5],['domenica',6],['dom',6],
-    // FR
     ['lundi',0],['lun',0],['mardi',1],['mar',1],['mercredi',2],['mer',2],['jeudi',3],['jeu',3],
     ['vendredi',4],['ven',4],['samedi',5],['sam',5],['dimanche',6],['dim',6],
-    // HR
     ['ponedjeljak',0],['pon',0],['utorak',1],['uto',1],['srijeda',2],['sri',2],
     ['četvrtak',3],['cetvrtak',3],['čet',3],['cet',3],['petak',4],['pet',4],
     ['subota',5],['sub',5],['nedjelja',6],['ned',6],
@@ -502,7 +481,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return list.map((ln) => localizeHoursLine(String(ln), langCode));
   }
 
-  // Mapping per attribute_id (u. a. 17 = Google Photos Sammelfeld)
+  // Mapping per ID (bestehende Felder)
   const FIELD_MAP_BY_ID = {
     5: 'address',
     28: 'address',
@@ -523,9 +502,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
     26: 'rating_total',
     21: 'price',
     33: 'description',
-    17: 'photos',            //  👈 Google-Sammelfeld
-    102: 'wind_profile',     // wind/swell JSON
-    105: 'wind_hint',        // Hinweistext (multilingual)
+    17: 'photos',
+  };
+
+  // Mapping per Attribut-Key (für neue Wind-Felder etc.)
+  const FIELD_MAP_BY_KEY = {
+    wind_profile: 'wind_profile',
+    wind_swell_profile: 'wind_profile',     // falls du so genannt hast
+    wind_hint: 'wind_hint',
+    wind_note: 'wind_hint',
   };
 
   function getMarkerIcon(catId, svgMarkup) {
@@ -541,7 +526,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return icon;
   }
 
-  // --------- Google-Photos normalisieren + Merge mit User-Fotos ----------
   function normalizeGooglePhotos(val) {
     try {
       let arr = null;
@@ -559,7 +543,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function mergePhotos(googleArr, userArr) {
-    // user zuerst
     return [...(userArr || []), ...(googleArr || [])];
   }
 
@@ -571,13 +554,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (g) return photoUrl(g.photo_reference || g.photoreference, 400);
     return null;
   }
-  // -----------------------------------------------------------------------
 
   function buildInfoContent(row, kv, iconSvgRaw, langCode) {
     const title = escapeHtml(pickName(row, langCode));
     const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
 
-    // Adresse
     const addrByLang = kv.addressByLang || {};
     const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
     let addrSel = '';
@@ -592,13 +573,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const priceLevel = kv.price ? parseInt(kv.price) : null;
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
 
-    // Öffnungszeiten
     const hoursByLang = kv.hoursByLang || {};
     let hoursArr = null;
     for (const L of pref) if (hoursByLang[L]?.length) { hoursArr = hoursByLang[L]; break; }
     const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
 
-    // Fotos (gemergt)
     const photos = Array.isArray(kv.photos) ? kv.photos : [];
     const firstThumb = pickFirstThumb(photos);
 
@@ -640,7 +619,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${photos.length})</button>`
       : '';
 
-    // Basis: Winddaten-Button immer anzeigen (Feintuning „nur wenn windrelevant“ später)
     const btnWind = `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>`;
 
     return `
@@ -664,9 +642,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     `;
   }
 
-  // -------------------------------------------------
-  // Boot
-  // -------------------------------------------------
   useEffect(() => {
     let cancelled = false;
 
@@ -695,9 +670,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     loadMarkers(lang);
   }, [booted, lang]);
 
-  // -------------------------------------------------
-  // Marker + Zusatzdaten laden
-  // -------------------------------------------------
   async function loadMarkers(langCode) {
     const { data: locs, error: e1 } = await supabase
       .from('locations')
@@ -711,13 +683,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const { data: kvRows, error: e2 } = await supabase
       .from('location_values')
-      .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code');
+      .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code, attribute_definitions:attribute_id ( key )');
     if (e2) { console.warn('location_values load:', e2.message); }
 
     const kvByLoc = new Map();
     (kvRows || []).forEach(r => {
       const locId = r.location_id;
-      const canon = FIELD_MAP_BY_ID[r.attribute_id];
+      const key = r.attribute_definitions?.key || null;
+      const canon = FIELD_MAP_BY_ID[r.attribute_id] || (key && FIELD_MAP_BY_KEY[key]);
       if (!canon) return;
 
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
@@ -732,7 +705,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         return;
       }
 
-      // Windprofil (JSON)
       if (canon === 'wind_profile') {
         try {
           const j = typeof r.value_json === 'object'
@@ -745,7 +717,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         return;
       }
 
-      // Hinweistext (multilingual)
       if (canon === 'wind_hint') {
         obj.wind_hint = obj.wind_hint || {};
         if (lc) {
@@ -784,7 +755,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     });
 
-    // ---- User-Fotos aus eigener API holen und mergen ----
     const ids = (locs || []).map(l => l.id);
     let userPhotosMap = {};
     try {
@@ -795,10 +765,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         const j = await resp.json();
 
         if (j?.ok && j.items) {
-          // alte (items-)Variante
           userPhotosMap = j.items || {};
         } else if (Array.isArray(j?.rows)) {
-          // aktuelle rows-Variante
           const map = {};
           for (const r of j.rows) {
             const entry = {
@@ -838,9 +806,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       obj.first_photo_ref = pickFirstThumb(obj.photos);
       kvByLoc.set(loc.id, obj);
     }
-    // ----------------------------------------------------
 
-    // alte Marker entfernen
     markers.current.forEach(m => m.setMap(null));
     markers.current = [];
 
@@ -862,9 +828,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
-        // Buttons im InfoWindow verdrahten
         google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
-          // Galerie
           const btn = document.getElementById(`phbtn-${row.id}`);
           if (btn) {
             btn.addEventListener('click', () => {
@@ -873,7 +837,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
             });
           }
 
-          // Winddaten
           const wbtn = document.getElementById(`windbtn-${row.id}`);
           if (wbtn) {
             wbtn.addEventListener('click', () => {
@@ -917,10 +880,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }}
       />
 
-      {/* Lightbox */}
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
-
-      {/* Winddaten-Modal */}
       <WindModal modal={windModal} onClose={() => setWindModal(null)} />
 
       <style jsx>{`
@@ -928,7 +888,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         .w2h-map { height: 100%; width: 100%; }
       `}</style>
 
-      {/* InfoWindow Styles global */}
       <style jsx global>{`
         .gm-style .w2h-iw { max-width: 340px; font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #1a1a1a; }
         .gm-style .w2h-iw .iw-hd { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; margin-bottom: 6px; }
