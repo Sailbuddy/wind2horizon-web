@@ -6,6 +6,101 @@ import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
 
+// --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
+const DIRS = ['N','NO','O','SO','S','SW','W','NW'];
+const ANGLE = { N:0, NO:45, O:90, SO:135, S:180, SW:225, W:270, NW:315 };
+
+function WindSwellRose({
+  size = 260,
+  wind = {},
+  swell = {},
+}) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = size * 0.40;
+  const innerR = size * 0.24;
+  const arrowL = size * 0.085;
+  const arrowW = size * 0.06;
+
+  const normBool = (m) => {
+    const out = {};
+    DIRS.forEach(d => { out[d] = !!m?.[d]; });
+    return out;
+  };
+  const w = normBool(wind);
+  const s = normBool(swell);
+
+  const arrow = (deg, r) => {
+    const rad = (deg - 90) * Math.PI / 180; // 0° = Norden
+    const tipX = cx + Math.cos(rad) * (r - arrowL);
+    const tipY = cy + Math.sin(rad) * (r - arrowL);
+    const baseX = cx + Math.cos(rad) * r;
+    const baseY = cy + Math.sin(rad) * r;
+    const nx = Math.cos(rad + Math.PI / 2) * (arrowW / 2);
+    const ny = Math.sin(rad + Math.PI / 2) * (arrowW / 2);
+    return `${tipX},${tipY} ${baseX - nx},${baseY - ny} ${baseX + nx},${baseY + ny}`;
+  };
+
+  return (
+    <svg
+      viewBox={`0 0 ${size} ${size}`}
+      width={size}
+      height={size}
+      role="img"
+      aria-label="Wind & Schwell"
+    >
+      {/* Ringe */}
+      <circle cx={cx} cy={cy} r={outerR} fill="none" stroke="#AFAFAF" strokeWidth={size * 0.03} />
+      <circle cx={cx} cy={cy} r={innerR} fill="none" stroke="#AFAFAF" strokeWidth={size * 0.025} />
+
+      {/* Außen: Wind (rot) */}
+      {DIRS.map((d) => (
+        <polygon
+          key={`w-${d}`}
+          points={arrow(ANGLE[d], outerR)}
+          fill={w[d] ? '#E53E3E' : '#C7C7C7'}
+        >
+          <title>{`Gefahr bei WIND aus ${d}`}</title>
+        </polygon>
+      ))}
+
+      {/* Innen: Schwell (blau) */}
+      {DIRS.map((d) => (
+        <polygon
+          key={`s-${d}`}
+          points={arrow(ANGLE[d], innerR)}
+          fill={s[d] ? '#2563EB' : '#C7C7C7'}
+        >
+          <title>{`Gefahr bei SCHWELL aus ${d}`}</title>
+        </polygon>
+      ))}
+
+      {/* Labels */}
+      {DIRS.map((d) => {
+        const r = outerR + size * 0.08;
+        const rad = (ANGLE[d] - 90) * Math.PI / 180;
+        const tx = cx + Math.cos(rad) * r;
+        const ty = cy + Math.sin(rad) * r;
+        return (
+          <text
+            key={`lbl-${d}`}
+            x={tx}
+            y={ty}
+            fontFamily="system-ui, sans-serif"
+            fontSize={size * 0.07}
+            fill="#111"
+            textAnchor="middle"
+            dominantBaseline="central"
+          >
+            {d}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+// -------------------------------------------------------------------
+
 export default function GoogleMapClient({ lang = 'de' }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
@@ -18,8 +113,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Galerie-Lightbox
   const [gallery, setGallery] = useState(null);
 
-  // Winddaten-Modal (Basis – später mit Rosette & LiveWind)
-  const [windModal, setWindModal] = useState(null); // { id, title }
+  // Winddaten-Modal (mit Daten)
+  // modal: { id, title, windProfile, windHint }
+  const [windModal, setWindModal] = useState(null);
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -165,9 +261,19 @@ export default function GoogleMapClient({ lang = 'de' }) {
     );
   }
 
-  // --- Winddaten-Modal (Basisversion) ------------------------------
+  // --- Winddaten-Modal (mit Rosette & Hinweistext, LiveWind Platzhalter) ----
   function WindModal({ modal, onClose }) {
     if (!modal) return null;
+
+    const windProfile = modal.windProfile || null;
+    const windHint = modal.windHint || {};
+
+    const hintText =
+      windHint[lang] ||
+      windHint.de ||
+      windHint.en ||
+      '';
+
     return (
       <div
         onClick={onClose}
@@ -186,7 +292,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           style={{
             background: '#f9fafb',
             borderRadius: 16,
-            maxWidth: 900,
+            maxWidth: 960,
             width: '95vw',
             maxHeight: '90vh',
             padding: 20,
@@ -208,19 +314,77 @@ export default function GoogleMapClient({ lang = 'de' }) {
             </button>
           </div>
 
-          {/* Platzhalter – hier kommen später Rosette, Hinweistext & LiveWind rein */}
-          <p style={{ margin: 0, fontSize: 14 }}>
-            Hier bauen wir im nächsten Schritt:
-          </p>
-          <ul style={{ marginTop: 4, paddingLeft: 20, fontSize: 14 }}>
-            <li>Doppel-Windrosette (read-only)</li>
-            <li>Wind-/Schwell-Hinweistext aus der Datenbank</li>
-            <li>LiveWind-Widget mit aktuellen Werten</li>
-          </ul>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 0.9fr)',
+              gap: 20,
+              alignItems: 'flex-start',
+            }}
+          >
+            {/* Links: Doppel-Windrose */}
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: 14,
+                padding: 12,
+                border: '1px solid #e5e7eb',
+              }}
+            >
+              <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Wind &amp; Schwell-Rosette</h3>
+              {windProfile ? (
+                <WindSwellRose
+                  size={260}
+                  wind={windProfile.wind || {}}
+                  swell={windProfile.swell || {}}
+                />
+              ) : (
+                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
+                  Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.
+                </p>
+              )}
+            </div>
 
-          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 12 }}>
-            Aktuell ist dies nur ein Platzhalter. Der Button „Winddaten“ im Infofenster ist damit aber schon voll
-            funktionsfähig und öffnet dieses Modal.
+            {/* Rechts: Hinweis + LiveWind-Platzhalter */}
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: 14,
+                  padding: 12,
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Hinweis</h3>
+                {hintText ? (
+                  <p style={{ margin: 0, fontSize: 14, whiteSpace: 'pre-wrap' }}>{hintText}</p>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
+                    Kein spezieller Hinweistext hinterlegt.
+                  </p>
+                )}
+              </div>
+
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: 14,
+                  padding: 12,
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
+                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
+                  Hier binden wir im nächsten Schritt das LiveWind-Widget ein
+                  (z.&nbsp;B. Station in der Nähe dieses Spots).
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning (windrelevant, Stationen, Layout)
+            folgt.
           </p>
         </div>
       </div>
@@ -360,8 +524,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     21: 'price',
     33: 'description',
     17: 'photos',            //  👈 Google-Sammelfeld
-    // später können wir hier z.B. "wind_relevant" / "wind_info" mappen
-    // z.B.:  50: 'wind_relevant',  51: 'wind_note'
+    102: 'wind_profile',     // wind/swell JSON
+    105: 'wind_hint',        // Hinweistext (multilingual)
   };
 
   function getMarkerIcon(catId, svgMarkup) {
@@ -568,6 +732,28 @@ export default function GoogleMapClient({ lang = 'de' }) {
         return;
       }
 
+      // Windprofil (JSON)
+      if (canon === 'wind_profile') {
+        try {
+          const j = typeof r.value_json === 'object'
+            ? r.value_json
+            : JSON.parse(r.value_json || '{}');
+          obj.wind_profile = j || null;
+        } catch {
+          obj.wind_profile = null;
+        }
+        return;
+      }
+
+      // Hinweistext (multilingual)
+      if (canon === 'wind_hint') {
+        obj.wind_hint = obj.wind_hint || {};
+        if (lc) {
+          obj.wind_hint[lc] = r.value_text || '';
+        }
+        return;
+      }
+
       const val =
         r.value_text ?? r.value_option ??
         (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
@@ -694,6 +880,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
               setWindModal({
                 id: row.id,
                 title: pickName(row, langCode),
+                windProfile: kv.wind_profile || null,
+                windHint: kv.wind_hint || {},
               });
             });
           }
@@ -732,7 +920,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       {/* Lightbox */}
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
 
-      {/* Winddaten-Modal (Basis) */}
+      {/* Winddaten-Modal */}
       <WindModal modal={windModal} onClose={() => setWindModal(null)} />
 
       <style jsx>{`
