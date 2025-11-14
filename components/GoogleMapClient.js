@@ -637,6 +637,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
     21: 'price',
     33: 'description',
     17: 'photos',
+
+ // neue Wind-Felder:
+    102: 'wind_profile', // JSON Wind & Schwell
+    105: 'wind_hint',    // mehrsprachiger Hinweistext
   };
 
   // Mapping per Attribut-Key (für neue Wind-Felder etc.)
