@@ -646,7 +646,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Mapping per Attribut-Key (für neue Wind-Felder etc.)
   const FIELD_MAP_BY_KEY = {
     wind_profile: 'wind_profile',
-    wind_swell_profile: 'wind_profile',
+    wind_swell_profile: 'wind_profile',     // falls du so genannt hast
+    wind_profile_info: 'wind_hint',         // Freitext-Hinweis (Attribut-Key 105)
     wind_hint: 'wind_hint',
     wind_note: 'wind_hint',
   };
@@ -929,8 +930,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       if (canon === 'wind_hint') {
         obj.wind_hint = obj.wind_hint || {};
-        if (lc) {
-          obj.wind_hint[lc] = r.value_text || '';
+        let text = '';
+        if (r.value_text && String(r.value_text).trim()) {
+          text = String(r.value_text);
+        } else if (r.value_json) {
+          try {
+            const j = typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
+            if (typeof j === 'string') {
+              text = j;
+            } else if (Array.isArray(j) && j.length) {
+              text = String(j[0]);
+            } else if (j && typeof j === 'object' && j.text) {
+              text = String(j.text);
+            }
+          } catch (err) {
+            console.warn('[w2h] wind_hint JSON parse failed', err, r);
+          }
+        }
+        if (lc && text) {
+          obj.wind_hint[lc] = text;
         }
         return;
       }
