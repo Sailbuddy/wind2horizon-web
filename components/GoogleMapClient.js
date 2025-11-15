@@ -638,9 +638,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
     33: 'description',
     17: 'photos',
 
- // neue Wind-Felder:
+    // neue Wind-Felder:
     102: 'wind_profile', // JSON Wind & Schwell
     105: 'wind_hint',    // mehrsprachiger Hinweistext
+
+    // LiveWind-Stations-ID
+    107: 'livewind_station',
   };
 
   // Mapping per Attribut-Key (für neue Wind-Felder etc.)
@@ -650,6 +653,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     wind_profile_info: 'wind_hint',         // Freitext-Hinweis (Attribut-Key 105)
     wind_hint: 'wind_hint',
     wind_note: 'wind_hint',
+
+    livewind_station: 'livewind_station',
   };
 
   function getMarkerIcon(catId, svgMarkup) {
@@ -735,6 +740,24 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const photos = Array.isArray(kv.photos) ? kv.photos : [];
     const firstThumb = pickFirstThumb(photos);
 
+    // 🔹 LiveWind-Station (falls vorhanden)
+    const liveWindStationRaw = kv.livewind_station
+      ? String(kv.livewind_station).trim()
+      : '';
+    const liveWindHtml = liveWindStationRaw
+      ? `<div class="iw-row iw-livewind">
+           <div style="font-size:12px;font-weight:600;margin-bottom:4px;">Live-Wind</div>
+           <iframe
+             src="https://w2hlivewind.netlify.app?station=${encodeURIComponent(
+               liveWindStationRaw,
+             )}"
+             loading="lazy"
+             style="width:100%;height:60px;border:none;"
+             title="LiveWind"
+           ></iframe>
+         </div>`
+      : '';
+
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref =
       website && website.startsWith('http') ? website : website ? `https://${website}` : '';
@@ -812,6 +835,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           ${ratingHtml}
           ${priceHtml}
           ${openingHtml}
+          ${liveWindHtml}
         </div>
         <div class="iw-actions">
           ${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
@@ -894,7 +918,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         canon !== 'address' &&
         canon !== 'photos' &&
         canon !== 'wind_profile' &&
-        canon !== 'wind_hint'
+        canon !== 'wind_hint' &&
+        canon !== 'livewind_station'
       ) {
         console.warn(
           `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}.`,
@@ -949,6 +974,30 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }
         if (lc && text) {
           obj.wind_hint[lc] = text;
+        }
+        return;
+      }
+
+      if (canon === 'livewind_station') {
+        // Stations-ID aus Text / JSON ziehen und als String speichern
+        let station = '';
+        if (r.value_text && String(r.value_text).trim()) {
+          station = String(r.value_text).trim();
+        } else if (r.value_json) {
+          try {
+            const j =
+              typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
+            if (typeof j === 'string' || typeof j === 'number') {
+              station = String(j).trim();
+            } else if (j && typeof j === 'object' && j.station) {
+              station = String(j.station).trim();
+            }
+          } catch (err) {
+            console.warn('[w2h] livewind_station JSON parse failed', err, r);
+          }
+        }
+        if (station) {
+          obj.livewind_station = station;
         }
         return;
       }
