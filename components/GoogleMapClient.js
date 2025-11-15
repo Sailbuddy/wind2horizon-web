@@ -403,7 +403,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                       Station: <strong>{liveWindStation}</strong>
                     </p>
                     <iframe
-                      src={`https://livewind.wind2horizon.com?station=${encodeURIComponent(
+                      src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(
                         String(liveWindStation),
                       )}`}
                       style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
