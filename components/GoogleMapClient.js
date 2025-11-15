@@ -655,7 +655,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     // neue Wind-Felder:
     102: 'wind_profile', // JSON Wind & Schwell
-    105: 'wind_hint',    // mehrsprachiger Hinweistext
+    105: 'wind_hint', // mehrsprachiger Hinweistext
 
     // LiveWind-Stations-ID
     107: 'livewind_station',
@@ -1065,7 +1065,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
 
-    for (const loc of (locs || [])) {
+    for (const loc of locs || []) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
 
