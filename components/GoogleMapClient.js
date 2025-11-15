@@ -113,7 +113,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [gallery, setGallery] = useState(null);
 
   // Winddaten-Modal (mit Daten)
-  // modal: { id, title, windProfile, windHint }
+  // modal: { id, title, windProfile, windHint, liveWindStation }
   const [windModal, setWindModal] = useState(null);
 
   // ---------------------------------------------
@@ -283,8 +283,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const windProfile = modal.windProfile || null;
     const windHint = modal.windHint || {};
-
     const hintText = windHint[lang] || windHint.de || windHint.en || '';
+    const liveWindStation = modal.liveWindStation || null;
 
     return (
       <div
@@ -397,10 +397,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 }}
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
-                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
-                  Hier binden wir im nächsten Schritt das LiveWind-Widget ein (z. B. Station in der
-                  Nähe dieses Spots).
-                </p>
+                {liveWindStation ? (
+                  <>
+                    <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
+                      Station: <strong>{liveWindStation}</strong>
+                    </p>
+                    <iframe
+                      src={`https://livewind.wind2horizon.com?station=${encodeURIComponent(
+                        String(liveWindStation),
+                      )}`}
+                      style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
+                      loading="lazy"
+                      title="LiveWind"
+                    />
+                  </>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
+                    Für diesen Spot ist noch keine Live-Wind-Station verknüpft.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -604,7 +619,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
-    const rest = m[2].trim();
+    the rest = m[2].trim();
     const idx = DAY_ALIASES.get(head.toLowerCase());
     if (idx === undefined) return line;
     const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
@@ -646,14 +661,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
     107: 'livewind_station',
   };
 
-  // Mapping per Attribut-Key (für neue Wind-Felder etc.)
+  // Mapping per Attribut-Key
   const FIELD_MAP_BY_KEY = {
     wind_profile: 'wind_profile',
-    wind_swell_profile: 'wind_profile',     // falls du so genannt hast
-    wind_profile_info: 'wind_hint',         // Freitext-Hinweis (Attribut-Key 105)
+    wind_swell_profile: 'wind_profile',
+    wind_profile_info: 'wind_hint',
     wind_hint: 'wind_hint',
     wind_note: 'wind_hint',
-
     livewind_station: 'livewind_station',
   };
 
@@ -740,24 +754,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const photos = Array.isArray(kv.photos) ? kv.photos : [];
     const firstThumb = pickFirstThumb(photos);
 
-    // 🔹 LiveWind-Station (falls vorhanden)
-    const liveWindStationRaw = kv.livewind_station
-      ? String(kv.livewind_station).trim()
-      : '';
-    const liveWindHtml = liveWindStationRaw
-      ? `<div class="iw-row iw-livewind">
-           <div style="font-size:12px;font-weight:600;margin-bottom:4px;">Live-Wind</div>
-           <iframe
-             src="https://w2hlivewind.netlify.app?station=${encodeURIComponent(
-               liveWindStationRaw,
-             )}"
-             loading="lazy"
-             style="width:100%;height:60px;border:none;"
-             title="LiveWind"
-           ></iframe>
-         </div>`
-      : '';
-
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref =
       website && website.startsWith('http') ? website : website ? `https://${website}` : '';
@@ -835,7 +831,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
           ${ratingHtml}
           ${priceHtml}
           ${openingHtml}
-          ${liveWindHtml}
         </div>
         <div class="iw-actions">
           ${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
@@ -909,11 +904,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
 
-      // ------------------------------------------------------------
-      // Schutz: doppelte nicht-multilinguale Attribute ignorieren
-      // ------------------------------------------------------------
+      // Schutz bei Duplikaten
       if (
-        obj[canon] && // bereits vorhanden
+        obj[canon] &&
         canon !== 'opening_hours' &&
         canon !== 'address' &&
         canon !== 'photos' &&
@@ -926,7 +919,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           'Der zusätzliche Eintrag wird ignoriert.',
           r,
         );
-        return; // verhindert, dass der zweite Wert überschreibt oder Fehler verursacht
+        return;
       }
 
       if (canon === 'photos') {
@@ -979,7 +972,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       if (canon === 'livewind_station') {
-        // Stations-ID aus Text / JSON ziehen und als String speichern
         let station = '';
         if (r.value_text && String(r.value_text).trim()) {
           station = String(r.value_text).trim();
@@ -1073,7 +1065,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
 
-    for (const loc of locs || []) {
+    for (const loc of (locs || [])) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
 
@@ -1131,6 +1123,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 title: pickName(row, langCode),
                 windProfile: kv.wind_profile || null,
                 windHint: kv.wind_hint || {},
+                liveWindStation: kv.livewind_station || null,
               });
             });
           }
