@@ -619,7 +619,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
-    the rest = m[2].trim();
+    const rest = m[2].trim();
     const idx = DAY_ALIASES.get(head.toLowerCase());
     if (idx === undefined) return line;
     const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
