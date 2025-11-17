@@ -278,13 +278,32 @@ export default function GoogleMapClient({ lang = 'de' }) {
     );
   }
 
+  // LiveWind-Helfer: ID + Name aus beliebigem Wert holen
+  function parseLivewind(raw) {
+    let stationId = '';
+    let stationName = null;
+
+    if (raw == null) return { stationId, stationName };
+
+    if (typeof raw === 'string' || typeof raw === 'number') {
+      stationId = String(raw).trim();
+    } else if (typeof raw === 'object') {
+      if (raw.id != null) stationId = String(raw.id).trim();
+      if (!stationId && raw.station != null) stationId = String(raw.station).trim();
+      if (raw.name != null) stationName = String(raw.name);
+    }
+
+    return { stationId, stationName };
+  }
+
   function WindModal({ modal, onClose }) {
     if (!modal) return null;
 
     const windProfile = modal.windProfile || null;
     const windHint = modal.windHint || {};
     const hintText = windHint[lang] || windHint.de || windHint.en || '';
-    const liveWindStation = modal.liveWindStation || null;
+    const liveWindStationRaw = modal.liveWindStation || null;
+    const { stationId, stationName } = parseLivewind(liveWindStationRaw);
 
     return (
       <div
@@ -397,14 +416,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 }}
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
-                {liveWindStation ? (
+                {stationId ? (
                   <>
                     <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
-                      Station: <strong>{liveWindStation}</strong>
+                      Station: <strong>{stationId}</strong>
+                      {stationName ? <> – {stationName}</> : null}
                     </p>
                     <iframe
                       src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(
-                        String(liveWindStation),
+                        String(stationId),
                       )}`}
                       style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
                       loading="lazy"
@@ -972,24 +992,24 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       if (canon === 'livewind_station') {
-        let station = '';
+        let raw = null;
+
         if (r.value_text && String(r.value_text).trim()) {
-          station = String(r.value_text).trim();
+          raw = String(r.value_text).trim();
         } else if (r.value_json) {
           try {
             const j =
               typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
-            if (typeof j === 'string' || typeof j === 'number') {
-              station = String(j).trim();
-            } else if (j && typeof j === 'object' && j.station) {
-              station = String(j.station).trim();
-            }
+            raw = j;
           } catch (err) {
             console.warn('[w2h] livewind_station JSON parse failed', err, r);
           }
         }
-        if (station) {
-          obj.livewind_station = station;
+
+        const { stationId, stationName } = parseLivewind(raw);
+        if (stationId) {
+          // wir speichern ein Objekt, damit Name im Modal verfügbar ist
+          obj.livewind_station = stationName ? { id: stationId, name: stationName } : stationId;
         }
         return;
       }
