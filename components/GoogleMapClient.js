@@ -113,8 +113,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [gallery, setGallery] = useState(null);
 
   // Winddaten-Modal (mit Daten)
-  // modal: { id, title, windProfile, windHint, liveWindStation }
+  // modal: { id, title, windProfile, windHint, liveWindStation, liveWindStationName }
   const [windModal, setWindModal] = useState(null);
+
+  // Debug-Flag: wenn true, zeigen wir die "doppeltes Attribut"-Warnungen und Fetch-Logs
+  const DEBUG_LOG = false;
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -146,14 +149,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     } catch {
       items = [];
-    }
-
-    if (items[0]?.public_url || items[0]?.url) {
-      console.log('[w2h] user photo[0]', items[0].public_url || items[0].url);
-    }
-    if (items[0]?.photo_reference || items[0]?.photoreference) {
-      const ref = items[0].photo_reference || items[0].photoreference;
-      console.log('[w2h] google photo[0]', photoUrl(ref, 320));
     }
 
     return (
@@ -284,41 +279,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const windProfile = modal.windProfile || null;
     const windHint = modal.windHint || {};
     const hintText = windHint[lang] || windHint.de || windHint.en || '';
-
-    // LiveWind: ID & Name aus Objekt oder String holen
-    const rawStation = modal.liveWindStation || null;
-    let stationId = '';
-    let stationName = '';
-
-    if (rawStation && typeof rawStation === 'object') {
-      stationId = (
-        rawStation.id ||
-        rawStation.station ||
-        rawStation.value ||
-        rawStation.station_id ||
-        rawStation.meteostat_id ||
-        rawStation.meteostat_station_id ||
-        ''
-      )
-        .toString()
-        .trim();
-
-      stationName = (
-        rawStation.name ||
-        rawStation.label ||
-        rawStation.station_name ||
-        rawStation.meteostat_name ||
-        rawStation.city ||
-        rawStation.place ||
-        ''
-      )
-        .toString()
-        .trim();
-    } else if (rawStation !== null && rawStation !== undefined) {
-      stationId = String(rawStation).trim();
-    }
-
-    const hasStation = !!stationId;
+    const liveWindStation = modal.liveWindStation || null;
+    const liveWindStationName = modal.liveWindStationName || null;
 
     return (
       <div
@@ -431,18 +393,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 }}
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
-                {hasStation ? (
+                {liveWindStation ? (
                   <>
                     <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
                       Station:{' '}
                       <strong>
-                        {stationId}
-                        {stationName ? ` – ${stationName}` : ''}
+                        {liveWindStation}
+                        {liveWindStationName ? ` – ${liveWindStationName}` : ''}
                       </strong>
                     </p>
                     <iframe
                       src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(
-                        stationId,
+                        String(liveWindStation),
                       )}`}
                       style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
                       loading="lazy"
@@ -924,7 +886,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const { data: kvRows, error: e2 } = await supabase
       .from('location_values')
       .select(
-        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code, name, attribute_definitions:attribute_id ( key )',
+        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )',
       );
     if (e2) {
       console.warn('location_values load:', e2.message);
@@ -942,7 +904,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
 
-      // Schutz bei Duplikaten
+      // Schutz bei Duplikaten – standardmäßig stumm, um die Konsole sauber zu halten
       if (
         obj[canon] &&
         canon !== 'opening_hours' &&
@@ -952,11 +914,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
         canon !== 'wind_hint' &&
         canon !== 'livewind_station'
       ) {
-        console.warn(
-          `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}.`,
-          'Der zusätzliche Eintrag wird ignoriert.',
-          r,
-        );
+        if (DEBUG_LOG) {
+          console.warn(
+            `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}. Der zusätzliche Eintrag wird ignoriert.`,
+            r,
+          );
+        }
         return;
       }
 
@@ -1010,63 +973,31 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       if (canon === 'livewind_station') {
-        // LiveWind: ID aus value_text, Name aus Spalte "name",
-        // plus evtl. Zusatzinfos aus value_json
         let stationId = '';
-        let stationName = '';
-
-        // 1) ID aus value_text (z.B. "14308")
         if (r.value_text && String(r.value_text).trim()) {
           stationId = String(r.value_text).trim();
-        }
-
-        // 2) Name direkt aus Spalte "name" (z.B. "Pazin")
-        if (r.name && String(r.name).trim()) {
-          stationName = String(r.name).trim();
-        }
-
-        // 3) Zusatzinfos aus value_json (falls vorhanden)
-        if (r.value_json) {
+        } else if (r.value_json) {
           try {
             const j =
               typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
-
             if (typeof j === 'string' || typeof j === 'number') {
-              if (!stationId) stationId = String(j).trim();
-            } else if (j && typeof j === 'object') {
-              const candId =
-                j.id ||
-                j.station ||
-                j.value ||
-                j.station_id ||
-                j.meteostat_id ||
-                j.meteostat_station_id;
-
-              const candName =
-                j.name ||
-                j.label ||
-                j.station_name ||
-                j.meteostat_name ||
-                j.city ||
-                j.place;
-
-              if (candId && !stationId) {
-                stationId = String(candId).trim();
-              }
-              if (candName && !stationName) {
-                stationName = String(candName).trim();
-              }
+              stationId = String(j).trim();
             }
           } catch (err) {
             console.warn('[w2h] livewind_station JSON parse failed', err, r);
           }
         }
 
+        const stationName =
+          (r.name && String(r.name).trim()) && String(r.name).trim().length
+            ? String(r.name).trim()
+            : null;
+
         if (stationId) {
-          obj.livewind_station = {
-            id: stationId,
-            name: stationName || null,
-          };
+          obj.livewind_station = stationId;
+          if (stationName) {
+            obj.livewind_station_name = stationName;
+          }
         }
         return;
       }
@@ -1113,7 +1044,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
     try {
       if (ids.length) {
         const url = `/api/user-photos?ids=${ids.join(',')}`;
-        console.log('[w2h] fetch user-photos:', url);
+        if (DEBUG_LOG) {
+          console.log('[w2h] fetch user-photos:', url);
+        }
         const resp = await fetch(url, { cache: 'no-store' });
         const j = await resp.json();
 
@@ -1142,7 +1075,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
 
-    for (const loc of locs || []) {
+    for (const loc of (locs || [])) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
 
@@ -1201,6 +1134,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 windProfile: kv.wind_profile || null,
                 windHint: kv.wind_hint || {},
                 liveWindStation: kv.livewind_station || null,
+                liveWindStationName: kv.livewind_station_name || null,
               });
             });
           }
