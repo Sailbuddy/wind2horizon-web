@@ -278,32 +278,35 @@ export default function GoogleMapClient({ lang = 'de' }) {
     );
   }
 
-  // LiveWind-Helfer: ID + Name aus beliebigem Wert holen
-  function parseLivewind(raw) {
-    let stationId = '';
-    let stationName = null;
-
-    if (raw == null) return { stationId, stationName };
-
-    if (typeof raw === 'string' || typeof raw === 'number') {
-      stationId = String(raw).trim();
-    } else if (typeof raw === 'object') {
-      if (raw.id != null) stationId = String(raw.id).trim();
-      if (!stationId && raw.station != null) stationId = String(raw.station).trim();
-      if (raw.name != null) stationName = String(raw.name);
-    }
-
-    return { stationId, stationName };
-  }
-
   function WindModal({ modal, onClose }) {
     if (!modal) return null;
 
     const windProfile = modal.windProfile || null;
     const windHint = modal.windHint || {};
     const hintText = windHint[lang] || windHint.de || windHint.en || '';
+
+    // LiveWind: ID + Name aus Objekt oder einfachem String holen
     const liveWindStationRaw = modal.liveWindStation || null;
-    const { stationId, stationName } = parseLivewind(liveWindStationRaw);
+    let liveWindStationId = '';
+    let liveWindStationName = '';
+
+    if (
+      typeof liveWindStationRaw === 'string' ||
+      typeof liveWindStationRaw === 'number'
+    ) {
+      liveWindStationId = String(liveWindStationRaw);
+    } else if (liveWindStationRaw && typeof liveWindStationRaw === 'object') {
+      if (liveWindStationRaw.id || liveWindStationRaw.station) {
+        liveWindStationId = String(
+          liveWindStationRaw.id || liveWindStationRaw.station,
+        ).trim();
+      }
+      if (liveWindStationRaw.name) {
+        liveWindStationName = String(liveWindStationRaw.name).trim();
+      }
+    }
+
+    const hasLiveWind = !!liveWindStationId;
 
     return (
       <div
@@ -416,15 +419,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 }}
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
-                {stationId ? (
+                {hasLiveWind ? (
                   <>
                     <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
-                      Station: <strong>{stationId}</strong>
-                      {stationName ? <> – {stationName}</> : null}
+                      Station:{' '}
+                      <strong>{liveWindStationId}</strong>
+                      {liveWindStationName ? ` – ${liveWindStationName}` : ''}
                     </p>
                     <iframe
                       src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(
-                        String(stationId),
+                        String(liveWindStationId),
                       )}`}
                       style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
                       loading="lazy"
@@ -992,24 +996,37 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       if (canon === 'livewind_station') {
-        let raw = null;
+        // ID + Name aus value_text / value_json extrahieren
+        let id = '';
+        let name = '';
 
         if (r.value_text && String(r.value_text).trim()) {
-          raw = String(r.value_text).trim();
+          id = String(r.value_text).trim();
         } else if (r.value_json) {
           try {
             const j =
               typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
-            raw = j;
+
+            if (typeof j === 'string' || typeof j === 'number') {
+              id = String(j).trim();
+            } else if (j && typeof j === 'object') {
+              if (j.id || j.station) {
+                id = String(j.id || j.station).trim();
+              }
+              if (j.name) {
+                name = String(j.name).trim();
+              }
+            }
           } catch (err) {
             console.warn('[w2h] livewind_station JSON parse failed', err, r);
           }
         }
 
-        const { stationId, stationName } = parseLivewind(raw);
-        if (stationId) {
-          // wir speichern ein Objekt, damit Name im Modal verfügbar ist
-          obj.livewind_station = stationName ? { id: stationId, name: stationName } : stationId;
+        if (id) {
+          obj.livewind_station = {
+            id,
+            name: name || null,
+          };
         }
         return;
       }
@@ -1085,7 +1102,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
 
-    for (const loc of locs || []) {
+    for (const loc of (locs || [])) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
 
