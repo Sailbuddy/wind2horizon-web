@@ -285,17 +285,31 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const windHint = modal.windHint || {};
     const hintText = windHint[lang] || windHint.de || windHint.en || '';
 
-    // LiveWind: ID + Name aus dem Modal herausziehen
+    // LiveWind: ID & Name aus Objekt oder String holen
     const rawStation = modal.liveWindStation || null;
     let stationId = '';
     let stationName = '';
 
     if (rawStation && typeof rawStation === 'object') {
-      stationId = (rawStation.id || rawStation.station || rawStation.value || '').toString().trim();
+      stationId = (
+        rawStation.id ||
+        rawStation.station ||
+        rawStation.value ||
+        rawStation.station_id ||
+        rawStation.meteostat_id ||
+        rawStation.meteostat_station_id ||
+        ''
+      )
+        .toString()
+        .trim();
+
       stationName = (
         rawStation.name ||
         rawStation.label ||
         rawStation.station_name ||
+        rawStation.meteostat_name ||
+        rawStation.city ||
+        rawStation.place ||
         ''
       )
         .toString()
@@ -303,6 +317,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     } else if (rawStation !== null && rawStation !== undefined) {
       stationId = String(rawStation).trim();
     }
+
+    const hasStation = !!stationId;
 
     return (
       <div
@@ -415,7 +431,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 }}
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
-                {stationId ? (
+                {hasStation ? (
                   <>
                     <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
                       Station:{' '}
@@ -426,7 +442,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                     </p>
                     <iframe
                       src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(
-                        String(stationId),
+                        stationId,
                       )}`}
                       style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
                       loading="lazy"
@@ -908,7 +924,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const { data: kvRows, error: e2 } = await supabase
       .from('location_values')
       .select(
-        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code, attribute_definitions:attribute_id ( key )',
+        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, language_code, name, attribute_definitions:attribute_id ( key )',
       );
     if (e2) {
       console.warn('location_values load:', e2.message);
@@ -994,25 +1010,51 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       if (canon === 'livewind_station') {
-        // LiveWind: ID & Name aus verschiedenen möglichen Formaten extrahieren
+        // LiveWind: ID aus value_text, Name aus Spalte "name",
+        // plus evtl. Zusatzinfos aus value_json
         let stationId = '';
         let stationName = '';
 
+        // 1) ID aus value_text (z.B. "14308")
         if (r.value_text && String(r.value_text).trim()) {
           stationId = String(r.value_text).trim();
-        } else if (r.value_json) {
+        }
+
+        // 2) Name direkt aus Spalte "name" (z.B. "Pazin")
+        if (r.name && String(r.name).trim()) {
+          stationName = String(r.name).trim();
+        }
+
+        // 3) Zusatzinfos aus value_json (falls vorhanden)
+        if (r.value_json) {
           try {
             const j =
               typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
 
             if (typeof j === 'string' || typeof j === 'number') {
-              stationId = String(j).trim();
+              if (!stationId) stationId = String(j).trim();
             } else if (j && typeof j === 'object') {
-              if (j.id || j.station || j.value) {
-                stationId = String(j.id || j.station || j.value).trim();
+              const candId =
+                j.id ||
+                j.station ||
+                j.value ||
+                j.station_id ||
+                j.meteostat_id ||
+                j.meteostat_station_id;
+
+              const candName =
+                j.name ||
+                j.label ||
+                j.station_name ||
+                j.meteostat_name ||
+                j.city ||
+                j.place;
+
+              if (candId && !stationId) {
+                stationId = String(candId).trim();
               }
-              if (j.name || j.label || j.station_name) {
-                stationName = String(j.name || j.label || j.station_name).trim();
+              if (candName && !stationName) {
+                stationName = String(candName).trim();
               }
             }
           } catch (err) {
@@ -1100,7 +1142,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
 
-    for (const loc of (locs || [])) {
+    for (const loc of locs || []) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
 
