@@ -813,10 +813,22 @@ export default function GoogleMapClient({ lang = 'de' }) {
         )} (${photos.length})</button>`
       : '';
 
-    const btnWind = `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
-      'wind',
-      langCode,
-    )}</button>`;
+    // 🔍 Wind-Button nur anzeigen, wenn wirklich Winddaten vorhanden sind:
+    // - wind_profile.wind_relevant === true ODER
+    // - irgendein wind_profile existiert ODER
+    // - eine LiveWind-Station hinterlegt ist
+    const windProfile = kv.wind_profile || null;
+    const windRelevant = !!(windProfile && windProfile.wind_relevant);
+    const hasWindProfile = !!windProfile;
+    const hasWindStation = !!kv.livewind_station;
+    const showWindBtn = windRelevant || hasWindProfile || hasWindStation;
+
+    const btnWind = showWindBtn
+      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
+          'wind',
+          langCode,
+        )}</button>`
+      : '';
 
     return `
       <div class="w2h-iw">
