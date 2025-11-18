@@ -875,7 +875,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .select(`
         id,lat,lng,category_id,display_name,
         name_de,name_en,name_hr,name_it,name_fr,
-        description_de,description_en,description_hr,description_it,description_fr,
+        description_de,description_en,description_hr,description_it,description_fr,active,
         categories:category_id ( icon_svg )
       `);
     if (e1) {
@@ -1039,7 +1039,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     });
 
-    const ids = (locs || []).map((l) => l.id);
+    // 🚦 Nur aktive Locations anzeigen (active != false)
+    const allLocs = locs || [];
+    const visibleLocs = allLocs.filter((l) => l.active !== false);
+
+    const ids = visibleLocs.map((l) => l.id);
     let userPhotosMap = {};
     try {
       if (ids.length) {
@@ -1075,7 +1079,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
 
-    for (const loc of (locs || [])) {
+    for (const loc of visibleLocs) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
 
@@ -1098,7 +1102,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     markers.current.forEach((m) => m.setMap(null));
     markers.current = [];
 
-    (locs || []).forEach((row) => {
+    visibleLocs.forEach((row) => {
       const title = pickName(row, langCode);
       const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
 
