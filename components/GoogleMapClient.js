@@ -854,25 +854,19 @@ export default function GoogleMapClient({ lang = 'de' }) {
         await loadGoogleMaps(lang);
         if (cancelled || !mapRef.current) return;
 
-        // ⬇️ Map-Initialisierung MIT Styles: Google-POI-Icons ausblenden
+        // 🔹 hier blenden wir NUR die Google-POI-ICONS aus
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
           styles: [
-            // alle POI-Icons (kleine Symbole) ausblenden, Textlabels bleiben
             {
               featureType: 'poi',
               elementType: 'labels.icon',
               stylers: [{ visibility: 'off' }],
             },
-            // optionale Feinspezifikation: Business / Medical / usw. ausblenden
-            { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
-            { featureType: 'poi.medical', stylers: [{ visibility: 'off' }] },
-            { featureType: 'poi.place_of_worship', stylers: [{ visibility: 'off' }] },
-            { featureType: 'poi.school', stylers: [{ visibility: 'off' }] },
-            { featureType: 'poi.sports_complex', stylers: [{ visibility: 'off' }] },
           ],
         });
+
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
       } catch (e) {
@@ -896,13 +890,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .from('locations')
       .select(`
         id,lat,lng,category_id,display_name,
-        google_place_id,plus_code,               -- [NEU] für Deduplizierung
+        google_place_id,plus_code,
         name_de,name_en,name_hr,name_it,name_fr,
         description_de,description_en,description_hr,description_it,description_fr,active,
         categories:category_id ( icon_svg )
       `);
     if (e1) {
-      console.error(e1);
+      console.error('[w2h] load locations failed:', e1);
       return;
     }
 
@@ -1065,7 +1059,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const allLocs = locs || [];
     const visibleLocs = allLocs.filter((l) => l.active !== false);
 
-    // [NEU] Deduplizierung pro Place (gegen "Croissant-Marker")
+    // Deduplizierung pro Place (gegen "Croissant-Marker")
     const seen = new Set();
     const locList = [];
     for (const row of visibleLocs) {
@@ -1187,6 +1181,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       markers.current.push(marker);
     });
+
+    if (DEBUG_LOG) {
+      console.log('[w2h] markers rendered:', markers.current.length);
+    }
 
     applyLayerVisibility();
   }
