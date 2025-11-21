@@ -676,8 +676,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
       svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
     const icon = {
       url: svgToDataUrl(rawSvg),
-      scaledSize: new google.maps.Size(30, 30),
-      anchor: new google.maps.Point(15, 30),
+      scaledSize: new google.maps.Size(40, 40),
+      anchor: new google.maps.Point(20, 20),
     };
     iconCache.current.set(key, icon);
     return icon;
@@ -854,19 +854,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
         await loadGoogleMaps(lang);
         if (cancelled || !mapRef.current) return;
 
-        // 🔹 hier blenden wir NUR die Google-POI-ICONS aus
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
-          styles: [
-            {
-              featureType: 'poi',
-              elementType: 'labels.icon',
-              stylers: [{ visibility: 'off' }],
-            },
-          ],
         });
-
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
       } catch (e) {
@@ -890,13 +881,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .from('locations')
       .select(`
         id,lat,lng,category_id,display_name,
-        google_place_id,plus_code,
+        google_place_id,plus_code,               -- [NEU] für Deduplizierung
         name_de,name_en,name_hr,name_it,name_fr,
         description_de,description_en,description_hr,description_it,description_fr,active,
         categories:category_id ( icon_svg )
       `);
     if (e1) {
-      console.error('[w2h] load locations failed:', e1);
+      console.error(e1);
       return;
     }
 
@@ -1059,7 +1050,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const allLocs = locs || [];
     const visibleLocs = allLocs.filter((l) => l.active !== false);
 
-    // Deduplizierung pro Place (gegen "Croissant-Marker")
+    // [NEU] Deduplizierung pro Place (gegen "Croissant-Marker")
     const seen = new Set();
     const locList = [];
     for (const row of visibleLocs) {
@@ -1181,10 +1172,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       markers.current.push(marker);
     });
-
-    if (DEBUG_LOG) {
-      console.log('[w2h] markers rendered:', markers.current.length);
-    }
 
     applyLayerVisibility();
   }
