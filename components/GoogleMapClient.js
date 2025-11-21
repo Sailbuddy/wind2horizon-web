@@ -676,8 +676,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
       svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
     const icon = {
       url: svgToDataUrl(rawSvg),
-      scaledSize: new google.maps.Size(40, 40),
-      anchor: new google.maps.Point(20, 20),
+      scaledSize: new google.maps.Size(30, 30),
+      anchor: new google.maps.Point(15, 30),
     };
     iconCache.current.set(key, icon);
     return icon;
