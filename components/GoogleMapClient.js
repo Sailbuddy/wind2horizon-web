@@ -10,6 +10,15 @@ import { svgToDataUrl } from '@/lib/utils';
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
 const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
 
+// 🔹 Map-Style: Google-POI-Icons ausblenden (damit sie nicht unter deinen Marker liegen)
+const GOOGLE_MAP_STYLE = [
+  {
+    featureType: 'poi',
+    elementType: 'labels.icon',
+    stylers: [{ visibility: 'off' }],
+  },
+];
+
 function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
   const cx = size / 2;
   const cy = size / 2;
@@ -775,7 +784,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     let ratingHtml = '';
     if (rating || rating === 0) {
-      const r = Math.max(0, Math.min(5, Math.round(rating || 0)));
+      const r = Math.max(0, Math.min(5, Math.round(r || 0)));
       const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
       ratingHtml = `<div class="iw-row iw-rating">${stars} ${
         rating && rating.toFixed ? rating.toFixed(1) : '0.0'
@@ -857,6 +866,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
+          styles: GOOGLE_MAP_STYLE, // 🔹 Google-POI-Icons ausblenden
         });
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
@@ -881,7 +891,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .from('locations')
       .select(`
         id,lat,lng,category_id,display_name,
-        google_place_id,plus_code,               -- [NEU] für Deduplizierung
+        google_place_id,plus_code,
         name_de,name_en,name_hr,name_it,name_fr,
         description_de,description_en,description_hr,description_it,description_fr,active,
         categories:category_id ( icon_svg )
@@ -1050,7 +1060,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const allLocs = locs || [];
     const visibleLocs = allLocs.filter((l) => l.active !== false);
 
-    // [NEU] Deduplizierung pro Place (gegen "Croissant-Marker")
+    // Deduplizierung pro Place (gegen echte Doppel-DB-Einträge)
     const seen = new Set();
     const locList = [];
     for (const row of visibleLocs) {
