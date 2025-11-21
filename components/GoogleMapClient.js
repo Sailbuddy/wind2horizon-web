@@ -113,10 +113,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [gallery, setGallery] = useState(null);
 
   // Winddaten-Modal (mit Daten)
-  // modal: { id, title, windProfile, windHint, liveWindStation, liveWindStationName }
   const [windModal, setWindModal] = useState(null);
 
-  // Debug-Flag: wenn true, zeigen wir die "doppeltes Attribut"-Warnungen und Fetch-Logs
   const DEBUG_LOG = false;
 
   // ---------------------------------------------
@@ -813,10 +811,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         )} (${photos.length})</button>`
       : '';
 
-    // 🔍 Wind-Button nur anzeigen, wenn wirklich Winddaten vorhanden sind:
-    // - wind_profile.wind_relevant === true ODER
-    // - irgendein wind_profile existiert ODER
-    // - eine LiveWind-Station hinterlegt ist
+    // Wind-Button nur anzeigen, wenn Winddaten oder LiveWind-Station existiert
     const windProfile = kv.wind_profile || null;
     const windRelevant = !!(windProfile && windProfile.wind_relevant);
     const hasWindProfile = !!windProfile;
@@ -859,9 +854,24 @@ export default function GoogleMapClient({ lang = 'de' }) {
         await loadGoogleMaps(lang);
         if (cancelled || !mapRef.current) return;
 
+        // ⬇️ Map-Initialisierung MIT Styles: Google-POI-Icons ausblenden
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
+          styles: [
+            // alle POI-Icons (kleine Symbole) ausblenden, Textlabels bleiben
+            {
+              featureType: 'poi',
+              elementType: 'labels.icon',
+              stylers: [{ visibility: 'off' }],
+            },
+            // optionale Feinspezifikation: Business / Medical / usw. ausblenden
+            { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+            { featureType: 'poi.medical', stylers: [{ visibility: 'off' }] },
+            { featureType: 'poi.place_of_worship', stylers: [{ visibility: 'off' }] },
+            { featureType: 'poi.school', stylers: [{ visibility: 'off' }] },
+            { featureType: 'poi.sports_complex', stylers: [{ visibility: 'off' }] },
+          ],
         });
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
@@ -886,6 +896,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .from('locations')
       .select(`
         id,lat,lng,category_id,display_name,
+        google_place_id,plus_code,               -- [NEU] für Deduplizierung
         name_de,name_en,name_hr,name_it,name_fr,
         description_de,description_en,description_hr,description_it,description_fr,active,
         categories:category_id ( icon_svg )
@@ -916,7 +927,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
 
-      // Schutz bei Duplikaten – standardmäßig stumm, um die Konsole sauber zu halten
       if (
         obj[canon] &&
         canon !== 'opening_hours' &&
@@ -1051,11 +1061,29 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     });
 
-    // 🚦 Nur aktive Locations anzeigen (active != false)
+    // Nur aktive Locations
     const allLocs = locs || [];
     const visibleLocs = allLocs.filter((l) => l.active !== false);
 
-    const ids = visibleLocs.map((l) => l.id);
+    // [NEU] Deduplizierung pro Place (gegen "Croissant-Marker")
+    const seen = new Set();
+    const locList = [];
+    for (const row of visibleLocs) {
+      const key =
+        (row.google_place_id && `pid:${row.google_place_id}`) ||
+        (row.plus_code && `pc:${row.plus_code}`) ||
+        `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
+      if (seen.has(key)) {
+        if (DEBUG_LOG) {
+          console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
+        }
+        continue;
+      }
+      seen.add(key);
+      locList.push(row);
+    }
+
+    const ids = locList.map((l) => l.id);
     let userPhotosMap = {};
     try {
       if (ids.length) {
@@ -1091,7 +1119,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', e);
     }
 
-    for (const loc of visibleLocs) {
+    for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
       const google = Array.isArray(obj.photos) ? obj.photos : [];
 
@@ -1114,7 +1142,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     markers.current.forEach((m) => m.setMap(null));
     markers.current = [];
 
-    visibleLocs.forEach((row) => {
+    locList.forEach((row) => {
       const title = pickName(row, langCode);
       const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
 
