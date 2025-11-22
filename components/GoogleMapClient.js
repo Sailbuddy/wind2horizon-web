@@ -6,15 +6,24 @@ import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
 
+// 🔧 Debug-Schalter
+const DEBUG_MARKERS = false;   // true = einfache Kreis-Symbole statt SVG
+const DEBUG_BOUNDING = false;  // true = rote Bounding-Boxen über den Markern
+
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
 const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
 
-// 🔹 Map-Style: Google-POI-Icons ausblenden (damit sie nicht unter deinen Marker liegen)
+// 🔹 Map-Style: Google-POI-Icons & Texte ausblenden
 const GOOGLE_MAP_STYLE = [
   {
     featureType: 'poi',
     elementType: 'labels.icon',
+    stylers: [{ visibility: 'off' }],
+  },
+  {
+    featureType: 'poi',
+    elementType: 'labels.text',
     stylers: [{ visibility: 'off' }],
   },
 ];
@@ -679,17 +688,97 @@ export default function GoogleMapClient({ lang = 'de' }) {
   };
 
   function getMarkerIcon(catId, svgMarkup) {
+    // 🔧 Debug: einfache Kreissymbole ohne SVG
+    if (
+      DEBUG_MARKERS &&
+      typeof google !== 'undefined' &&
+      google.maps &&
+      google.maps.SymbolPath
+    ) {
+      return {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 8,
+        fillOpacity: 0.9,
+        strokeWeight: 2,
+      };
+    }
+
     const key = String(catId ?? 'default');
     if (iconCache.current.has(key)) return iconCache.current.get(key);
     const rawSvg =
       svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
+
+    // Standard: 32x32, Anchor unten Mitte → Spitze zeigt auf die Koordinate
     const icon = {
       url: svgToDataUrl(rawSvg),
-      scaledSize: new google.maps.Size(40, 40),
-      anchor: new google.maps.Point(20, 20),
+      scaledSize: new google.maps.Size(32, 32),
+      anchor: new google.maps.Point(16, 32),
     };
+
     iconCache.current.set(key, icon);
     return icon;
+  }
+
+  // Debug-Overlay: Bounding-Boxen für Marker anzeigen
+  function createDebugOverlay(map, locations) {
+    if (!DEBUG_BOUNDING) return;
+    if (typeof google === 'undefined' || !google.maps || !google.maps.OverlayView) return;
+
+    class MarkerDebugOverlay extends google.maps.OverlayView {
+      constructor(locs) {
+        super();
+        this.locations = locs;
+        this.div = document.createElement('div');
+        this.div.style.position = 'absolute';
+      }
+
+      onAdd() {
+        const panes = this.getPanes();
+        if (panes && panes.overlayMouseTarget) {
+          panes.overlayMouseTarget.appendChild(this.div);
+        }
+      }
+
+      draw() {
+        const projection = this.getProjection();
+        if (!projection || !this.locations) return;
+
+        const size = 32; // gleiche Größe wie Marker-Icon
+        const html = this.locations
+          .map((loc) => {
+            const latLng = new google.maps.LatLng(loc.lat, loc.lng);
+            const pos = projection.fromLatLngToDivPixel(latLng);
+            if (!pos) return '';
+            const left = pos.x - size / 2;
+            const top = pos.y - size;
+
+            return `<div 
+              style="
+                position:absolute;
+                left:${left}px;
+                top:${top}px;
+                width:${size}px;
+                height:${size}px;
+                border:1px solid red;
+                box-sizing:border-box;
+                pointer-events:none;
+              ">
+            </div>`;
+          })
+          .join('');
+
+        this.div.innerHTML = html;
+      }
+
+      onRemove() {
+        if (this.div && this.div.parentNode) {
+          this.div.parentNode.removeChild(this.div);
+        }
+      }
+    }
+
+    const overlay = new MarkerDebugOverlay(locations);
+    overlay.setMap(map);
   }
 
   function normalizeGooglePhotos(val) {
@@ -866,7 +955,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
-          styles: GOOGLE_MAP_STYLE, // 🔹 Google-POI-Icons ausblenden
+          clickableIcons: false,      // 🔹 POI-Klicks deaktivieren
+          styles: GOOGLE_MAP_STYLE,   // 🔹 POI-Icons & Texte ausblenden
         });
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
@@ -1141,11 +1231,22 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const title = pickName(row, langCode);
       const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
 
+      if (DEBUG_LOG) {
+        console.log('[w2h] marker debug', {
+          id: row.id,
+          lat: row.lat,
+          lng: row.lng,
+          category_id: row.category_id,
+          iconSvgLength: svg ? String(svg).length : 0,
+        });
+      }
+
       const marker = new google.maps.Marker({
         position: { lat: row.lat, lng: row.lng },
         title,
         icon: getMarkerIcon(row.category_id, svg),
         map: mapObj.current,
+        zIndex: 1000 + (row.category_id || 0), // Marker sicher "oben"
       });
 
       marker._cat = String(row.category_id);
@@ -1182,6 +1283,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       markers.current.push(marker);
     });
+
+    // Optional: Bounding-Box-Debug-Overlay
+    if (DEBUG_BOUNDING) {
+      createDebugOverlay(mapObj.current, locList);
+    }
 
     applyLayerVisibility();
   }
