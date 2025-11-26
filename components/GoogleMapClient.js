@@ -7,8 +7,8 @@ import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
 
 // 🔧 Debug-Schalter
-const DEBUG_MARKERS = false;   // true = einfache Kreis-Symbole statt SVG
-const DEBUG_BOUNDING = false;  // true = rote Bounding-Boxen über den Markern
+const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
+const DEBUG_BOUNDING = false; // true = rote Bounding-Boxen über den Markern
 
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
@@ -955,8 +955,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
-          clickableIcons: false,      // 🔹 POI-Klicks deaktivieren
-          styles: GOOGLE_MAP_STYLE,   // 🔹 POI-Icons & Texte ausblenden
+          clickableIcons: false, // 🔹 POI-Klicks deaktivieren
+          styles: GOOGLE_MAP_STYLE, // 🔹 POI-Icons & Texte ausblenden
         });
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
@@ -1247,20 +1247,41 @@ export default function GoogleMapClient({ lang = 'de' }) {
         icon: getMarkerIcon(row.category_id, svg),
         map: mapObj.current,
         zIndex: 1000 + (row.category_id || 0), // Marker sicher "oben"
+        clickable: true, // explizit klickbar
       });
 
       marker._cat = String(row.category_id);
       marker.addListener('click', () => {
         const kv = kvByLoc.get(row.id) || {};
-        const html = buildInfoContent(row, kv, svg, langCode);
+
+        let html;
+        try {
+          html = buildInfoContent(row, kv, svg, langCode);
+        } catch (err) {
+          console.error(
+            '[w2h] buildInfoContent failed for location',
+            row.id,
+            err,
+            { row, kv },
+          );
+          html = `
+            <div style="max-width:260px;font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
+              <strong>Fehler beim Anzeigen dieses Spots (#${row.id}).</strong><br/>
+              Die Daten sind vorhanden, aber das Infofenster konnte nicht gerendert werden.
+            </div>
+          `;
+        }
+
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
         google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+          const kvNow = kvByLoc.get(row.id) || {};
+
           const btn = document.getElementById(`phbtn-${row.id}`);
           if (btn) {
             btn.addEventListener('click', () => {
-              const photos = kv.photos && Array.isArray(kv.photos) ? kv.photos : [];
+              const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
               if (photos.length) setGallery({ title: pickName(row, langCode), photos });
             });
           }
@@ -1271,10 +1292,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
               setWindModal({
                 id: row.id,
                 title: pickName(row, langCode),
-                windProfile: kv.wind_profile || null,
-                windHint: kv.wind_hint || {},
-                liveWindStation: kv.livewind_station || null,
-                liveWindStationName: kv.livewind_station_name || null,
+                windProfile: kvNow.wind_profile || null,
+                windHint: kvNow.wind_hint || {},
+                liveWindStation: kvNow.livewind_station || null,
+                liveWindStationName: kvNow.livewind_station_name || null,
               });
             });
           }
