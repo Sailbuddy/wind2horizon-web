@@ -791,4 +791,612 @@ export default function GoogleMapClient({ lang = 'de' }) {
         .map((p) => ({
           photo_reference: p.photo_reference || p.photoreference,
           width: p.width || null,
-          height: p.height || nu
+          height: p.height || null,
+          html_attributions: p.html_attributions || null,
+          source: 'google',
+        }))
+        .filter((p) => p.photo_reference);
+    } catch {
+      return [];
+    }
+  }
+
+  function mergePhotos(googleArr, userArr) {
+    return [...(userArr || []), ...(googleArr || [])];
+  }
+
+  function pickFirstThumb(photos) {
+    if (!Array.isArray(photos) || !photos.length) return null;
+    const user = photos.find((p) => p.thumb || p.public_url || p.url);
+    if (user) return user.thumb || user.public_url || user.url;
+    const g = photos.find((p) => p.photo_reference || p.photoreference);
+    if (g) return photoUrl(g.photo_reference || g.photoreference, 400);
+    return null;
+  }
+
+  function buildInfoContent(row, kv, iconSvgRaw, langCode) {
+    const title = escapeHtml(pickName(row, langCode));
+    const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
+
+    const addrByLang = kv.addressByLang || {};
+    const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
+    let addrSel = '';
+    for (const L of pref) {
+      if (addrByLang[L]) {
+        addrSel = addrByLang[L];
+        break;
+      }
+    }
+    const address = escapeHtml(addrSel || kv.address || '');
+
+    const website = kv.website || '';
+    const phone = kv.phone || '';
+
+    const rating = kv.rating ? parseFloat(kv.rating) : null;
+    const ratingTotal = kv.rating_total ? parseInt(kv.rating_total, 10) : null;
+    const priceLevel = kv.price ? parseInt(kv.price, 10) : null;
+    const openNow = kv.opening_now === 'true' || kv.opening_now === true;
+
+    const hoursByLang = kv.hoursByLang || {};
+    let hoursArr = null;
+    for (const L of pref) {
+      if (hoursByLang[L] && hoursByLang[L].length) {
+        hoursArr = hoursByLang[L];
+        break;
+      }
+    }
+    const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
+
+    const photos = Array.isArray(kv.photos) ? kv.photos : [];
+    const firstThumb = pickFirstThumb(photos);
+
+    const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
+    const siteHref =
+      website && website.startsWith('http') ? website : website ? `https://${website}` : '';
+    const telHref = phone ? `tel:${String(phone).replace(/\s+/g, '')}` : '';
+
+    const svgMarkup = iconSvgRaw || defaultMarkerSvg;
+
+    const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label(
+      'route',
+      langCode,
+    )}</a>`;
+    const btnSite = siteHref
+      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label(
+          'website',
+          langCode,
+        )}</a>`
+      : '';
+    const btnTel = telHref
+      ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>`
+      : '';
+
+    let ratingHtml = '';
+    if (rating || rating === 0) {
+      const r = Math.max(0, Math.min(5, Math.round(r || 0)));
+      const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
+      ratingHtml = `<div class="iw-row iw-rating">${stars} ${
+        rating && rating.toFixed ? rating.toFixed(1) : '0.0'
+      }${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
+    }
+
+    let priceHtml = '';
+    if (priceLevel !== null && !Number.isNaN(priceLevel)) {
+      const p = Math.max(0, Math.min(4, priceLevel));
+      priceHtml = `<div class="iw-row iw-price">${'€'.repeat(p || 0)}</div>`;
+    }
+
+    let openingHtml = '';
+    if (kv.opening_now !== undefined) {
+      openingHtml += `<div class="iw-row iw-open">${
+        openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`
+      }</div>`;
+    }
+    if (hoursLocalized && hoursLocalized.length) {
+      openingHtml += `<ul class="iw-hours">${hoursLocalized
+        .map((h) => `<li>${escapeHtml(String(h))}</li>`)
+        .join('')}</ul>`;
+    }
+
+    const thumbHtml = firstThumb
+      ? `<img src="${firstThumb}" alt="" loading="lazy" style="width:100%;border-radius:10px;margin:6px 0 10px 0;" />`
+      : '';
+
+    const btnPhotos = photos.length
+      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label(
+          'photos',
+          langCode,
+        )} (${photos.length})</button>`
+      : '';
+
+    // Wind-Button nur anzeigen, wenn Winddaten oder LiveWind-Station existiert
+    const windProfile = kv.wind_profile || null;
+    const windRelevant = !!(windProfile && windProfile.wind_relevant);
+    const hasWindProfile = !!windProfile;
+    const hasWindStation = !!kv.livewind_station;
+    const showWindBtn = windRelevant || hasWindProfile || hasWindStation;
+
+    const btnWind = showWindBtn
+      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
+          'wind',
+          langCode,
+        )}</button>`
+      : '';
+
+    return `
+      <div class="w2h-iw">
+        <div class="iw-hd">
+          <span class="iw-ic">${svgMarkup}</span>
+          <div class="iw-title">${title}</div>
+        </div>
+        <div class="iw-bd">
+          ${thumbHtml}
+          ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
+          ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
+          ${ratingHtml}
+          ${priceHtml}
+          ${openingHtml}
+        </div>
+        <div class="iw-actions">
+          ${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
+        </div>
+      </div>
+    `;
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function boot() {
+      try {
+        await loadGoogleMaps(lang);
+        if (cancelled || !mapRef.current) return;
+
+        mapObj.current = new google.maps.Map(mapRef.current, {
+          center: { lat: 45.6, lng: 13.8 },
+          zoom: 7,
+          clickableIcons: false,      // 🔹 POI-Klicks deaktivieren
+          styles: GOOGLE_MAP_STYLE,   // 🔹 POI-Icons & Texte ausblenden
+        });
+        infoWin.current = new google.maps.InfoWindow();
+        setBooted(true);
+      } catch (e) {
+        console.error('[w2h] Google Maps load failed:', e);
+      }
+    }
+
+    boot();
+    return () => {
+      cancelled = true;
+    };
+  }, [lang]);
+
+  useEffect(() => {
+    if (!booted || !mapObj.current) return;
+    loadMarkers(lang);
+  }, [booted, lang]);
+
+  async function loadMarkers(langCode) {
+    const { data: locs, error: e1 } = await supabase
+      .from('locations')
+      .select(`
+        id,lat,lng,category_id,display_name,
+        google_place_id,plus_code,
+        name_de,name_en,name_hr,name_it,name_fr,
+        description_de,description_en,description_hr,description_it,description_fr,active,
+        categories:category_id ( icon_svg )
+      `);
+    if (e1) {
+      console.error(e1);
+      return;
+    }
+
+    const { data: kvRows, error: e2 } = await supabase
+      .from('location_values')
+      .select(
+        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )',
+      );
+    if (e2) {
+      console.warn('location_values load:', e2.message);
+    }
+
+    const kvByLoc = new Map();
+
+    (kvRows || []).forEach((r) => {
+      const locId = r.location_id;
+      const key = (r.attribute_definitions && r.attribute_definitions.key) || null;
+      const canon = FIELD_MAP_BY_ID[r.attribute_id] || (key && FIELD_MAP_BY_KEY[key]);
+      if (!canon) return;
+
+      if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
+      const obj = kvByLoc.get(locId);
+      const lc = (r.language_code || '').toLowerCase();
+
+      if (
+        obj[canon] &&
+        canon !== 'opening_hours' &&
+        canon !== 'address' &&
+        canon !== 'photos' &&
+        canon !== 'wind_profile' &&
+        canon !== 'wind_hint' &&
+        canon !== 'livewind_station'
+      ) {
+        if (DEBUG_LOG) {
+          console.warn(
+            `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}. Der zusätzliche Eintrag wird ignoriert.`,
+            r,
+          );
+        }
+        return;
+      }
+
+      if (canon === 'photos') {
+        const google = normalizeGooglePhotos(
+          r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
+        );
+        if (google.length) {
+          obj.photos = (obj.photos || []).concat(google);
+        }
+        return;
+      }
+
+      if (canon === 'wind_profile') {
+        try {
+          const j =
+            r.value_json && typeof r.value_json === 'object'
+              ? r.value_json
+              : JSON.parse(r.value_json || '{}');
+          obj.wind_profile = j || null;
+        } catch (err) {
+          console.warn('[w2h] wind_profile JSON parse failed', err);
+          obj.wind_profile = null;
+        }
+        return;
+      }
+
+      if (canon === 'wind_hint') {
+        obj.wind_hint = obj.wind_hint || {};
+        let text = '';
+        if (r.value_text && String(r.value_text).trim()) {
+          text = String(r.value_text);
+        } else if (r.value_json) {
+          try {
+            const j = typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
+            if (typeof j === 'string') {
+              text = j;
+            } else if (Array.isArray(j) && j.length) {
+              text = String(j[0]);
+            } else if (j && typeof j === 'object' && j.text) {
+              text = String(j.text);
+            }
+          } catch (err) {
+            console.warn('[w2h] wind_hint JSON parse failed', err, r);
+          }
+        }
+        if (lc && text) {
+          obj.wind_hint[lc] = text;
+        }
+        return;
+      }
+
+      if (canon === 'livewind_station') {
+        let stationId = '';
+        if (r.value_text && String(r.value_text).trim()) {
+          stationId = String(r.value_text).trim();
+        } else if (r.value_json) {
+          try {
+            const j =
+              typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
+            if (typeof j === 'string' || typeof j === 'number') {
+              stationId = String(j).trim();
+            }
+          } catch (err) {
+            console.warn('[w2h] livewind_station JSON parse failed', err, r);
+          }
+        }
+
+        const stationName =
+          (r.name && String(r.name).trim()) && String(r.name).trim().length
+            ? String(r.name).trim()
+            : null;
+
+        if (stationId) {
+          obj.livewind_station = stationId;
+          if (stationName) {
+            obj.livewind_station_name = stationName;
+          }
+        }
+        return;
+      }
+
+      const val =
+        r.value_text ??
+        r.value_option ??
+        (r.value_number !== null && r.value_number !== undefined
+          ? String(r.value_number)
+          : '') ??
+        (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
+        (r.value_json ? r.value_json : '');
+
+      if (val === '' || val === null || val === undefined) return;
+
+      if (canon === 'opening_hours') {
+        obj.hoursByLang = obj.hoursByLang || {};
+        let arr = null;
+        if (Array.isArray(val)) arr = val;
+        else if (typeof val === 'string' && val.trim().startsWith('[')) {
+          try {
+            arr = JSON.parse(val);
+          } catch {
+            arr = [String(val)];
+          }
+        }
+        if (!arr) arr = String(val).split('\n');
+        obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
+      } else if (canon === 'address') {
+        obj.addressByLang = obj.addressByLang || {};
+        if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || String(val);
+        else obj.address = obj.address || String(val);
+      } else if (canon === 'website' || canon === 'phone') {
+        obj[canon] = obj[canon] || String(val);
+      } else if (canon === 'description') {
+        if (!obj.description || (lc && lc === langCode)) obj.description = String(val);
+      } else {
+        obj[canon] = String(val);
+      }
+    });
+
+    // Nur aktive Locations
+    const allLocs = locs || [];
+    const visibleLocs = allLocs.filter((l) => l.active !== false);
+
+    // Deduplizierung pro Place (gegen echte Doppel-DB-Einträge)
+    const seen = new Set();
+    const locList = [];
+    for (const row of visibleLocs) {
+      const key =
+        (row.google_place_id && `pid:${row.google_place_id}`) ||
+        (row.plus_code && `pc:${row.plus_code}`) ||
+        `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
+      if (seen.has(key)) {
+        if (DEBUG_LOG) {
+          console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
+        }
+        continue;
+      }
+      seen.add(key);
+      locList.push(row);
+    }
+
+    const ids = locList.map((l) => l.id);
+    let userPhotosMap = {};
+    try {
+      if (ids.length) {
+        const url = `/api/user-photos?ids=${ids.join(',')}`;
+        if (DEBUG_LOG) {
+          console.log('[w2h] fetch user-photos:', url);
+        }
+        const resp = await fetch(url, { cache: 'no-store' });
+        const j = await resp.json();
+
+        if (j && j.ok && j.items) {
+          userPhotosMap = j.items || {};
+        } else if (Array.isArray(j && j.rows)) {
+          const map = {};
+          for (const r of j.rows) {
+            const entry = {
+              public_url: r.public_url || null,
+              url: r.public_url || null,
+              thumb: r.thumb || r.public_url || null,
+              caption: r.caption || null,
+              author: r.author || null,
+              source: 'user',
+            };
+            if (!map[r.location_id]) map[r.location_id] = [];
+            map[r.location_id].push(entry);
+          }
+          userPhotosMap = map;
+        } else {
+          userPhotosMap = {};
+        }
+      }
+    } catch (e) {
+      console.warn('[w2h] user-photos fetch failed', e);
+    }
+
+    for (const loc of locList) {
+      const obj = kvByLoc.get(loc.id) || {};
+      const google = Array.isArray(obj.photos) ? obj.photos : [];
+
+      const user = (userPhotosMap[loc.id] || [])
+        .map((p) => ({
+          public_url: p.public_url || p.url || null,
+          url: p.url || p.public_url || null,
+          thumb: p.thumb || p.public_url || null,
+          caption: p.caption || null,
+          author: p.author || null,
+          source: 'user',
+        }))
+        .filter((u) => u.public_url || u.url || u.thumb);
+
+      obj.photos = mergePhotos(google, user);
+      obj.first_photo_ref = pickFirstThumb(obj.photos);
+      kvByLoc.set(loc.id, obj);
+    }
+
+    markers.current.forEach((m) => m.setMap(null));
+    markers.current = [];
+
+    locList.forEach((row) => {
+      const title = pickName(row, langCode);
+      const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
+
+      if (DEBUG_LOG) {
+        console.log('[w2h] marker debug', {
+          id: row.id,
+          lat: row.lat,
+          lng: row.lng,
+          category_id: row.category_id,
+          iconSvgLength: svg ? String(svg).length : 0,
+        });
+      }
+
+      const marker = new google.maps.Marker({
+        position: { lat: row.lat, lng: row.lng },
+        title,
+        icon: getMarkerIcon(row.category_id, svg),
+        map: mapObj.current,
+        zIndex: 1000 + (row.category_id || 0), // Marker sicher "oben"
+      });
+
+      marker._cat = String(row.category_id);
+      marker.addListener('click', () => {
+        const kv = kvByLoc.get(row.id) || {};
+        const html = buildInfoContent(row, kv, svg, langCode);
+        infoWin.current.setContent(html);
+        infoWin.current.open({ map: mapObj.current, anchor: marker });
+
+        google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+          const btn = document.getElementById(`phbtn-${row.id}`);
+          if (btn) {
+            btn.addEventListener('click', () => {
+              const photos = kv.photos && Array.isArray(kv.photos) ? kv.photos : [];
+              if (photos.length) setGallery({ title: pickName(row, langCode), photos });
+            });
+          }
+
+          const wbtn = document.getElementById(`windbtn-${row.id}`);
+          if (wbtn) {
+            wbtn.addEventListener('click', () => {
+              setWindModal({
+                id: row.id,
+                title: pickName(row, langCode),
+                windProfile: kv.wind_profile || null,
+                windHint: kv.wind_hint || {},
+                liveWindStation: kv.livewind_station || null,
+                liveWindStationName: kv.livewind_station_name || null,
+              });
+            });
+          }
+        });
+      });
+
+      markers.current.push(marker);
+    });
+
+    // Optional: Bounding-Box-Debug-Overlay
+    if (DEBUG_BOUNDING) {
+      createDebugOverlay(mapObj.current, locList);
+    }
+
+    applyLayerVisibility();
+  }
+
+  function applyLayerVisibility() {
+    markers.current.forEach((m) => {
+      const vis = layerState.current.get(m._cat);
+      m.setVisible(vis ?? true);
+    });
+  }
+
+  return (
+    <div className="w2h-map-wrap">
+      <div ref={mapRef} className="w2h-map" />
+
+      <LayerPanel
+        lang={lang}
+        onInit={(initialMap) => {
+          layerState.current = new Map(initialMap);
+          applyLayerVisibility();
+        }}
+        onToggle={(catKey, visible) => {
+          layerState.current.set(catKey, visible);
+          applyLayerVisibility();
+        }}
+      />
+
+      <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
+      <WindModal modal={windModal} onClose={() => setWindModal(null)} />
+
+      <style jsx>{`
+        .w2h-map-wrap {
+          position: relative;
+          height: 100vh;
+          width: 100%;
+        }
+        .w2h-map {
+          height: 100%;
+          width: 100%;
+        }
+      `}</style>
+
+      <style jsx global>{`
+        .gm-style .w2h-iw {
+          max-width: 340px;
+          font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          color: #1a1a1a;
+        }
+        .gm-style .w2h-iw .iw-hd {
+          display: grid;
+          grid-template-columns: 22px 1fr;
+          gap: 8px;
+          align-items: center;
+          margin-bottom: 6px;
+        }
+        .gm-style .w2h-iw .iw-ic svg {
+          width: 20px;
+          height: 20px;
+        }
+        .gm-style .w2h-iw .iw-title {
+          font-weight: 700;
+          font-size: 14px;
+        }
+        .gm-style .w2h-iw .iw-row {
+          margin: 6px 0;
+        }
+        .gm-style .w2h-iw .iw-desc {
+          color: #444;
+          white-space: normal;
+        }
+        .gm-style .w2h-iw .iw-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        .gm-style .w2h-iw .iw-btn {
+          display: inline-block;
+          padding: 6px 10px;
+          border-radius: 8px;
+          background: #1f6aa2;
+          color: #fff;
+          text-decoration: none;
+          font-weight: 600;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .gm-style .w2h-iw .iw-btn:hover {
+          filter: brightness(0.95);
+        }
+        .gm-style .w2h-iw .iw-btn-wind {
+          background: #0ea5e9;
+        }
+        .gm-style .w2h-iw .iw-rating {
+          font-size: 13px;
+          color: #f39c12;
+        }
+        .gm-style .w2h-iw .iw-price {
+          font-size: 13px;
+          color: #27ae60;
+        }
+        .gm-style .w2h-iw .iw-open {
+          font-size: 13px;
+        }
+        .gm-style .w2h-iw .iw-hours {
+          padding-left: 16px;
+          margin: 4px 0;
+        }
+      `}</style>
+    </div>
+  );
+}
