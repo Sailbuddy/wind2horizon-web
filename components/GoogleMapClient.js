@@ -827,6 +827,27 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function buildInfoContent(row, kv, iconSvgRaw, langCode) {
+    // 🔍 Spezial-DEBUG für Spot #527: ultraminimaler Inhalt
+    if (row && row.id === 527) {
+      const title = escapeHtml(pickName(row, langCode));
+      const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
+
+      return `
+        <div class="w2h-iw">
+          <div class="iw-hd">
+            <div class="iw-title">${title} (DEBUG 527)</div>
+          </div>
+          <div class="iw-bd">
+            ${
+              desc
+                ? `<div class="iw-row iw-desc">${desc}</div>`
+                : '<div class="iw-row iw-desc">Kein Beschreibungstext.</div>'
+            }
+          </div>
+        </div>
+      `;
+    }
+
     const title = escapeHtml(pickName(row, langCode));
     const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
 
@@ -929,7 +950,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const showWindBtn = windRelevant || hasWindProfile || hasWindStation;
 
     const btnWind = showWindBtn
-      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
+      ? `<button id="windbtn-${row.id}` + `" class="iw-btn iw-btn-wind">💨 ${label(
           'wind',
           langCode,
         )}</button>`
@@ -1267,6 +1288,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       // ⬇️ Neuer, robuster Click-Handler mit Fallback
       marker.addListener('click', () => {
         const meta = kvByLoc.get(row.id) || {};
+
+        // Extra-Debug für Spot 527
+        if (row.id === 527) {
+          console.log('[w2h DEBUG] Click on location 527', { row, meta });
+        }
 
         let html;
         try {
