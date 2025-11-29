@@ -487,7 +487,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       );
       s.addEventListener(
         'error',
-          (ev) => reject(ev),
+        (ev) => reject(ev),
         { once: true },
       );
       document.head.appendChild(s);
@@ -872,7 +872,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const website = kv.website || '';
     const phone = kv.phone || '';
 
-    const rating = kv.rating ? parseFloat(kv.rating) : null;
+    // 🔁 Neu: robustes Rating-Handling
+    const rating =
+      kv.rating !== undefined && kv.rating !== null && kv.rating !== ''
+        ? Number(kv.rating)
+        : null;
     const ratingTotal = kv.rating_total ? parseInt(kv.rating_total, 10) : null;
     const priceLevel = kv.price ? parseInt(kv.price, 10) : null;
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
@@ -913,13 +917,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
       ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>`
       : '';
 
+    // 🔁 Neu: Rating-Berechnung ohne Shadowing/Fehler
     let ratingHtml = '';
-    if (rating || rating === 0) {
-      const r = Math.max(0, Math.min(5, Math.round(r || 0)));
-      const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
-      ratingHtml = `<div class="iw-row iw-rating">${stars} ${
-        rating && rating.toFixed ? rating.toFixed(1) : '0.0'
-      }${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
+    if (rating !== null && !Number.isNaN(rating)) {
+      const rInt = Math.max(0, Math.min(5, Math.round(rating)));
+      const stars = '★'.repeat(rInt) + '☆'.repeat(5 - rInt);
+      const formatted =
+        Number.isFinite(rating) && rating.toFixed ? rating.toFixed(1) : String(rating);
+      ratingHtml = `<div class="iw-row iw-rating">${stars} ${formatted}${
+        ratingTotal ? ` (${ratingTotal})` : ''
+      }</div>`;
     }
 
     let priceHtml = '';
