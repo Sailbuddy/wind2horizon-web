@@ -118,6 +118,18 @@ function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
 }
 // -------------------------------------------------------------------
 
+// 🔹 Fallback-HTML, falls das Infofenster nicht gerendert werden kann
+function buildErrorInfoContent(rowId) {
+  return `
+    <div class="w2h-iw">
+      <div class="iw-bd">
+        <strong>Fehler beim Anzeigen dieses Spots (#${rowId}).</strong><br/>
+        Die Daten sind vorhanden, aber das Infofenster konnte nicht gerendert werden.
+      </div>
+    </div>
+  `;
+}
+
 export default function GoogleMapClient({ lang = 'de' }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
@@ -857,25 +869,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const svgMarkup = iconSvgRaw || defaultMarkerSvg;
 
-    const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label(
+    const btnRoute = `<a class=\"iw-btn\" href=\"${dirHref}\" target=\"_blank\" rel=\"noopener\">📍 ${label(
       'route',
       langCode,
     )}</a>`;
     const btnSite = siteHref
-      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label(
+      ? `<a class=\"iw-btn\" href=\"${escapeHtml(siteHref)}\" target=\"_blank\" rel=\"noopener\">🌐 ${label(
           'website',
           langCode,
         )}</a>`
       : '';
     const btnTel = telHref
-      ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>`
+      ? `<a class=\"iw-btn\" href=\"${escapeHtml(telHref)}\">📞 ${label('call', langCode)}</a>`
       : '';
 
     let ratingHtml = '';
     if (rating || rating === 0) {
       const r = Math.max(0, Math.min(5, Math.round(r || 0)));
       const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
-      ratingHtml = `<div class="iw-row iw-rating">${stars} ${
+      ratingHtml = `<div class=\"iw-row iw-rating\">${stars} ${
         rating && rating.toFixed ? rating.toFixed(1) : '0.0'
       }${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
     }
@@ -883,27 +895,27 @@ export default function GoogleMapClient({ lang = 'de' }) {
     let priceHtml = '';
     if (priceLevel !== null && !Number.isNaN(priceLevel)) {
       const p = Math.max(0, Math.min(4, priceLevel));
-      priceHtml = `<div class="iw-row iw-price">${'€'.repeat(p || 0)}</div>`;
+      priceHtml = `<div class=\"iw-row iw-price\">${'€'.repeat(p || 0)}</div>`;
     }
 
     let openingHtml = '';
     if (kv.opening_now !== undefined) {
-      openingHtml += `<div class="iw-row iw-open">${
+      openingHtml += `<div class=\"iw-row iw-open\">${
         openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`
       }</div>`;
     }
     if (hoursLocalized && hoursLocalized.length) {
-      openingHtml += `<ul class="iw-hours">${hoursLocalized
+      openingHtml += `<ul class=\"iw-hours\">${hoursLocalized
         .map((h) => `<li>${escapeHtml(String(h))}</li>`)
         .join('')}</ul>`;
     }
 
     const thumbHtml = firstThumb
-      ? `<img src="${firstThumb}" alt="" loading="lazy" style="width:100%;border-radius:10px;margin:6px 0 10px 0;" />`
+      ? `<img src=\"${firstThumb}\" alt=\"\" loading=\"lazy\" style=\"width:100%;border-radius:10px;margin:6px 0 10px 0;\" />`
       : '';
 
     const btnPhotos = photos.length
-      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label(
+      ? `<button id=\"phbtn-${row.id}\" class=\"iw-btn\" style=\"background:#6b7280;\">🖼️ ${label(
           'photos',
           langCode,
         )} (${photos.length})</button>`
@@ -917,7 +929,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const showWindBtn = windRelevant || hasWindProfile || hasWindStation;
 
     const btnWind = showWindBtn
-      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
+      ? `<button id=\"windbtn-${row.id}\" class=\"iw-btn iw-btn-wind\">💨 ${label(
           'wind',
           langCode,
         )}</button>`
@@ -1254,52 +1266,51 @@ export default function GoogleMapClient({ lang = 'de' }) {
       marker.addListener('click', () => {
         const kv = kvByLoc.get(row.id) || {};
 
-        let html;
         try {
-          html = buildInfoContent(row, kv, svg, langCode);
+          const html = buildInfoContent(row, kv, svg, langCode);
+          infoWin.current.setContent(html);
+          infoWin.current.open({ map: mapObj.current, anchor: marker });
+
+          google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+            try {
+              const kvNow = kvByLoc.get(row.id) || {};
+
+              const btn = document.getElementById(`phbtn-${row.id}`);
+              if (btn) {
+                btn.addEventListener('click', () => {
+                  const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+                  if (photos.length) setGallery({ title: pickName(row, langCode), photos });
+                });
+              }
+
+              const wbtn = document.getElementById(`windbtn-${row.id}`);
+              if (wbtn) {
+                wbtn.addEventListener('click', () => {
+                  setWindModal({
+                    id: row.id,
+                    title: pickName(row, langCode),
+                    windProfile: kvNow.wind_profile || null,
+                    windHint: kvNow.wind_hint || {},
+                    liveWindStation: kvNow.livewind_station || null,
+                    liveWindStationName: kvNow.livewind_station_name || null,
+                  });
+                });
+              }
+            } catch (err) {
+              console.error('[w2h] domready handler failed for location', row.id, err);
+            }
+          });
         } catch (err) {
           console.error(
-            '[w2h] buildInfoContent failed for location',
+            '[w2h] error while building/attaching info window for location',
             row.id,
             err,
             { row, kv },
           );
-          html = `
-            <div style="max-width:260px;font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
-              <strong>Fehler beim Anzeigen dieses Spots (#${row.id}).</strong><br/>
-              Die Daten sind vorhanden, aber das Infofenster konnte nicht gerendert werden.
-            </div>
-          `;
+          const fallbackHtml = buildErrorInfoContent(row.id);
+          infoWin.current.setContent(fallbackHtml);
+          infoWin.current.open({ map: mapObj.current, anchor: marker });
         }
-
-        infoWin.current.setContent(html);
-        infoWin.current.open({ map: mapObj.current, anchor: marker });
-
-        google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
-          const kvNow = kvByLoc.get(row.id) || {};
-
-          const btn = document.getElementById(`phbtn-${row.id}`);
-          if (btn) {
-            btn.addEventListener('click', () => {
-              const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-              if (photos.length) setGallery({ title: pickName(row, langCode), photos });
-            });
-          }
-
-          const wbtn = document.getElementById(`windbtn-${row.id}`);
-          if (wbtn) {
-            wbtn.addEventListener('click', () => {
-              setWindModal({
-                id: row.id,
-                title: pickName(row, langCode),
-                windProfile: kvNow.wind_profile || null,
-                windHint: kvNow.wind_hint || {},
-                liveWindStation: kvNow.livewind_station || null,
-                liveWindStationName: kvNow.livewind_station_name || null,
-              });
-            });
-          }
-        });
       });
 
       markers.current.push(marker);
