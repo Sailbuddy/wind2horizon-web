@@ -175,7 +175,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
       } else if (gallery.photos && typeof gallery.photos === 'object') {
         items = Array.isArray(gallery.photos.photos) ? gallery.photos.photos : [];
       }
-    } catch {
+    } catch (errLightbox) {
+      console.warn('[w2h] Lightbox parse failed', errLightbox);
       items = [];
     }
 
@@ -194,7 +195,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }}
       >
         <div
-          onClick={(e) => e.stopPropagation()}
+          onClick={(ev) => ev.stopPropagation()}
           style={{
             background: '#fff',
             borderRadius: 14,
@@ -324,7 +325,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }}
       >
         <div
-          onClick={(e) => e.stopPropagation()}
+          onClick={(ev) => ev.stopPropagation()}
           style={{
             background: '#f9fafb',
             borderRadius: 16,
@@ -469,7 +470,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         );
         existing.addEventListener(
           'error',
-          (e) => reject(e),
+          (ev) => reject(ev),
           { once: true },
         );
         return;
@@ -486,7 +487,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       );
       s.addEventListener(
         'error',
-        (e) => reject(e),
+          (ev) => reject(ev),
         { once: true },
       );
       document.head.appendChild(s);
@@ -808,7 +809,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
           source: 'google',
         }))
         .filter((p) => p.photo_reference);
-    } catch {
+    } catch (errPhotos) {
+      console.warn('[w2h] normalizeGooglePhotos failed', errPhotos);
       return [];
     }
   }
@@ -826,11 +828,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return null;
   }
 
-  function buildInfoContent(row, kv, iconSvgRaw, langCode) {
-    // 🔍 Spezial-DEBUG für Spot #527: ultraminimaler Inhalt
+  function buildInfoContent(row, kvRaw, iconSvgRaw, langCode) {
+    // 🔍 Spezial-DEBUG für Spot #527: ultraminimaler Inhalt, damit er nicht crasht
     if (row && row.id === 527) {
+      const safeKv = kvRaw && typeof kvRaw === 'object' ? kvRaw : {};
       const title = escapeHtml(pickName(row, langCode));
-      const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
+      const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || safeKv.description || '');
 
       return `
         <div class="w2h-iw">
@@ -848,10 +851,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
       `;
     }
 
+    // Standardpfad für alle anderen Spots – vorsichtig mit den Daten umgehen
+    const kv = kvRaw && typeof kvRaw === 'object' ? kvRaw : {};
     const title = escapeHtml(pickName(row, langCode));
     const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
 
-    const addrByLang = kv.addressByLang || {};
+    const addrByLang = kv.addressByLang && typeof kv.addressByLang === 'object'
+      ? kv.addressByLang
+      : {};
     const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
     let addrSel = '';
     for (const L of pref) {
@@ -870,10 +877,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const priceLevel = kv.price ? parseInt(kv.price, 10) : null;
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
 
-    const hoursByLang = kv.hoursByLang || {};
+    const hoursByLang = kv.hoursByLang && typeof kv.hoursByLang === 'object'
+      ? kv.hoursByLang
+      : {};
     let hoursArr = null;
     for (const L of pref) {
-      if (hoursByLang[L] && hoursByLang[L].length) {
+      if (Array.isArray(hoursByLang[L]) && hoursByLang[L].length) {
         hoursArr = hoursByLang[L];
         break;
       }
@@ -950,7 +959,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const showWindBtn = windRelevant || hasWindProfile || hasWindStation;
 
     const btnWind = showWindBtn
-      ? `<button id="windbtn-${row.id}` + `" class="iw-btn iw-btn-wind">💨 ${label(
+      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
           'wind',
           langCode,
         )}</button>`
@@ -988,13 +997,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
         mapObj.current = new google.maps.Map(mapRef.current, {
           center: { lat: 45.6, lng: 13.8 },
           zoom: 7,
-          clickableIcons: false, // 🔹 POI-Klicks deaktivieren
-          styles: GOOGLE_MAP_STYLE, // 🔹 POI-Icons & Texte ausblenden
+          clickableIcons: false,
+          styles: GOOGLE_MAP_STYLE,
         });
         infoWin.current = new google.maps.InfoWindow();
         setBooted(true);
-      } catch (e) {
-        console.error('[w2h] Google Maps load failed:', e);
+      } catch (errBoot) {
+        console.error('[w2h] Google Maps load failed:', errBoot);
       }
     }
 
@@ -1010,7 +1019,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }, [booted, lang]);
 
   async function loadMarkers(langCode) {
-    const { data: locs, error: e1 } = await supabase
+    const { data: locs, error: errLocs } = await supabase
       .from('locations')
       .select(`
         id,lat,lng,category_id,display_name,
@@ -1019,18 +1028,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
         description_de,description_en,description_hr,description_it,description_fr,active,
         categories:category_id ( icon_svg )
       `);
-    if (e1) {
-      console.error(e1);
+    if (errLocs) {
+      console.error(errLocs);
       return;
     }
 
-    const { data: kvRows, error: e2 } = await supabase
+    const { data: kvRows, error: errKv } = await supabase
       .from('location_values')
       .select(
         'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )',
       );
-    if (e2) {
-      console.warn('location_values load:', e2.message);
+    if (errKv) {
+      console.warn('location_values load:', errKv.message);
     }
 
     const kvByLoc = new Map();
@@ -1064,11 +1073,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       if (canon === 'photos') {
-        const google = normalizeGooglePhotos(
+        const googleArr = normalizeGooglePhotos(
           r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
         );
-        if (google.length) {
-          obj.photos = (obj.photos || []).concat(google);
+        if (googleArr.length) {
+          obj.photos = (obj.photos || []).concat(googleArr);
         }
         return;
       }
@@ -1080,8 +1089,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
               ? r.value_json
               : JSON.parse(r.value_json || '{}');
           obj.wind_profile = j || null;
-        } catch (err) {
-          console.warn('[w2h] wind_profile JSON parse failed', err);
+        } catch (errWp) {
+          console.warn('[w2h] wind_profile JSON parse failed', errWp);
           obj.wind_profile = null;
         }
         return;
@@ -1102,8 +1111,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
             } else if (j && typeof j === 'object' && j.text) {
               text = String(j.text);
             }
-          } catch (err) {
-            console.warn('[w2h] wind_hint JSON parse failed', err, r);
+          } catch (errWh) {
+            console.warn('[w2h] wind_hint JSON parse failed', errWh, r);
           }
         }
         if (lc && text) {
@@ -1123,8 +1132,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
             if (typeof j === 'string' || typeof j === 'number') {
               stationId = String(j).trim();
             }
-          } catch (err) {
-            console.warn('[w2h] livewind_station JSON parse failed', err, r);
+          } catch (errLs) {
+            console.warn('[w2h] livewind_station JSON parse failed', errLs, r);
           }
         }
 
@@ -1233,13 +1242,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
           userPhotosMap = {};
         }
       }
-    } catch (e) {
-      console.warn('[w2h] user-photos fetch failed', e);
+    } catch (errUP) {
+      console.warn('[w2h] user-photos fetch failed', errUP);
     }
 
     for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
-      const google = Array.isArray(obj.photos) ? obj.photos : [];
+      const googleArr = Array.isArray(obj.photos) ? obj.photos : [];
 
       const user = (userPhotosMap[loc.id] || [])
         .map((p) => ({
@@ -1252,7 +1261,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }))
         .filter((u) => u.public_url || u.url || u.thumb);
 
-      obj.photos = mergePhotos(google, user);
+      obj.photos = mergePhotos(googleArr, user);
       obj.first_photo_ref = pickFirstThumb(obj.photos);
       kvByLoc.set(loc.id, obj);
     }
@@ -1285,25 +1294,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       marker._cat = String(row.category_id);
 
-      // ⬇️ Neuer, robuster Click-Handler mit Fallback
+      // ⬇️ Klick-Handler mit Fallback
       marker.addListener('click', () => {
         const meta = kvByLoc.get(row.id) || {};
 
-        // Extra-Debug für Spot 527
-        if (row.id === 527) {
-          console.log('[w2h DEBUG] Click on location 527', { row, meta });
-        }
-
         let html;
         try {
-          // normales Infofenster bauen
           html = buildInfoContent(row, meta, svg, langCode);
-        } catch (err) {
-          console.error('[w2h] buildInfoContent failed for location', row.id, err, {
+        } catch (errBI) {
+          console.error('[w2h] buildInfoContent failed for location', row.id, errBI, {
             row,
             meta,
           });
-          // Fallback-Box
           html = buildErrorInfoContent(row.id);
         }
 
@@ -1338,8 +1340,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 });
               });
             }
-          } catch (err) {
-            console.error('[w2h] domready handler failed for location', row.id, err);
+          } catch (errDom) {
+            console.error('[w2h] domready handler failed for location', row.id, errDom);
           }
         });
       });
