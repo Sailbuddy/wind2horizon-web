@@ -1492,11 +1492,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <LayerPanel
         lang={lang}
         onInit={(initialMap) => {
+          // initialMap: Map(catKey -> visible)
           layerState.current = new Map(initialMap);
           applyLayerVisibility();
         }}
         onToggle={(catKey, visible) => {
+          // einzelner Layer an/aus
           layerState.current.set(catKey, visible);
+          applyLayerVisibility();
+        }}
+        // 🔹 NEU: "Alle Kategorien" – Alle Layer an/aus
+        onToggleAll={(visible) => {
+          // Alle bekannten Layer-Keys auf visible setzen
+          const updated = new Map();
+          layerState.current.forEach((_v, key) => {
+            updated.set(key, visible);
+          });
+          layerState.current = updated;
           applyLayerVisibility();
         }}
       />
