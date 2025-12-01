@@ -39,20 +39,36 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
     setOpen(!isMobile);
   }, []);
 
-  // Kategorien laden
+  // Kategorien laden – nur solche mit mindestens 1 Location
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
         .from('categories')
-        .select('id,name_de,name_en,name_hr,icon_svg,sort_index')
+        .select(`
+          id,
+          name_de,
+          name_en,
+          name_hr,
+          icon_svg,
+          sort_index,
+          locations!inner(id)
+        `)
         .order('sort_index', { ascending: true })
         .order('id', { ascending: true });
-      if (error) { console.error(error); return; }
+
+      if (error) {
+        console.error('Error loading categories with locations:', error);
+        return;
+      }
+
+      // Join liefert nur Kategorien mit mindestens einer Location.
+      // Das verschachtelte "locations" entfernen wir wieder.
+      const cleaned = (data || []).map(({ locations, ...cat }) => cat);
 
       const m = new Map();
-      (data || []).forEach(c => m.set(String(c.id), true)); // Standard: alles sichtbar
+      cleaned.forEach(c => m.set(String(c.id), true)); // Standard: alles sichtbar
       setState(m);
-      setCats(data || []);
+      setCats(cleaned);
       onInit && onInit(m);
     })();
   }, [onInit]);
@@ -63,7 +79,7 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
     (lang === 'hr' && c.name_hr) ||
     c.name_en || c.name_de || '–';
 
-  // ---- NEU: All/Some-Logik für "Alle Kategorien" --------------------
+  // ---- All/Some-Logik für "Alle Kategorien" --------------------
 
   const allChecked =
     cats.length > 0 && cats.every(c => state.get(String(c.id)));
@@ -133,7 +149,7 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
       >
-        {/* NEU: Zeile 1 – Alle Kategorien */}
+        {/* Zeile 1 – Alle Kategorien */}
         <label className="row row-all">
           <input
             ref={allRef}
@@ -145,7 +161,7 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
         </label>
         <hr className="divider" />
 
-        {/* Einzelne Kategorien */}
+        {/* Einzelne Kategorien (nur mit Locations) */}
         {cats.map(c => {
           const key = String(c.id);
           return (
