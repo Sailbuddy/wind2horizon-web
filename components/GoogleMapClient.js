@@ -157,7 +157,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS.ALL); // 'all'
   const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
 
+  // 🔹 Neu: Simple Responsiveness-Flag (z.B. Handy hochkant)
+  const [isMobile, setIsMobile] = useState(false);
+
   const DEBUG_LOG = false;
+
+  // Viewport-Listener für isMobile
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const update = () => {
+      setIsMobile(window.innerWidth <= 640); // Grenze kannst du bei Bedarf anpassen
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -660,7 +676,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
     if (!m) return line;
     const head = m[1].trim();
-    const rest = m[2].trim();
+    the rest = m[2].trim();
     const idx = DAY_ALIASES.get(head.toLowerCase());
     if (idx === undefined) return line;
     const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
@@ -1480,15 +1496,26 @@ export default function GoogleMapClient({ lang = 'de' }) {
     });
   }
 
+  // Positions-Styles für Regions-Overlay
+  const regionPositionStyle = isMobile
+    ? {
+        top: 60,
+        right: 10,
+        left: 'auto',
+        transform: 'none',
+      }
+    : {
+        top: 60,
+        left: '50%',
+        transform: 'translateX(-50%)',
+      };
+
   return (
     <div className="w2h-map-wrap">
-      {/* 🌍 Regions-Overlay mittig unter der Suche */}
+      {/* 🌍 Regions-Overlay – Desktop mittig, Mobile rechts oben */}
       <div
         style={{
           position: 'absolute',
-          top: 60,
-          left: '50%',
-          transform: 'translateX(-50%)',
           zIndex: 1950,
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 12,
@@ -1496,6 +1523,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           boxShadow: '0 4px 12px rgba(0,0,0,.12)',
           fontSize: 12,
           minWidth: 170,
+          ...regionPositionStyle,
         }}
       >
         <div style={{ marginBottom: 4, fontWeight: 600 }}>Region</div>
