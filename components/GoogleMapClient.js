@@ -472,7 +472,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function loadGoogleMaps(language) {
     return new Promise((resolve, reject) => {
-      if (typeof window !== 'undefined' && window.google && window.google.maps) return resolve();
+      if (window.google && window.google.maps) return resolve();
       const existing = document.querySelector('script[data-w2h-gmaps]');
       if (existing) {
         existing.addEventListener(
@@ -1045,7 +1045,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     // Marker holen und künstlich klicken → öffnet Infofenster mit bestehender Logik
     const marker = markerMapRef.current.get(match.id);
-    if (marker && typeof window !== 'undefined' && window.google && window.google.maps && google.maps.event) {
+    if (marker && window.google && window.google.maps && google.maps.event) {
       google.maps.event.trigger(marker, 'click');
     }
   }
@@ -1069,6 +1069,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const onError = (err) => {
       console.warn('[w2h] Geolocation failed/denied:', err);
+      // wir bleiben einfach in der aktuellen Ansicht, setzen aber auf "manual"
       setRegionMode('manual');
     };
 
@@ -1245,7 +1246,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }
 
         const stationName =
-          r.name && String(r.name).trim().length ? String(r.name).trim() : null;
+          (r.name && String(r.name).trim()) && String(r.name).trim().length
+            ? String(r.name).trim()
+            : null;
 
         if (stationId) {
           obj.livewind_station = stationId;
@@ -1398,8 +1401,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         title,
         icon: getMarkerIcon(row.category_id, svg),
         map: mapObj.current,
-        zIndex: 1000 + (row.category_id || 0),
-        clickable: true,
+        zIndex: 1000 + (row.category_id || 0), // Marker sicher "oben"
+        clickable: true, // explizit klickbar
       });
 
       marker._cat = String(row.category_id);
@@ -1479,51 +1482,113 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   return (
     <div className="w2h-map-wrap">
-      {/* 🔍 Suchfeld-Overlay oben zentriert */}
-      <div className="w2h-search-overlay">
-        <div className="w2h-search-box">
-          <input
-            type="text"
-            placeholder="Ort oder Name suchen…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSearch();
-            }}
-          />
-          <button type="button" onClick={handleSearch}>
-            Suchen
-          </button>
-        </div>
+      {/* 🌍 Regions-Overlay – Position via CSS, Breite am Handy schmäler */}
+      <div
+        className="w2h-region-panel"
+        style={{
+          zIndex: 1900,
+          background: 'rgba(255,255,255,0.92)',
+          borderRadius: 12,
+          padding: '6px 8px',
+          boxShadow: '0 4px 12px rgba(0,0,0,.12)',
+          fontSize: 12,
+        }}
+      >
+        <div style={{ marginBottom: 4, fontWeight: 600 }}>Region</div>
+        <select
+          value={selectedRegion}
+          onChange={(e) => {
+            const key = e.target.value;
+            setRegionMode('manual');
+            setSelectedRegion(key);
+            const region = REGIONS.find((r) => r.key === key);
+            if (region && mapObj.current && window.google) {
+              mapObj.current.setCenter({ lat: region.centerLat, lng: region.centerLng });
+              mapObj.current.setZoom(region.zoom);
+            }
+          }}
+          style={{
+            width: '100%',
+            fontSize: 12,
+            padding: '3px 6px',
+            borderRadius: 8,
+            border: '1px solid #d1d5db',
+            marginBottom: 4,
+          }}
+        >
+          {REGIONS.map((r) => (
+            <option key={r.key} value={r.key}>
+              {r.label[lang] || r.label.de}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setRegionMode('auto')}
+          style={{
+            width: '100%',
+            fontSize: 11,
+            padding: '3px 6px',
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            background: '#f3f4f6',
+            cursor: 'pointer',
+          }}
+        >
+          Auto (mein Standort)
+        </button>
       </div>
 
-      {/* 🌍 Regions-Overlay – Desktop: mittig unter Suche, Mobile: rechts oben */}
-      <div className="w2h-region-overlay">
-        <div className="w2h-region-box">
-          <div className="w2h-region-label">Region</div>
-          <select
-            value={selectedRegion}
-            onChange={(e) => {
-              const key = e.target.value;
-              setRegionMode('manual');
-              setSelectedRegion(key);
-              const region = REGIONS.find((r) => r.key === key);
-              if (region && mapObj.current && window.google) {
-                mapObj.current.setCenter({ lat: region.centerLat, lng: region.centerLng });
-                mapObj.current.setZoom(region.zoom);
-              }
-            }}
-          >
-            {REGIONS.map((r) => (
-              <option key={r.key} value={r.key}>
-                {r.label[lang] || r.label.de}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={() => setRegionMode('auto')}>
-            Auto (mein Standort)
-          </button>
-        </div>
+      {/* 🔍 Suchfeld-Overlay oben zentriert */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 10,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 2000,
+          background: 'rgba(255,255,255,0.92)',
+          borderRadius: 9999,
+          padding: '6px 10px',
+          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Ort oder Name suchen…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSearch();
+          }}
+          style={{
+            border: '1px solid #d1d5db',
+            borderRadius: 9999,
+            padding: '4px 10px',
+            fontSize: 13,
+            minWidth: 220,
+          }}
+        />
+        <button
+          type="button"
+          onClick={handleSearch}
+          style={{
+            border: 'none',
+            borderRadius: 9999,
+            padding: '5px 12px',
+            fontSize: 13,
+            fontWeight: 600,
+            background: '#0284c7',
+            color: '#fff',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Suchen
+        </button>
       </div>
 
       <div ref={mapRef} className="w2h-map" />
@@ -1531,14 +1596,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <LayerPanel
         lang={lang}
         onInit={(initialMap) => {
+          // initialMap: Map(catKey -> visible)
           layerState.current = new Map(initialMap);
           applyLayerVisibility();
         }}
         onToggle={(catKey, visible) => {
+          // einzelner Layer an/aus
           layerState.current.set(catKey, visible);
           applyLayerVisibility();
         }}
+        // 🔹 "Alle Kategorien" – Alle Layer an/aus
         onToggleAll={(visible) => {
+          // Alle bekannten Layer-Keys auf visible setzen
           const updated = new Map();
           layerState.current.forEach((_v, key) => {
             updated.set(key, visible);
@@ -1561,85 +1630,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
           height: 100%;
           width: 100%;
         }
-
-        .w2h-search-overlay {
+        /* Region-Panel: Desktop zentriert unter der Suche */
+        .w2h-region-panel {
           position: absolute;
-          top: 10px;
+          top: 64px;
           left: 50%;
           transform: translateX(-50%);
-          z-index: 2000;
+          min-width: 210px;
+          max-width: 320px;
         }
-        .w2h-search-box {
-          background: rgba(255, 255, 255, 0.92);
-          border-radius: 9999px;
-          padding: 6px 10px;
-          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
-          display: flex;
-          gap: 8px;
-          align-items: center;
-        }
-        .w2h-search-box input {
-          border: 1px solid #d1d5db;
-          border-radius: 9999px;
-          padding: 4px 10px;
-          font-size: 13px;
-          min-width: 220px;
-        }
-        .w2h-search-box button {
-          border: none;
-          border-radius: 9999px;
-          padding: 5px 12px;
-          font-size: 13px;
-          font-weight: 600;
-          background: #0284c7;
-          color: #fff;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-
-        .w2h-region-overlay {
-          position: absolute;
-          top: 58px;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 1950;
-        }
-        .w2h-region-box {
-          background: rgba(255, 255, 255, 0.92);
-          border-radius: 12px;
-          padding: 6px 8px 8px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-          font-size: 12px;
-          min-width: 190px;
-        }
-        .w2h-region-label {
-          margin-bottom: 4px;
-          font-weight: 600;
-        }
-        .w2h-region-box select {
-          width: 100%;
-          font-size: 12px;
-          padding: 3px 6px;
-          border-radius: 8px;
-          border: 1px solid #d1d5db;
-          margin-bottom: 4px;
-        }
-        .w2h-region-box button {
-          width: 100%;
-          font-size: 11px;
-          padding: 3px 6px;
-          border-radius: 8px;
-          border: 1px solid #e5e7eb;
-          background: #f3f4f6;
-          cursor: pointer;
-        }
-
+        /* Handy hochkant: nach rechts oben, schmäler */
         @media (max-width: 640px) {
-          .w2h-region-overlay {
-            top: 64px;
+          .w2h-region-panel {
+            top: 70px;
+            right: 10px;
             left: auto;
-            right: 8px;
             transform: none;
+            min-width: 170px;
+            max-width: 230px;
+            width: 60vw;
           }
         }
       `}</style>
