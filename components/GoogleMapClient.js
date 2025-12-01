@@ -139,11 +139,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
 
+  // 🔹 Neu: Marker-Map & Locations für Suche
+  const markerMapRef = useRef(new Map()); // location_id -> Marker
+  const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
+
   // Galerie-Lightbox
   const [gallery, setGallery] = useState(null);
 
   // Winddaten-Modal (mit Daten)
   const [windModal, setWindModal] = useState(null);
+
+  // 🔹 Neu: Such-Query-State
+  const [searchQuery, setSearchQuery] = useState('');
 
   const DEBUG_LOG = false;
 
@@ -802,6 +809,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (!Array.isArray(arr)) return [];
       return arr
         .map((p) => ({
+
           photo_reference: p.photo_reference || p.photoreference,
           width: p.width || null,
           height: p.height || null,
@@ -856,9 +864,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const title = escapeHtml(pickName(row, langCode));
     const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
 
-    const addrByLang = kv.addressByLang && typeof kv.addressByLang === 'object'
-      ? kv.addressByLang
-      : {};
+    const addrByLang =
+      kv.addressByLang && typeof kv.addressByLang === 'object' ? kv.addressByLang : {};
     const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
     let addrSel = '';
     for (const L of pref) {
@@ -881,9 +888,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const priceLevel = kv.price ? parseInt(kv.price, 10) : null;
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
 
-    const hoursByLang = kv.hoursByLang && typeof kv.hoursByLang === 'object'
-      ? kv.hoursByLang
-      : {};
+    const hoursByLang =
+      kv.hoursByLang && typeof kv.hoursByLang === 'object' ? kv.hoursByLang : {};
     let hoursArr = null;
     for (const L of pref) {
       if (Array.isArray(hoursByLang[L]) && hoursByLang[L].length) {
@@ -993,6 +999,53 @@ export default function GoogleMapClient({ lang = 'de' }) {
     `;
   }
 
+  // 🔍 NEU: Suchlogik – arbeitet auf locationsRef & markerMapRef
+  function handleSearch() {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query || !mapObj.current || !locationsRef.current.length) return;
+
+    const normalizeNames = (row) => {
+      const arr = [
+        row.display_name,
+        row.name_de,
+        row.name_en,
+        row.name_hr,
+        row.name_it,
+        row.name_fr,
+      ]
+        .filter(Boolean)
+        .map((n) => String(n).toLowerCase());
+      return arr;
+    };
+
+    // 1️⃣ Exakter Treffer
+    let match =
+      locationsRef.current.find((row) => {
+        const names = normalizeNames(row);
+        return names.some((n) => n === query);
+      }) ||
+      // 2️⃣ Enthält-Suche
+      locationsRef.current.find((row) => {
+        const names = normalizeNames(row);
+        return names.some((n) => n.includes(query));
+      });
+
+    if (!match) {
+      alert('Kein passender Ort gefunden.');
+      return;
+    }
+
+    // Karte zentrieren & zoomen
+    mapObj.current.panTo({ lat: match.lat, lng: match.lng });
+    mapObj.current.setZoom(16);
+
+    // Marker holen und künstlich klicken → öffnet Infofenster mit bestehender Logik
+    const marker = markerMapRef.current.get(match.id);
+    if (marker && window.google && window.google.maps && google.maps.event) {
+      google.maps.event.trigger(marker, 'click');
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1023,6 +1076,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   useEffect(() => {
     if (!booted || !mapObj.current) return;
     loadMarkers(lang);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booted, lang]);
 
   async function loadMarkers(langCode) {
@@ -1273,8 +1327,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
       kvByLoc.set(loc.id, obj);
     }
 
+    // 🔹 Neu: Locations für Suche speichern
+    locationsRef.current = locList;
+
+    // Bisherige Marker entfernen & MarkerMap leeren
     markers.current.forEach((m) => m.setMap(null));
     markers.current = [];
+    markerMapRef.current = new Map();
 
     locList.forEach((row) => {
       const title = pickName(row, langCode);
@@ -1300,6 +1359,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       });
 
       marker._cat = String(row.category_id);
+
+      // 🔹 Neu: Marker in Map merken, damit Suche darauf zugreifen kann
+      markerMapRef.current.set(row.id, marker);
 
       // ⬇️ Klick-Handler mit Fallback
       marker.addListener('click', () => {
@@ -1373,6 +1435,58 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   return (
     <div className="w2h-map-wrap">
+      {/* 🔍 Suchfeld-Overlay oben zentriert */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 10,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 2000,
+          background: 'rgba(255,255,255,0.92)',
+          borderRadius: 9999,
+          padding: '6px 10px',
+          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Ort oder Name suchen…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSearch();
+          }}
+          style={{
+            border: '1px solid #d1d5db',
+            borderRadius: 9999,
+            padding: '4px 10px',
+            fontSize: 13,
+            minWidth: 220,
+          }}
+        />
+        <button
+          type="button"
+          onClick={handleSearch}
+          style={{
+            border: 'none',
+            borderRadius: 9999,
+            padding: '5px 12px',
+            fontSize: 13,
+            fontWeight: 600,
+            background: '#0284c7',
+            color: '#fff',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Suchen
+        </button>
+      </div>
+
       <div ref={mapRef} className="w2h-map" />
 
       <LayerPanel
