@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
+import { REGIONS, REGION_KEYS, findRegionForPoint } from '@/lib/regions';
 
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
@@ -151,6 +152,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   // 🔹 Neu: Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
+
+  // 🔹 Neu: Region-State
+  const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS.ALL); // 'all'
+  const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
 
   const DEBUG_LOG = false;
 
@@ -1046,6 +1051,36 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
   }
 
+  // 🔹 Geolocation-Auto-Region
+  useEffect(() => {
+    if (!booted || !mapObj.current) return;
+    if (regionMode !== 'auto') return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+
+    const onSuccess = (pos) => {
+      const { latitude, longitude } = pos.coords;
+      const region = findRegionForPoint(latitude, longitude);
+      setSelectedRegion(region.key);
+
+      if (mapObj.current && window.google) {
+        mapObj.current.setCenter({ lat: region.centerLat, lng: region.centerLng });
+        mapObj.current.setZoom(region.zoom);
+      }
+    };
+
+    const onError = (err) => {
+      console.warn('[w2h] Geolocation failed/denied:', err);
+      // wir bleiben einfach in der aktuellen Ansicht, setzen aber auf "manual"
+      setRegionMode('manual');
+    };
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy: false,
+      timeout: 5000,
+      maximumAge: 600000,
+    });
+  }, [booted, regionMode]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1077,10 +1112,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (!booted || !mapObj.current) return;
     loadMarkers(lang);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booted, lang]);
+  }, [booted, lang, selectedRegion]);
 
   async function loadMarkers(langCode) {
-    const { data: locs, error: errLocs } = await supabase
+    // 🔹 Region-Filter: Bounding Box auf die Locations-Query anwenden
+    let locQuery = supabase
       .from('locations')
       .select(`
         id,lat,lng,category_id,display_name,
@@ -1089,6 +1125,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
         description_de,description_en,description_hr,description_it,description_fr,active,
         categories:category_id ( icon_svg )
       `);
+
+    const region = REGIONS.find((r) => r.key === selectedRegion);
+
+    if (region && region.key !== REGION_KEYS.ALL) {
+      locQuery = locQuery
+        .gte('lat', region.south)
+        .lte('lat', region.north)
+        .gte('lng', region.west)
+        .lte('lng', region.east);
+    }
+
+    const { data: locs, error: errLocs } = await locQuery;
     if (errLocs) {
       console.error(errLocs);
       return;
@@ -1435,6 +1483,66 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   return (
     <div className="w2h-map-wrap">
+      {/* 🌍 Regions-Overlay oben links */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 10,
+          left: 10,
+          zIndex: 1900,
+          background: 'rgba(255,255,255,0.92)',
+          borderRadius: 12,
+          padding: '6px 8px',
+          boxShadow: '0 4px 12px rgba(0,0,0,.12)',
+          fontSize: 12,
+          minWidth: 170,
+        }}
+      >
+        <div style={{ marginBottom: 4, fontWeight: 600 }}>Region</div>
+        <select
+          value={selectedRegion}
+          onChange={(e) => {
+            const key = e.target.value;
+            setRegionMode('manual');
+            setSelectedRegion(key);
+            const region = REGIONS.find((r) => r.key === key);
+            if (region && mapObj.current && window.google) {
+              mapObj.current.setCenter({ lat: region.centerLat, lng: region.centerLng });
+              mapObj.current.setZoom(region.zoom);
+            }
+          }}
+          style={{
+            width: '100%',
+            fontSize: 12,
+            padding: '3px 6px',
+            borderRadius: 8,
+            border: '1px solid #d1d5db',
+            marginBottom: 4,
+          }}
+        >
+          {REGIONS.map((r) => (
+            <option key={r.key} value={r.key}>
+              {r.label[lang] || r.label.de}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setRegionMode('auto')}
+          style={{
+            width: '100%',
+            fontSize: 11,
+            padding: '3px 6px',
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            background: '#f3f4f6',
+            cursor: 'pointer',
+          }}
+        >
+          Auto (mein Standort)
+        </button>
+      </div>
+
       {/* 🔍 Suchfeld-Overlay oben zentriert */}
       <div
         style={{
@@ -1501,7 +1609,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           layerState.current.set(catKey, visible);
           applyLayerVisibility();
         }}
-        // 🔹 NEU: "Alle Kategorien" – Alle Layer an/aus
+        // 🔹 "Alle Kategorien" – Alle Layer an/aus
         onToggleAll={(visible) => {
           // Alle bekannten Layer-Keys auf visible setzen
           const updated = new Map();
