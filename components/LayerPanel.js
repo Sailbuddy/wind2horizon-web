@@ -2,12 +2,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
+export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll }) {
   const [cats, setCats] = useState([]);
   const [state, setState] = useState(new Map());
   const [open, setOpen] = useState(false);
   const buttonRef = useRef(null);
   const panelRef = useRef(null);
+
+  // NEU: Ref für "Alle Kategorien"-Checkbox (indeterminate)
+  const allRef = useRef(null);
 
   // Label je Sprache
   const label = useMemo(() => {
@@ -17,6 +20,16 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
       case 'hr': return 'Kategorije';
       case 'fr': return 'Catégories';
       default:   return 'Kategorien';
+    }
+  }, [lang]);
+
+  const allLabel = useMemo(() => {
+    switch (lang) {
+      case 'en': return 'All categories';
+      case 'it': return 'Tutte le categorie';
+      case 'hr': return 'Sve kategorije';
+      case 'fr': return 'Toutes les catégories';
+      default:   return 'Alle Kategorien';
     }
   }, [lang]);
 
@@ -49,6 +62,33 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
     (lang === 'de' && c.name_de) ||
     (lang === 'hr' && c.name_hr) ||
     c.name_en || c.name_de || '–';
+
+  // ---- NEU: All/Some-Logik für "Alle Kategorien" --------------------
+
+  const allChecked =
+    cats.length > 0 && cats.every(c => state.get(String(c.id)));
+
+  const someChecked =
+    cats.some(c => state.get(String(c.id)));
+
+  // indeterminate-Status setzen
+  useEffect(() => {
+    if (allRef.current) {
+      allRef.current.indeterminate = !allChecked && someChecked;
+    }
+  }, [allChecked, someChecked]);
+
+  const handleToggleAll = (checked) => {
+    // Lokalen State für alle Kategorien setzen
+    const next = new Map(state);
+    cats.forEach(c => {
+      next.set(String(c.id), checked);
+    });
+    setState(next);
+
+    // Parent (GoogleMapsClient) informieren
+    onToggleAll && onToggleAll(checked);
+  };
 
   // Klick außerhalb => Panel schließen (für Mobile/Accessibility)
   useEffect(() => {
@@ -93,6 +133,19 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
       >
+        {/* NEU: Zeile 1 – Alle Kategorien */}
+        <label className="row row-all">
+          <input
+            ref={allRef}
+            type="checkbox"
+            checked={allChecked}
+            onChange={e => handleToggleAll(e.target.checked)}
+          />
+          <span className="name all-name">{allLabel}</span>
+        </label>
+        <hr className="divider" />
+
+        {/* Einzelne Kategorien */}
         {cats.map(c => {
           const key = String(c.id);
           return (
@@ -147,8 +200,20 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit }) {
           display: flex; align-items: center; gap: 8px;
           margin: 6px 0; white-space: nowrap;
         }
+        .w2h-layer-panel .row-all {
+          margin-top: 2px;
+          margin-bottom: 4px;
+        }
+        .w2h-layer-panel .divider {
+          border: none;
+          border-top: 1px solid rgba(0,0,0,.08);
+          margin: 4px 0 6px;
+        }
         .w2h-layer-panel .icon svg {
           width: 18px; height: 18px; vertical-align: middle;
+        }
+        .w2h-layer-panel .all-name {
+          font-weight: 600;
         }
 
         @media (max-width: 767px) {
