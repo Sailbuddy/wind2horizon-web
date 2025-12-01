@@ -814,7 +814,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (!Array.isArray(arr)) return [];
       return arr
         .map((p) => ({
-
           photo_reference: p.photo_reference || p.photoreference,
           width: p.width || null,
           height: p.height || null,
@@ -1483,13 +1482,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   return (
     <div className="w2h-map-wrap">
-      {/* 🌍 Regions-Overlay oben links */}
+      {/* 🌍 Regions-Overlay mittig unter der Suche */}
       <div
         style={{
           position: 'absolute',
-          top: 10,
-          left: 10,
-          zIndex: 1900,
+          top: 60,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1950,
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 12,
           padding: '6px 8px',
