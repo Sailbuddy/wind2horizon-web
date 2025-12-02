@@ -850,7 +850,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return `
         <div class="w2h-iw">
           <div class="iw-hd">
-            <div class="iw-title">${title} (DEBUG 527)</div>
+            <div class="iw-title">${title} <span class="iw-id">#${row.id}</span> (DEBUG 527)</div>
           </div>
           <div class="iw-bd">
             ${
@@ -986,7 +986,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <div class="w2h-iw">
         <div class="iw-hd">
           <span class="iw-ic">${svgMarkup}</span>
-          <div class="iw-title">${title}</div>
+          <div class="iw-title">
+            ${title}
+            <span class="iw-id">#${row.id}</span>
+          </div>
         </div>
         <div class="iw-bd">
           ${thumbHtml}
@@ -1673,6 +1676,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
         .gm-style .w2h-iw .iw-title {
           font-weight: 700;
           font-size: 14px;
+        }
+        .gm-style .w2h-iw .iw-id {
+          font-weight: 400;
+          font-size: 11px;
+          color: #9ca3af;
+          margin-left: 4px;
         }
         .gm-style .w2h-iw .iw-row {
           margin: 6px 0;
