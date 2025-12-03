@@ -968,12 +968,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
         )} (${photos.length})</button>`
       : '';
 
-    // Wind-Button nur anzeigen, wenn Winddaten oder LiveWind-Station existiert
+    // 🔹 Wind-Button nur anzeigen, wenn irgendeine Wind-Info existiert
     const windProfile = kv.wind_profile || null;
     const windRelevant = !!(windProfile && windProfile.wind_relevant);
     const hasWindProfile = !!windProfile;
     const hasWindStation = !!kv.livewind_station;
-    const showWindBtn = windRelevant || hasWindProfile || hasWindStation;
+
+    // NEU: es reicht auch, wenn ein Wind-Hinweistext existiert
+    const hasWindHint =
+      kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
+
+    const showWindBtn = windRelevant || hasWindProfile || hasWindStation || hasWindHint;
 
     const btnWind = showWindBtn
       ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
