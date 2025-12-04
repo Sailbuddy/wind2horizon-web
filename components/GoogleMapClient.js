@@ -1148,7 +1148,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     // Nur aktive Locations
     const allLocs = locs || [];
-       const visibleLocs = allLocs.filter((l) => l.active !== false);
+    const visibleLocs = allLocs.filter((l) => l.active !== false);
 
     // Deduplizierung pro Place (gegen echte Doppel-DB-Einträge)
     const seen = new Set();
@@ -1433,7 +1433,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       // 🔹 Neu: Marker in Map merken, damit Suche darauf zugreifen kann
       markerMapRef.current.set(row.id, marker);
 
-      // ⬇️ Klick-Handler mit Fallback
+      // ⬇️ Klick-Handler mit Fallback + Pan-Offset
       marker.addListener('click', () => {
         const meta = kvByLoc.get(row.id) || {};
 
@@ -1450,6 +1450,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
+
+        // 🔄 Karte leicht nach oben schieben, damit das Infofenster
+        // unterhalb der Suchleiste erscheint
+        if (mapObj.current && typeof mapObj.current.panBy === 'function') {
+          setTimeout(() => {
+            try {
+              mapObj.current.panBy(0, -120); // Wert nach Bedarf anpassen
+            } catch (e) {
+              console.warn('[w2h] panBy failed', e);
+            }
+          }, 0);
+        }
 
         google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
           try {
@@ -1509,7 +1521,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <div
         className="w2h-region-panel"
         style={{
-          zIndex: 5, // vorher 1900 – jetzt unter dem Infofenster
+          zIndex: 5, // unter dem Infofenster
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 12,
           padding: '6px 8px',
@@ -1569,7 +1581,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           top: 10,
           left: '50%',
           transform: 'translateX(-50%)',
-          zIndex: 10, // vorher 2000 – ebenfalls unter Infofenster
+          zIndex: 10, // unter Infofenster
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 9999,
           padding: '6px 10px',
