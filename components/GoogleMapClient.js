@@ -1379,6 +1379,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       kvByLoc.set(loc.id, obj);
     }
 
+    // 🔍 Debug: was liegt für die drei Spots im Speicher?
+    console.log('[w2h] wind-debug 665 ', kvByLoc.get(665));
+    console.log('[w2h] wind-debug 3396', kvByLoc.get(3396));
+    console.log('[w2h] wind-debug 3511', kvByLoc.get(3511));
+
     // 🔹 Neu: Locations für Suche speichern
     locationsRef.current = locList;
 
