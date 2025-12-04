@@ -1677,6 +1677,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
       `}</style>
 
       <style jsx global>{`
+        /* 🔝 InfoWindow immer über Overlays (Suchfeld, Region-Panel, etc.) */
+        .gm-style .gm-style-iw,
+        .gm-style .gm-style-iw-c,
+        .gm-style .gm-style-iw-d,
+        .gm-style .gm-style-iw-t,
+        .gm-style .gm-style-iw-chr {
+          z-index: 3000 !important;
+        }
+
         .gm-style .w2h-iw {
           max-width: 340px;
           font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
