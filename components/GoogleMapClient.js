@@ -1574,13 +1574,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
         </button>
       </div>
 
-      {/* 🔍 Suchfeld-Overlay oben zentriert */}
+      {/* 🔍 Suchfeld-Overlay oben rechts */}
       <div
         style={{
           position: 'absolute',
           top: 10,
-          left: '50%',
-          transform: 'translateX(-50%)',
+          right: 20,
           zIndex: 10, // unter Infofenster
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 9999,
