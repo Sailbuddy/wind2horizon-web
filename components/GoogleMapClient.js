@@ -1451,12 +1451,24 @@ export default function GoogleMapClient({ lang = 'de' }) {
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
-        // 🔄 Karte leicht nach oben schieben, damit das Infofenster
-        // unterhalb der Suchleiste erscheint
+        // 🔄 Karte nach oben schieben, damit das Infofenster
+        // gut unter Suchleiste & Regionsauswahl liegt
         if (mapObj.current && typeof mapObj.current.panBy === 'function') {
           setTimeout(() => {
             try {
-              mapObj.current.panBy(0, -120); // Wert nach Bedarf anpassen
+              let offsetY = -140; // Standard-Offset (Desktop)
+
+              if (typeof window !== 'undefined') {
+                const w = window.innerWidth;
+                const h = window.innerHeight;
+
+                // Handy hochkant → stärker schieben
+                if (w <= 640 && h > w) {
+                  offsetY = -220;
+                }
+              }
+
+              mapObj.current.panBy(0, offsetY);
             } catch (e) {
               console.warn('[w2h] panBy failed', e);
             }
@@ -1676,7 +1688,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         /* Handy hochkant: nach rechts oben, schmäler */
         @media (max-width: 640px) {
           .w2h-region-panel {
-            top: 70px;
+            top: 80px;
             right: 10px;
             left: auto;
             transform: none;
