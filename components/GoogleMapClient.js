@@ -1451,24 +1451,32 @@ export default function GoogleMapClient({ lang = 'de' }) {
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
-        // 🔄 Karte nach oben schieben, damit das Infofenster
-        // gut unter Suchleiste & Regionsauswahl liegt
+        // 🔄 Karte verschieben, damit das Infofenster nicht unter Suche/Region liegt
         if (mapObj.current && typeof mapObj.current.panBy === 'function') {
           setTimeout(() => {
             try {
-              let offsetY = -140; // Standard-Offset (Desktop)
+              // Basiswerte: Desktop
+              let offsetX = 160;  // nach links (Suchleiste ist rechts)
+              let offsetY = -140; // nach unten (Overlays sind oben)
 
               if (typeof window !== 'undefined') {
                 const w = window.innerWidth;
                 const h = window.innerHeight;
 
-                // Handy hochkant → stärker schieben
+                // Tablet / kleines Notebook
+                if (w <= 1024) {
+                  offsetX = 140;
+                  offsetY = -160;
+                }
+
+                // Handy hochkant → noch stärker nach unten
                 if (w <= 640 && h > w) {
+                  offsetX = 120;
                   offsetY = -220;
                 }
               }
 
-              mapObj.current.panBy(0, offsetY);
+              mapObj.current.panBy(offsetX, offsetY);
             } catch (e) {
               console.warn('[w2h] panBy failed', e);
             }
