@@ -1146,13 +1146,46 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return;
     }
 
-    const { data: kvRows, error: errKv } = await supabase
-      .from('location_values')
-      .select(
-        'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )',
-      );
-    if (errKv) {
-      console.warn('location_values load:', errKv.message);
+    // Nur aktive Locations
+    const allLocs = locs || [];
+    const visibleLocs = allLocs.filter((l) => l.active !== false);
+
+    // Deduplizierung pro Place (gegen echte Doppel-DB-Einträge)
+    const seen = new Set();
+    const locList = [];
+    for (const row of visibleLocs) {
+      const key =
+        (row.google_place_id && `pid:${row.google_place_id}`) ||
+        (row.plus_code && `pc:${row.plus_code}`) ||
+        `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
+      if (seen.has(key)) {
+        if (DEBUG_LOG) {
+          console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
+        }
+        continue;
+      }
+      seen.add(key);
+      locList.push(row);
+    }
+
+    // IDs der deduplizierten Locations
+    const locIds = locList.map((l) => l.id);
+
+    // 🔹 location_values nur für diese IDs laden
+    let kvRows = [];
+    if (locIds.length) {
+      const { data, error } = await supabase
+        .from('location_values')
+        .select(
+          'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )',
+        )
+        .in('location_id', locIds);
+
+      if (error) {
+        console.warn('location_values load:', error.message);
+      } else {
+        kvRows = data || [];
+      }
     }
 
     const kvByLoc = new Map();
@@ -1301,33 +1334,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     });
 
-    // Nur aktive Locations
-    const allLocs = locs || [];
-    const visibleLocs = allLocs.filter((l) => l.active !== false);
-
-    // Deduplizierung pro Place (gegen echte Doppel-DB-Einträge)
-    const seen = new Set();
-    const locList = [];
-    for (const row of visibleLocs) {
-      const key =
-        (row.google_place_id && `pid:${row.google_place_id}`) ||
-        (row.plus_code && `pc:${row.plus_code}`) ||
-        `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
-      if (seen.has(key)) {
-        if (DEBUG_LOG) {
-          console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
-        }
-        continue;
-      }
-      seen.add(key);
-      locList.push(row);
-    }
-
-    const ids = locList.map((l) => l.id);
+    // 🔹 User-Fotos pro Location laden
     let userPhotosMap = {};
     try {
-      if (ids.length) {
-        const url = `/api/user-photos?ids=${ids.join(',')}`;
+      if (locIds.length) {
+        const url = `/api/user-photos?ids=${locIds.join(',')}`;
         if (DEBUG_LOG) {
           console.log('[w2h] fetch user-photos:', url);
         }
@@ -1359,6 +1370,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', errUP);
     }
 
+    // Google + User Fotos zusammenführen, Thumb setzen
     for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
       const googleArr = Array.isArray(obj.photos) ? obj.photos : [];
@@ -1392,6 +1404,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     markers.current = [];
     markerMapRef.current = new Map();
 
+    // Marker erzeugen
     locList.forEach((row) => {
       const title = pickName(row, langCode);
       const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
