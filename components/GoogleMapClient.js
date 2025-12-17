@@ -11,6 +11,10 @@ import { REGIONS, REGION_KEYS, findRegionForPoint } from '@/lib/regions';
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
 const DEBUG_BOUNDING = false; // true = rote Bounding-Boxen über den Markern
 
+// 🔒 Sichtbarkeit dynamischer Attribute (falls Spalte vorhanden)
+// 0 = öffentlich, 1 = erweitert, 2+ = intern (Beispiel). Passe bei Bedarf an.
+const INFO_VISIBILITY_MAX = 1;
+
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
 const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
@@ -144,6 +148,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const markerMapRef = useRef(new Map()); // location_id -> Marker
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
 
+  // 🔹 Neu: Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
+  const attrSchemaRef = useRef(null); // { byId: Map, byKey: Map, hasVisibility: bool }
+
   // Galerie-Lightbox
   const [gallery, setGallery] = useState(null);
 
@@ -172,6 +179,129 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+  }
+
+  function safeHref(raw = '') {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    // sehr defensiv: keine javascript: etc.
+    if (s.includes(':')) return '';
+    return `https://${s}`;
+  }
+
+  function getAttrLabel(def, langCode) {
+    if (!def) return '';
+    const key = def.key || '';
+    const raw =
+      (langCode === 'de' && def.name_de) ||
+      (langCode === 'it' && def.name_it) ||
+      (langCode === 'fr' && def.name_fr) ||
+      (langCode === 'hr' && def.name_hr) ||
+      (langCode === 'en' && def.name_en) ||
+      def.name_de ||
+      def.name_en ||
+      key;
+    return String(raw || key || '');
+  }
+
+  function formatDynamicValue({ def, val, langCode }) {
+    const inputType = (def && def.input_type) || '';
+    if (val === null || val === undefined) return '';
+
+    // JSON objekt/array -> kompakt anzeigen
+    const isObj = typeof val === 'object';
+    const asText = isObj ? JSON.stringify(val) : String(val);
+
+    // bool
+    if (inputType === 'bool' || typeof val === 'boolean') {
+      const b = val === true || val === 'true' || val === 1 || val === '1';
+      return b ? (langCode === 'de' ? 'Ja' : 'Yes') : (langCode === 'de' ? 'Nein' : 'No');
+    }
+
+    // url/link
+    if (inputType === 'url' || inputType === 'link') {
+      const href = safeHref(asText);
+      if (!href) return escapeHtml(asText);
+      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(
+        asText,
+      )}</a>`;
+    }
+
+    // options (falls options JSON vorhanden ist)
+    if (inputType === 'option' || inputType === 'select') {
+      try {
+        const opts = def && def.options ? def.options : null;
+        // options kann json oder stringified json sein
+        const j = typeof opts === 'string' ? JSON.parse(opts) : opts;
+        // akzeptiere Array oder Map-artig
+        if (Array.isArray(j)) {
+          const hit = j.find((o) => String(o.value) === String(val));
+          if (hit && hit.label) return escapeHtml(String(hit.label));
+        } else if (j && typeof j === 'object') {
+          // { "X":"Label" } oder { "X": {label:".."} }
+          const hit = j[String(val)];
+          if (typeof hit === 'string') return escapeHtml(hit);
+          if (hit && typeof hit === 'object' && hit.label) return escapeHtml(String(hit.label));
+        }
+      } catch {
+        // ignore
+      }
+      return escapeHtml(asText);
+    }
+
+    // default
+    return escapeHtml(asText);
+  }
+
+  async function ensureAttributeSchema() {
+    if (attrSchemaRef.current) return attrSchemaRef.current;
+
+    const baseSelect =
+      'attribute_id,key,input_type,options,sort_order,is_active,multilingual,name_de,name_en,name_it,name_fr,name_hr,description_de,description_en,description_it,description_fr,description_hr';
+    const selectWithVisibility = `${baseSelect},visibility_level`;
+
+    // Versuch 1: mit visibility_level (falls vorhanden)
+    let data = null;
+    let hasVisibility = false;
+
+    {
+      const { data: d1, error: e1 } = await supabase.from('attribute_definitions').select(selectWithVisibility);
+      if (!e1) {
+        data = d1 || [];
+        hasVisibility = true;
+      } else {
+        // Fallback: ohne visibility_level (falls DB-Spalte (noch) nicht existiert)
+        const { data: d2, error: e2 } = await supabase.from('attribute_definitions').select(baseSelect);
+        if (e2) {
+          console.warn('[w2h] attribute_definitions load failed:', e2.message);
+          data = [];
+        } else {
+          data = d2 || [];
+        }
+        hasVisibility = false;
+      }
+    }
+
+    const byId = new Map();
+    const byKey = new Map();
+
+    (data || []).forEach((def) => {
+      if (!def) return;
+      const id = def.attribute_id;
+      const key = def.key;
+      if (id !== null && id !== undefined) byId.set(Number(id), def);
+      if (key) byKey.set(String(key), def);
+    });
+
+    attrSchemaRef.current = { byId, byKey, hasVisibility };
+    if (DEBUG_LOG) {
+      console.log('[w2h] attribute schema loaded', {
+        count: byId.size,
+        hasVisibility,
+      });
+    }
+    return attrSchemaRef.current;
   }
 
   function Lightbox({ gallery, onClose }) {
@@ -475,16 +605,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (window.google && window.google.maps) return resolve();
       const existing = document.querySelector('script[data-w2h-gmaps]');
       if (existing) {
-        existing.addEventListener(
-          'load',
-          () => resolve(),
-          { once: true },
-        );
-        existing.addEventListener(
-          'error',
-          (ev) => reject(ev),
-          { once: true },
-        );
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', (ev) => reject(ev), { once: true });
         return;
       }
       const s = document.createElement('script');
@@ -492,16 +614,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
       s.async = true;
       s.defer = true;
       s.dataset.w2hGmaps = '1';
-      s.addEventListener(
-        'load',
-        () => resolve(),
-        { once: true },
-      );
-      s.addEventListener(
-        'error',
-        (ev) => reject(ev),
-        { once: true },
-      );
+      s.addEventListener('load', () => resolve(), { once: true });
+      s.addEventListener('error', (ev) => reject(ev), { once: true });
       document.head.appendChild(s);
     });
   }
@@ -714,12 +828,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function getMarkerIcon(catId, svgMarkup) {
     // 🔧 Debug: einfache Kreissymbole ohne SVG
-    if (
-      DEBUG_MARKERS &&
-      typeof google !== 'undefined' &&
-      google.maps &&
-      google.maps.SymbolPath
-    ) {
+    if (DEBUG_MARKERS && typeof google !== 'undefined' && google.maps && google.maps.SymbolPath) {
       return {
         path: google.maps.SymbolPath.CIRCLE,
         scale: 8,
@@ -883,11 +992,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const website = kv.website || '';
     const phone = kv.phone || '';
 
-    // 🔁 Neu: robustes Rating-Handling
+    // 🔁 robustes Rating-Handling
     const rating =
-      kv.rating !== undefined && kv.rating !== null && kv.rating !== ''
-        ? Number(kv.rating)
-        : null;
+      kv.rating !== undefined && kv.rating !== null && kv.rating !== '' ? Number(kv.rating) : null;
     const ratingTotal = kv.rating_total ? parseInt(kv.rating_total, 10) : null;
     const priceLevel = kv.price ? parseInt(kv.price, 10) : null;
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
@@ -927,13 +1034,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
       ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>`
       : '';
 
-    // 🔁 Neu: Rating-Berechnung ohne Shadowing/Fehler
+    // Rating
     let ratingHtml = '';
     if (rating !== null && !Number.isNaN(rating)) {
       const rInt = Math.max(0, Math.min(5, Math.round(rating)));
       const stars = '★'.repeat(rInt) + '☆'.repeat(5 - rInt);
-      const formatted =
-        Number.isFinite(rating) && rating.toFixed ? rating.toFixed(1) : String(rating);
+      const formatted = Number.isFinite(rating) && rating.toFixed ? rating.toFixed(1) : String(rating);
       ratingHtml = `<div class="iw-row iw-rating">${stars} ${formatted}${
         ratingTotal ? ` (${ratingTotal})` : ''
       }</div>`;
@@ -968,13 +1074,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
         )} (${photos.length})</button>`
       : '';
 
-    // 🔹 Wind-Button anzeigen, sobald IRGENDEINE Windinfo existiert
+    // Windbutton
     const windProfile = kv.wind_profile || null;
     const hasWindProfile = !!windProfile;
     const hasWindStation = !!kv.livewind_station;
     const hasWindHint =
       kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
-
     const showWindBtn = hasWindProfile || hasWindStation || hasWindHint;
 
     const btnWind = showWindBtn
@@ -983,6 +1088,24 @@ export default function GoogleMapClient({ lang = 'de' }) {
           langCode,
         )}</button>`
       : '';
+
+    // ✅ Punkt 5: Dynamische Attribute aus attribute_definitions + location_values rendern
+    let dynamicHtml = '';
+    if (Array.isArray(kv.dynamic) && kv.dynamic.length) {
+      dynamicHtml = `
+        <div class="iw-dyn">
+          ${kv.dynamic
+            .map((it) => {
+              const k = escapeHtml(it.label || it.key || '');
+              const v = it.htmlValue || '';
+              if (!k || !v) return '';
+              return `<div class="iw-row iw-dyn-row"><span class="iw-dyn-k">${k}</span><span class="iw-dyn-v">${v}</span></div>`;
+            })
+            .filter(Boolean)
+            .join('')}
+        </div>
+      `;
+    }
 
     return `
       <div class="w2h-iw">
@@ -1000,6 +1123,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           ${ratingHtml}
           ${priceHtml}
           ${openingHtml}
+          ${dynamicHtml}
         </div>
         <div class="iw-actions">
           ${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
@@ -1014,14 +1138,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (!query || !mapObj.current || !locationsRef.current.length) return;
 
     const normalizeNames = (row) => {
-      const arr = [
-        row.display_name,
-        row.name_de,
-        row.name_en,
-        row.name_hr,
-        row.name_it,
-        row.name_fr,
-      ]
+      const arr = [row.display_name, row.name_de, row.name_en, row.name_hr, row.name_it, row.name_fr]
         .filter(Boolean)
         .map((n) => String(n).toLowerCase());
       return arr;
@@ -1074,7 +1191,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const onError = (err) => {
       console.warn('[w2h] Geolocation failed/denied:', err);
-      // wir bleiben einfach in der aktuellen Ansicht, setzen aber auf "manual"
       setRegionMode('manual');
     };
 
@@ -1119,10 +1235,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }, [booted, lang, selectedRegion]);
 
   async function loadMarkers(langCode) {
+    // ✅ Schema einmal sicherstellen (dynamische Attribute)
+    const schema = await ensureAttributeSchema();
+
     // 🔹 Region-Filter: Bounding Box auf die Locations-Query anwenden
-    let locQuery = supabase
-      .from('locations')
-      .select(`
+    let locQuery = supabase.from('locations').select(`
         id,lat,lng,category_id,display_name,
         google_place_id,plus_code,
         name_de,name_en,name_hr,name_it,name_fr,
@@ -1190,148 +1307,191 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const kvByLoc = new Map();
 
+    // Helper: dynamische Values pro key sammeln
+    function ensureDyn(obj) {
+      if (!obj._dyn) obj._dyn = new Map(); // key -> { def, valuesByLang: {}, rawAny }
+      return obj._dyn;
+    }
+
     (kvRows || []).forEach((r) => {
       const locId = r.location_id;
       const key = (r.attribute_definitions && r.attribute_definitions.key) || null;
       const canon = FIELD_MAP_BY_ID[r.attribute_id] || (key && FIELD_MAP_BY_KEY[key]);
-      if (!canon) return;
 
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
       const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
 
-      if (
-        obj[canon] &&
-        canon !== 'opening_hours' &&
-        canon !== 'address' &&
-        canon !== 'photos' &&
-        canon !== 'wind_profile' &&
-        canon !== 'wind_hint' &&
-        canon !== 'livewind_station'
-      ) {
-        if (DEBUG_LOG) {
-          console.warn(
-            `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}. Der zusätzliche Eintrag wird ignoriert.`,
-            r,
-          );
-        }
-        return;
-      }
-
-      if (canon === 'photos') {
-        const googleArr = normalizeGooglePhotos(
-          r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
-        );
-        if (googleArr.length) {
-          obj.photos = (obj.photos || []).concat(googleArr);
-        }
-        return;
-      }
-
-      if (canon === 'wind_profile') {
-        try {
-          const j =
-            r.value_json && typeof r.value_json === 'object'
-              ? r.value_json
-              : JSON.parse(r.value_json || '{}');
-          obj.wind_profile = j || null;
-        } catch (errWp) {
-          console.warn('[w2h] wind_profile JSON parse failed', errWp);
-          obj.wind_profile = null;
-        }
-        return;
-      }
-
-      if (canon === 'wind_hint') {
-        obj.wind_hint = obj.wind_hint || {};
-        let text = '';
-        if (r.value_text && String(r.value_text).trim()) {
-          text = String(r.value_text);
-        } else if (r.value_json) {
-          try {
-            const j = typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
-            if (typeof j === 'string') {
-              text = j;
-            } else if (Array.isArray(j) && j.length) {
-              text = String(j[0]);
-            } else if (j && typeof j === 'object' && j.text) {
-              text = String(j.text);
-            }
-          } catch (errWh) {
-            console.warn('[w2h] wind_hint JSON parse failed', errWh, r);
+      // bekannte Felder wie bisher behandeln
+      if (canon) {
+        if (
+          obj[canon] &&
+          canon !== 'opening_hours' &&
+          canon !== 'address' &&
+          canon !== 'photos' &&
+          canon !== 'wind_profile' &&
+          canon !== 'wind_hint' &&
+          canon !== 'livewind_station'
+        ) {
+          if (DEBUG_LOG) {
+            console.warn(
+              `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}. Der zusätzliche Eintrag wird ignoriert.`,
+              r,
+            );
           }
+          return;
         }
-        if (lc && text) {
-          obj.wind_hint[lc] = text;
-        }
-        return;
-      }
 
-      if (canon === 'livewind_station') {
-        let stationId = '';
-        if (r.value_text && String(r.value_text).trim()) {
-          stationId = String(r.value_text).trim();
-        } else if (r.value_json) {
+        if (canon === 'photos') {
+          const googleArr = normalizeGooglePhotos(
+            r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
+          );
+          if (googleArr.length) {
+            obj.photos = (obj.photos || []).concat(googleArr);
+          }
+          return;
+        }
+
+        if (canon === 'wind_profile') {
           try {
             const j =
-              typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
-            if (typeof j === 'string' || typeof j === 'number') {
-              stationId = String(j).trim();
-            }
-          } catch (errLs) {
-            console.warn('[w2h] livewind_station JSON parse failed', errLs, r);
+              r.value_json && typeof r.value_json === 'object'
+                ? r.value_json
+                : JSON.parse(r.value_json || '{}');
+            obj.wind_profile = j || null;
+          } catch (errWp) {
+            console.warn('[w2h] wind_profile JSON parse failed', errWp);
+            obj.wind_profile = null;
           }
+          return;
         }
 
-        const stationName =
-          (r.name && String(r.name).trim()) && String(r.name).trim().length
-            ? String(r.name).trim()
-            : null;
-
-        if (stationId) {
-          obj.livewind_station = stationId;
-          if (stationName) {
-            obj.livewind_station_name = stationName;
+        if (canon === 'wind_hint') {
+          obj.wind_hint = obj.wind_hint || {};
+          let text = '';
+          if (r.value_text && String(r.value_text).trim()) {
+            text = String(r.value_text);
+          } else if (r.value_json) {
+            try {
+              const j = typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
+              if (typeof j === 'string') {
+                text = j;
+              } else if (Array.isArray(j) && j.length) {
+                text = String(j[0]);
+              } else if (j && typeof j === 'object' && j.text) {
+                text = String(j.text);
+              }
+            } catch (errWh) {
+              console.warn('[w2h] wind_hint JSON parse failed', errWh, r);
+            }
           }
+          if (lc && text) {
+            obj.wind_hint[lc] = text;
+          }
+          return;
+        }
+
+        if (canon === 'livewind_station') {
+          let stationId = '';
+          if (r.value_text && String(r.value_text).trim()) {
+            stationId = String(r.value_text).trim();
+          } else if (r.value_json) {
+            try {
+              const j = typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
+              if (typeof j === 'string' || typeof j === 'number') {
+                stationId = String(j).trim();
+              }
+            } catch (errLs) {
+              console.warn('[w2h] livewind_station JSON parse failed', errLs, r);
+            }
+          }
+
+          const stationName =
+            r.name && String(r.name).trim() && String(r.name).trim().length ? String(r.name).trim() : null;
+
+          if (stationId) {
+            obj.livewind_station = stationId;
+            if (stationName) {
+              obj.livewind_station_name = stationName;
+            }
+          }
+          return;
+        }
+
+        const val =
+          r.value_text ??
+          r.value_option ??
+          (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
+          (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
+          (r.value_json ? r.value_json : '');
+
+        if (val === '' || val === null || val === undefined) return;
+
+        if (canon === 'opening_hours') {
+          obj.hoursByLang = obj.hoursByLang || {};
+          let arr = null;
+          if (Array.isArray(val)) arr = val;
+          else if (typeof val === 'string' && val.trim().startsWith('[')) {
+            try {
+              arr = JSON.parse(val);
+            } catch {
+              arr = [String(val)];
+            }
+          }
+          if (!arr) arr = String(val).split('\n');
+          obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
+        } else if (canon === 'address') {
+          obj.addressByLang = obj.addressByLang || {};
+          if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || String(val);
+          else obj.address = obj.address || String(val);
+        } else if (canon === 'website' || canon === 'phone') {
+          obj[canon] = obj[canon] || String(val);
+        } else if (canon === 'description') {
+          if (!obj.description || (lc && lc === langCode)) obj.description = String(val);
+        } else {
+          obj[canon] = String(val);
         }
         return;
       }
 
-      const val =
-        r.value_text ??
-        r.value_option ??
-        (r.value_number !== null && r.value_number !== undefined
-          ? String(r.value_number)
-          : '') ??
-        (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
-        (r.value_json ? r.value_json : '');
+      // ✅ dynamische Attribute: alles, was NICHT in FIELD_MAP_* ist
+      if (!key) return;
 
-      if (val === '' || val === null || val === undefined) return;
+      const def = (schema && schema.byId && schema.byId.get(Number(r.attribute_id))) || (schema && schema.byKey && schema.byKey.get(String(key))) || null;
+      if (!def) return;
+      if (def.is_active === false) return;
 
-      if (canon === 'opening_hours') {
-        obj.hoursByLang = obj.hoursByLang || {};
-        let arr = null;
-        if (Array.isArray(val)) arr = val;
-        else if (typeof val === 'string' && val.trim().startsWith('[')) {
-          try {
-            arr = JSON.parse(val);
-          } catch {
-            arr = [String(val)];
-          }
-        }
-        if (!arr) arr = String(val).split('\n');
-        obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
-      } else if (canon === 'address') {
-        obj.addressByLang = obj.addressByLang || {};
-        if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || String(val);
-        else obj.address = obj.address || String(val);
-      } else if (canon === 'website' || canon === 'phone') {
-        obj[canon] = obj[canon] || String(val);
-      } else if (canon === 'description') {
-        if (!obj.description || (lc && lc === langCode)) obj.description = String(val);
-      } else {
-        obj[canon] = String(val);
+      // Sichtbarkeit (falls vorhanden)
+      if (schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
+        const lvl = Number(def.visibility_level);
+        if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
       }
+
+      // Value bestimmen (mit JSON support)
+      let val = null;
+      if (r.value_json !== null && r.value_json !== undefined && r.value_json !== '') {
+        val = r.value_json;
+      } else if (r.value_text !== null && r.value_text !== undefined && r.value_text !== '') {
+        val = r.value_text;
+      } else if (r.value_option !== null && r.value_option !== undefined && r.value_option !== '') {
+        val = r.value_option;
+      } else if (r.value_number !== null && r.value_number !== undefined) {
+        val = r.value_number;
+      } else if (r.value_bool !== null && r.value_bool !== undefined) {
+        val = r.value_bool;
+      } else {
+        val = null;
+      }
+      if (val === null || val === undefined || val === '') return;
+
+      const dyn = ensureDyn(obj);
+      if (!dyn.has(key)) {
+        dyn.set(key, { def, valuesByLang: {}, any: null });
+      }
+      const entry = dyn.get(key);
+      entry.any = entry.any ?? val;
+      if (lc) entry.valuesByLang[lc] = val;
+      else entry.valuesByLang._ = val;
     });
 
     // 🔹 User-Fotos pro Location laden
@@ -1370,7 +1530,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.warn('[w2h] user-photos fetch failed', errUP);
     }
 
-    // Google + User Fotos zusammenführen, Thumb setzen
+    // Google + User Fotos zusammenführen, Thumb setzen + dyn finalisieren
     for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
       const googleArr = Array.isArray(obj.photos) ? obj.photos : [];
@@ -1388,6 +1548,53 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       obj.photos = mergePhotos(googleArr, user);
       obj.first_photo_ref = pickFirstThumb(obj.photos);
+
+      // ✅ dynamische Attribute sortieren & in render-fertige Liste bringen
+      if (obj._dyn && obj._dyn instanceof Map && obj._dyn.size) {
+        const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr', '_'];
+        const list = [];
+        for (const [key, entry] of obj._dyn.entries()) {
+          const def = entry.def;
+          let chosen = null;
+          for (const L of pref) {
+            if (entry.valuesByLang && entry.valuesByLang[L] !== undefined) {
+              chosen = entry.valuesByLang[L];
+              break;
+            }
+          }
+          const val = chosen !== null && chosen !== undefined ? chosen : entry.any;
+          if (val === null || val === undefined || val === '') continue;
+
+          const labelTxt = getAttrLabel(def, langCode);
+          const htmlValue = formatDynamicValue({ def, val, langCode });
+
+          // Duplikate vermeiden (z. B. wenn label leer)
+          if (!labelTxt || !htmlValue) continue;
+
+          list.push({
+            key,
+            attribute_id: def.attribute_id,
+            sort_order: def.sort_order ?? 9999,
+            label: labelTxt,
+            htmlValue,
+          });
+        }
+
+        list.sort((a, b) => {
+          const sa = Number(a.sort_order ?? 9999);
+          const sb = Number(b.sort_order ?? 9999);
+          if (sa !== sb) return sa - sb;
+          return String(a.label).localeCompare(String(b.label));
+        });
+
+        obj.dynamic = list;
+      } else {
+        obj.dynamic = [];
+      }
+
+      // cleanup
+      delete obj._dyn;
+
       kvByLoc.set(loc.id, obj);
     }
 
@@ -1424,13 +1631,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
         title,
         icon: getMarkerIcon(row.category_id, svg),
         map: mapObj.current,
-        zIndex: 1000 + (row.category_id || 0), // Marker sicher "oben"
-        clickable: true, // explizit klickbar
+        zIndex: 1000 + (row.category_id || 0),
+        clickable: true,
       });
 
       marker._cat = String(row.category_id);
 
-      // 🔹 Neu: Marker in Map merken, damit Suche darauf zugreifen kann
+      // 🔹 Marker in Map merken, damit Suche darauf zugreifen kann
       markerMapRef.current.set(row.id, marker);
 
       // ⬇️ Klick-Handler mit Fallback + Pan-Offset
@@ -1441,10 +1648,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         try {
           html = buildInfoContent(row, meta, svg, langCode);
         } catch (errBI) {
-          console.error('[w2h] buildInfoContent failed for location', row.id, errBI, {
-            row,
-            meta,
-          });
+          console.error('[w2h] buildInfoContent failed for location', row.id, errBI, { row, meta });
           html = buildErrorInfoContent(row.id);
         }
 
@@ -1456,7 +1660,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           setTimeout(() => {
             try {
               // Basiswerte: Desktop
-              let offsetX = 160;  // nach links (Suchleiste ist rechts)
+              let offsetX = 160; // nach links (Suchleiste ist rechts)
               let offsetY = -140; // nach unten (Overlays sind oben)
 
               if (typeof window !== 'undefined') {
@@ -1490,8 +1694,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             const btn = document.getElementById(`phbtn-${row.id}`);
             if (btn) {
               btn.addEventListener('click', () => {
-                const photos =
-                  kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+                const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
                 if (photos.length) {
                   setGallery({ title: pickName(row, langCode), photos });
                 }
@@ -1541,7 +1744,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <div
         className="w2h-region-panel"
         style={{
-          zIndex: 5, // unter dem Infofenster
+          zIndex: 5,
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 12,
           padding: '6px 8px',
@@ -1600,7 +1803,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           position: 'absolute',
           top: 10,
           right: 20,
-          zIndex: 10, // unter Infofenster
+          zIndex: 10,
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 9999,
           padding: '6px 10px',
@@ -1650,18 +1853,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <LayerPanel
         lang={lang}
         onInit={(initialMap) => {
-          // initialMap: Map(catKey -> visible)
           layerState.current = new Map(initialMap);
           applyLayerVisibility();
         }}
         onToggle={(catKey, visible) => {
-          // einzelner Layer an/aus
           layerState.current.set(catKey, visible);
           applyLayerVisibility();
         }}
-        // 🔹 "Alle Kategorien" – Alle Layer an/aus
         onToggleAll={(visible) => {
-          // Alle bekannten Layer-Keys auf visible setzen
           const updated = new Map();
           layerState.current.forEach((_v, key) => {
             updated.set(key, visible);
@@ -1778,6 +1977,31 @@ export default function GoogleMapClient({ lang = 'de' }) {
         .gm-style .w2h-iw .iw-hours {
           padding-left: 16px;
           margin: 4px 0;
+        }
+
+        /* ✅ Dynamische Attribute */
+        .gm-style .w2h-iw .iw-dyn {
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid #eee;
+        }
+        .gm-style .w2h-iw .iw-dyn-row {
+          display: grid;
+          grid-template-columns: 1fr 1.2fr;
+          gap: 10px;
+          align-items: start;
+        }
+        .gm-style .w2h-iw .iw-dyn-k {
+          font-weight: 600;
+          color: #111;
+        }
+        .gm-style .w2h-iw .iw-dyn-v {
+          color: #374151;
+          word-break: break-word;
+        }
+        .gm-style .w2h-iw .iw-dyn-v a {
+          color: #1f6aa2;
+          text-decoration: underline;
         }
       `}</style>
     </div>
