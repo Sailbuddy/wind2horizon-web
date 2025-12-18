@@ -1157,9 +1157,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
       });
 
     if (!match) {
-      alert('Kein passender Ort gefunden.');
-      return;
-    }
+  const regionLabel =
+    (REGIONS.find((r) => r.key === selectedRegion)?.label?.[lang] ||
+      REGIONS.find((r) => r.key === selectedRegion)?.label?.de ||
+      selectedRegion);
+
+  alert(`Kein passender Ort gefunden.\n\nTipp: Bitte kontrollieren Sie die ausgewählte Region (aktuell: ${regionLabel}).`,);
+  return;
+  }
+
 
     // Karte zentrieren & zoomen
     mapObj.current.panTo({ lat: match.lat, lng: match.lng });
