@@ -15,6 +15,10 @@ const DEBUG_BOUNDING = false; // true = rote Bounding-Boxen über den Markern
 // 0 = öffentlich, 1 = erweitert, 2+ = intern (Beispiel). Passe bei Bedarf an.
 const INFO_VISIBILITY_MAX = 1;
 
+// ✅ Smoke-Test Schalter: zeigt dynamische Werte auch ohne attribute_definitions
+// Wenn true: Fallback-Label "Attr <id>" und generische Formatierung.
+const DYNAMIC_SMOKE_TEST = true;
+
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
 const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
@@ -249,7 +253,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         } else if (j && typeof j === 'object') {
           const hit = j[String(val)];
           if (typeof hit === 'string') return applyDisplayFormat(def, val, escapeHtml(hit));
-          if (hit && typeof hit === 'object' && hit.label) return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
+          if (hit && typeof hit === 'object' && hit.label)
+            return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
         }
       } catch {
         // ignore
@@ -630,17 +635,78 @@ export default function GoogleMapClient({ lang = 'de' }) {
   };
 
   const DAY_ALIASES = new Map([
-    ['monday', 0], ['mon', 0], ['tuesday', 1], ['tue', 1], ['tues', 1], ['wednesday', 2], ['wed', 2],
-    ['thursday', 3], ['thu', 3], ['thur', 3], ['thurs', 3], ['friday', 4], ['fri', 4], ['saturday', 5],
-    ['sat', 5], ['sunday', 6], ['sun', 6],
-    ['montag', 0], ['mo', 0], ['dienstag', 1], ['di', 1], ['mittwoch', 2], ['mi', 2], ['donnerstag', 3],
-    ['do', 3], ['freitag', 4], ['fr', 4], ['samstag', 5], ['sa', 5], ['sonntag', 6], ['so', 6],
-    ['lunedì', 0], ['lunedi', 0], ['lun', 0], ['martedì', 1], ['martedi', 1], ['mar', 1], ['mercoledì', 2],
-    ['mercoledi', 2], ['mer', 2], ['giovedì', 3], ['giovedi', 3], ['gio', 3], ['venerdì', 4], ['venerdi', 4],
-    ['ven', 4], ['sabato', 5], ['sab', 5], ['domenica', 6], ['dom', 6],
-    ['lundi', 0], ['mardi', 1], ['mercredi', 2], ['jeudi', 3], ['vendredi', 4], ['samedi', 5], ['dimanche', 6],
-    ['ponedjeljak', 0], ['pon', 0], ['utorak', 1], ['uto', 1], ['srijeda', 2], ['sri', 2], ['četvrtak', 3],
-    ['cetvrtak', 3], ['čet', 3], ['cet', 3], ['petak', 4], ['pet', 4], ['subota', 5], ['sub', 5], ['nedjelja', 6],
+    ['monday', 0],
+    ['mon', 0],
+    ['tuesday', 1],
+    ['tue', 1],
+    ['tues', 1],
+    ['wednesday', 2],
+    ['wed', 2],
+    ['thursday', 3],
+    ['thu', 3],
+    ['thur', 3],
+    ['thurs', 3],
+    ['friday', 4],
+    ['fri', 4],
+    ['saturday', 5],
+    ['sat', 5],
+    ['sunday', 6],
+    ['sun', 6],
+    ['montag', 0],
+    ['mo', 0],
+    ['dienstag', 1],
+    ['di', 1],
+    ['mittwoch', 2],
+    ['mi', 2],
+    ['donnerstag', 3],
+    ['do', 3],
+    ['freitag', 4],
+    ['fr', 4],
+    ['samstag', 5],
+    ['sa', 5],
+    ['sonntag', 6],
+    ['so', 6],
+    ['lunedì', 0],
+    ['lunedi', 0],
+    ['lun', 0],
+    ['martedì', 1],
+    ['martedi', 1],
+    ['mar', 1],
+    ['mercoledì', 2],
+    ['mercoledi', 2],
+    ['mer', 2],
+    ['giovedì', 3],
+    ['giovedi', 3],
+    ['gio', 3],
+    ['venerdì', 4],
+    ['venerdi', 4],
+    ['ven', 4],
+    ['sabato', 5],
+    ['sab', 5],
+    ['domenica', 6],
+    ['dom', 6],
+    ['lundi', 0],
+    ['mardi', 1],
+    ['mercredi', 2],
+    ['jeudi', 3],
+    ['vendredi', 4],
+    ['samedi', 5],
+    ['dimanche', 6],
+    ['ponedjeljak', 0],
+    ['pon', 0],
+    ['utorak', 1],
+    ['uto', 1],
+    ['srijeda', 2],
+    ['sri', 2],
+    ['četvrtak', 3],
+    ['cetvrtak', 3],
+    ['čet', 3],
+    ['cet', 3],
+    ['petak', 4],
+    ['pet', 4],
+    ['subota', 5],
+    ['sub', 5],
+    ['nedjelja', 6],
     ['ned', 6],
   ]);
 
@@ -835,7 +901,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label('route', langCode)}</a>`;
     const btnSite = siteHref
-      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label('website', langCode)}</a>`
+      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label(
+          'website',
+          langCode,
+        )}</a>`
       : '';
     const btnTel = telHref ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>` : '';
 
@@ -855,7 +924,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     let openingHtml = '';
     if (kv.opening_now !== undefined) {
-      openingHtml += `<div class="iw-row iw-open">${openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`}</div>`;
+      openingHtml += `<div class="iw-row iw-open">${openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label(
+        'closed',
+        langCode,
+      )}`}</div>`;
     }
     if (hoursLocalized && hoursLocalized.length) {
       openingHtml += `<ul class="iw-hours">${hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('')}</ul>`;
@@ -1086,7 +1158,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     let kvRows = [];
     if (locIds.length) {
-      // ✅ Wichtig: KEIN Join nötig. Wir mappen attribute_id -> def aus schema.byId (robust).
       const { data, error } = await supabase
         .from('location_values')
         .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code')
@@ -1094,6 +1165,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       if (error) console.warn('location_values load:', error.message);
       else kvRows = data || [];
+    }
+
+    if (DEBUG_LOG) {
+      console.log('[w2h] schema.byId size:', schema?.byId?.size);
+      console.log('[w2h] kvRows length:', kvRows?.length, kvRows?.slice(0, 5));
     }
 
     const kvByLoc = new Map();
@@ -1112,7 +1188,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       const lc = (r.language_code || '').toLowerCase();
 
-      // ✅ Robust: Definition/Key immer aus Schema holen (nicht vom Join abhängig)
+      // ✅ Robust: Definition/Key aus Schema holen (nicht vom Join abhängig)
       const defById = schema && schema.byId ? schema.byId.get(attrId) : null;
       const key = (defById && defById.key ? String(defById.key) : '').trim() || null;
 
@@ -1230,16 +1306,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       // ✅ dynamische Attribute (nicht in FIELD_MAP)
-      // Wir benötigen keine Join-Key-Infos mehr – nur defById
-      if (!defById) return;
-      if (defById.is_active === false) return;
+      // Smoke-Test: auch ohne attribute_definitions anzeigen, um Datenfluss zu verifizieren
+      let def = defById || null;
 
-      // ✅ show_in_infowindow respektieren (false => skip; null => zeigen)
-      if (defById.show_in_infowindow === false) return;
+      if (def && def.is_active === false) return;
+      if (def && def.show_in_infowindow === false) return;
 
-      // Sichtbarkeit (falls vorhanden)
-      if (schema && schema.hasVisibility && defById.visibility_level !== null && defById.visibility_level !== undefined) {
-        const lvl = Number(defById.visibility_level);
+      if (def && schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
+        const lvl = Number(def.visibility_level);
         if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
       }
 
@@ -1252,12 +1326,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       if (val === null || val === undefined || val === '') return;
 
-      const dynKey = key || String(attrId); // fallback falls key fehlt
+      // Wenn kein def existiert (RLS oder fehlender Def): trotzdem aufnehmen
+      const dynKey = (key || (def && def.key) || `attr_${attrId}`).toString();
       const dyn = ensureDyn(obj);
-      if (!dyn.has(dynKey)) dyn.set(dynKey, { def: defById, valuesByLang: {}, any: null });
+      if (!dyn.has(dynKey)) dyn.set(dynKey, { def, valuesByLang: {}, any: null, attrId });
       const entry = dyn.get(dynKey);
 
       entry.any = entry.any ?? val;
+      entry.attrId = entry.attrId ?? attrId;
+
       if (lc) entry.valuesByLang[lc] = val;
       else entry.valuesByLang._ = val;
     });
@@ -1271,8 +1348,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         const list = [];
 
         for (const [k, entry] of obj._dyn.entries()) {
-          const def = entry.def;
-          if (!def) continue;
+          const def = entry.def || null;
+          const attrId = entry.attrId ?? null;
 
           let chosen = null;
           for (const L of pref) {
@@ -1285,16 +1362,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
           const val = chosen !== null && chosen !== undefined ? chosen : entry.any;
           if (val === null || val === undefined || val === '') continue;
 
-          const labelTxt = getAttrLabel(def, langCode);
-          const htmlValue = formatDynamicValue({ def, val, langCode });
+          const labelTxt = def ? getAttrLabel(def, langCode) : DYNAMIC_SMOKE_TEST ? `Attr ${attrId}` : '';
+          const htmlValue = formatDynamicValue({ def: def || {}, val, langCode });
           if (!labelTxt || !htmlValue) continue;
 
-          const ord = def.infowindow_order ?? def.sort_order ?? 9999;
-          const grp = def.infowindow_group ?? '';
+          const ord = def ? def.infowindow_order ?? def.sort_order ?? 9999 : 9999;
+          const grp = def ? def.infowindow_group ?? '' : '';
 
           list.push({
             key: k,
-            attribute_id: def.attribute_id,
+            attribute_id: def ? def.attribute_id : attrId,
             sort_order: ord,
             group: grp,
             label: labelTxt,
