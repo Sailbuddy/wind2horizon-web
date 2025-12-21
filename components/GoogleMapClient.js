@@ -223,18 +223,22 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const isObj = typeof val === 'object';
     const asText = isObj ? JSON.stringify(val) : String(val);
 
+    // bool
     if (inputType === 'bool' || typeof val === 'boolean') {
       const b = val === true || val === 'true' || val === 1 || val === '1';
       const out = b ? (langCode === 'de' ? 'Ja' : 'Yes') : (langCode === 'de' ? 'Nein' : 'No');
       return applyDisplayFormat(def, val, escapeHtml(out));
     }
 
+    // url/link
     if (inputType === 'url' || inputType === 'link') {
       const href = safeHref(asText);
       if (!href) return applyDisplayFormat(def, asText, escapeHtml(asText));
-      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(asText)}</a>`;
+      const html = `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(asText)}</a>`;
+      return html; // Links nicht über display_format “kaputtformatieren”
     }
 
+    // options/select
     if (inputType === 'option' || inputType === 'select') {
       try {
         const opts = def && def.options ? def.options : null;
@@ -298,7 +302,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
     });
 
     attrSchemaRef.current = { byId, byKey, hasVisibility };
-    if (DEBUG_LOG) console.log('[w2h] attribute schema loaded', { count: byId.size, hasVisibility });
+    if (DEBUG_LOG) {
+      console.log('[w2h] attribute schema loaded', { count: byId.size, hasVisibility });
+    }
     return attrSchemaRef.current;
   }
 
@@ -480,9 +486,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 20 }}>
-              💨 Winddaten · {modal.title} (#{modal.id})
-            </h2>
+            <h2 style={{ margin: 0, fontSize: 20 }}>💨 Winddaten · {modal.title} (#{modal.id})</h2>
             <button
               onClick={onClose}
               style={{
@@ -538,13 +542,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
                     />
                   </>
                 ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Für diesen Spot ist noch keine Live-Wind-Station verknüpft.</p>
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
+                    Für diesen Spot ist noch keine Live-Wind-Station verknüpft.
+                  </p>
                 )}
               </div>
             </div>
           </div>
 
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.</p>
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.
+          </p>
         </div>
       </div>
     );
@@ -622,78 +630,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
   };
 
   const DAY_ALIASES = new Map([
-    ['monday', 0],
-    ['mon', 0],
-    ['tuesday', 1],
-    ['tue', 1],
-    ['tues', 1],
-    ['wednesday', 2],
-    ['wed', 2],
-    ['thursday', 3],
-    ['thu', 3],
-    ['thur', 3],
-    ['thurs', 3],
-    ['friday', 4],
-    ['fri', 4],
-    ['saturday', 5],
-    ['sat', 5],
-    ['sunday', 6],
-    ['sun', 6],
-    ['montag', 0],
-    ['mo', 0],
-    ['dienstag', 1],
-    ['di', 1],
-    ['mittwoch', 2],
-    ['mi', 2],
-    ['donnerstag', 3],
-    ['do', 3],
-    ['freitag', 4],
-    ['fr', 4],
-    ['samstag', 5],
-    ['sa', 5],
-    ['sonntag', 6],
-    ['so', 6],
-    ['lunedì', 0],
-    ['lunedi', 0],
-    ['lun', 0],
-    ['martedì', 1],
-    ['martedi', 1],
-    ['mar', 1],
-    ['mercoledì', 2],
-    ['mercoledi', 2],
-    ['mer', 2],
-    ['giovedì', 3],
-    ['giovedi', 3],
-    ['gio', 3],
-    ['venerdì', 4],
-    ['venerdi', 4],
-    ['ven', 4],
-    ['sabato', 5],
-    ['sab', 5],
-    ['domenica', 6],
-    ['dom', 6],
-    ['lundi', 0],
-    ['mardi', 1],
-    ['mercredi', 2],
-    ['jeudi', 3],
-    ['vendredi', 4],
-    ['samedi', 5],
-    ['dimanche', 6],
-    ['ponedjeljak', 0],
-    ['pon', 0],
-    ['utorak', 1],
-    ['uto', 1],
-    ['srijeda', 2],
-    ['sri', 2],
-    ['četvrtak', 3],
-    ['cetvrtak', 3],
-    ['čet', 3],
-    ['cet', 3],
-    ['petak', 4],
-    ['pet', 4],
-    ['subota', 5],
-    ['sub', 5],
-    ['nedjelja', 6],
+    ['monday', 0], ['mon', 0], ['tuesday', 1], ['tue', 1], ['tues', 1], ['wednesday', 2], ['wed', 2],
+    ['thursday', 3], ['thu', 3], ['thur', 3], ['thurs', 3], ['friday', 4], ['fri', 4], ['saturday', 5],
+    ['sat', 5], ['sunday', 6], ['sun', 6],
+    ['montag', 0], ['mo', 0], ['dienstag', 1], ['di', 1], ['mittwoch', 2], ['mi', 2], ['donnerstag', 3],
+    ['do', 3], ['freitag', 4], ['fr', 4], ['samstag', 5], ['sa', 5], ['sonntag', 6], ['so', 6],
+    ['lunedì', 0], ['lunedi', 0], ['lun', 0], ['martedì', 1], ['martedi', 1], ['mar', 1], ['mercoledì', 2],
+    ['mercoledi', 2], ['mer', 2], ['giovedì', 3], ['giovedi', 3], ['gio', 3], ['venerdì', 4], ['venerdi', 4],
+    ['ven', 4], ['sabato', 5], ['sab', 5], ['domenica', 6], ['dom', 6],
+    ['lundi', 0], ['mardi', 1], ['mercredi', 2], ['jeudi', 3], ['vendredi', 4], ['samedi', 5], ['dimanche', 6],
+    ['ponedjeljak', 0], ['pon', 0], ['utorak', 1], ['uto', 1], ['srijeda', 2], ['sri', 2], ['četvrtak', 3],
+    ['cetvrtak', 3], ['čet', 3], ['cet', 3], ['petak', 4], ['pet', 4], ['subota', 5], ['sub', 5], ['nedjelja', 6],
     ['ned', 6],
   ]);
 
@@ -928,7 +875,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const hasWindHint = kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
     const showWindBtn = hasWindProfile || hasWindStation || hasWindHint;
 
-    const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
+    const btnWind = showWindBtn
+      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>`
+      : '';
 
     // ✅ Dynamische Attribute: Gruppiert rendern (infowindow_group)
     let dynamicHtml = '';
@@ -936,9 +885,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const groups = new Map(); // groupName -> items[]
       for (const it of kv.dynamic) {
         const g = (it.group || '').trim();
-        const k = g || '';
-        if (!groups.has(k)) groups.set(k, []);
-        groups.get(k).push(it);
+        const key = g || '';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(it);
       }
 
       const orderedGroupKeys = Array.from(groups.keys()).sort((a, b) => {
@@ -963,6 +912,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             .join('');
 
           if (!rows) return '';
+
           const head = gk ? `<div class="iw-dyn-group">${escapeHtml(gk)}</div>` : '';
           return `<div class="iw-dyn-block">${head}${rows}</div>`;
         })
@@ -1008,7 +958,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return arr;
     };
 
-    const match =
+    let match =
       locationsRef.current.find((row) => normalizeNames(row).some((n) => n === query)) ||
       locationsRef.current.find((row) => normalizeNames(row).some((n) => n.includes(query)));
 
@@ -1120,15 +1070,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const seen = new Set();
     const locList = [];
     for (const row of visibleLocs) {
-      const dedupeKey =
+      const key =
         (row.google_place_id && `pid:${row.google_place_id}`) ||
         (row.plus_code && `pc:${row.plus_code}`) ||
         `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
-      if (seen.has(dedupeKey)) {
-        if (DEBUG_LOG) console.log('[w2h] skip duplicate location for key', dedupeKey, 'id', row.id);
+      if (seen.has(key)) {
+        if (DEBUG_LOG) console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
         continue;
       }
-      seen.add(dedupeKey);
+      seen.add(key);
       locList.push(row);
     }
 
@@ -1136,11 +1086,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     let kvRows = [];
     if (locIds.length) {
+      // ✅ Wichtig: KEIN Join nötig. Wir mappen attribute_id -> def aus schema.byId (robust).
       const { data, error } = await supabase
         .from('location_values')
-        .select(
-          'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )'
-        )
+        .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code')
         .in('location_id', locIds);
 
       if (error) console.warn('location_values load:', error.message);
@@ -1150,25 +1099,24 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const kvByLoc = new Map();
 
     function ensureDyn(obj) {
-      if (!obj._dyn) obj._dyn = new Map(); // dynKey -> { def, valuesByLang: {}, any }
+      if (!obj._dyn) obj._dyn = new Map(); // key -> { def, valuesByLang: {}, any }
       return obj._dyn;
     }
 
     (kvRows || []).forEach((r) => {
       const locId = r.location_id;
+      const attrId = Number(r.attribute_id);
 
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
       const obj = kvByLoc.get(locId);
+
       const lc = (r.language_code || '').toLowerCase();
 
-      // ✅ Robust: key notfalls aus Schema ableiten (Join kann leer sein)
-      const defById = schema?.byId?.get(Number(r.attribute_id)) || null;
-      const key =
-        (r.attribute_definitions && r.attribute_definitions.key) ||
-        (defById && defById.key) ||
-        null;
+      // ✅ Robust: Definition/Key immer aus Schema holen (nicht vom Join abhängig)
+      const defById = schema && schema.byId ? schema.byId.get(attrId) : null;
+      const key = (defById && defById.key ? String(defById.key) : '').trim() || null;
 
-      const canon = FIELD_MAP_BY_ID[r.attribute_id] || (key && FIELD_MAP_BY_KEY[key]);
+      const canon = FIELD_MAP_BY_ID[attrId] || (key && FIELD_MAP_BY_KEY[key]);
 
       if (canon) {
         if (
@@ -1183,24 +1131,21 @@ export default function GoogleMapClient({ lang = 'de' }) {
           if (DEBUG_LOG) {
             console.warn(
               `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}. Der zusätzliche Eintrag wird ignoriert.`,
-              r
+              r,
             );
           }
           return;
         }
 
         if (canon === 'photos') {
-          const googleArr = normalizeGooglePhotos(
-            r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null
-          );
+          const googleArr = normalizeGooglePhotos(r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null);
           if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
           return;
         }
 
         if (canon === 'wind_profile') {
           try {
-            const j =
-              r.value_json && typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json || '{}');
+            const j = r.value_json && typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json || '{}');
             obj.wind_profile = j || null;
           } catch (errWp) {
             console.warn('[w2h] wind_profile JSON parse failed', errWp);
@@ -1285,14 +1230,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       // ✅ dynamische Attribute (nicht in FIELD_MAP)
-      // Robust: def primär über byId (und nur sekundär byKey)
-      const def = defById || (key && schema?.byKey?.get(String(key))) || null;
-      if (!def) return;
-      if (def.is_active === false) return;
-      if (def.show_in_infowindow === false) return;
+      // Wir benötigen keine Join-Key-Infos mehr – nur defById
+      if (!defById) return;
+      if (defById.is_active === false) return;
 
-      if (schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
-        const lvl = Number(def.visibility_level);
+      // ✅ show_in_infowindow respektieren (false => skip; null => zeigen)
+      if (defById.show_in_infowindow === false) return;
+
+      // Sichtbarkeit (falls vorhanden)
+      if (schema && schema.hasVisibility && defById.visibility_level !== null && defById.visibility_level !== undefined) {
+        const lvl = Number(defById.visibility_level);
         if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
       }
 
@@ -1305,12 +1252,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       if (val === null || val === undefined || val === '') return;
 
-      // ✅ dynKey: stabil auch wenn Join/key fehlt
-      const dynKey = String(def.key || key || r.attribute_id);
-
+      const dynKey = key || String(attrId); // fallback falls key fehlt
       const dyn = ensureDyn(obj);
-      if (!dyn.has(dynKey)) dyn.set(dynKey, { def, valuesByLang: {}, any: null });
+      if (!dyn.has(dynKey)) dyn.set(dynKey, { def: defById, valuesByLang: {}, any: null });
       const entry = dyn.get(dynKey);
+
       entry.any = entry.any ?? val;
       if (lc) entry.valuesByLang[lc] = val;
       else entry.valuesByLang._ = val;
@@ -1326,6 +1272,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         for (const [k, entry] of obj._dyn.entries()) {
           const def = entry.def;
+          if (!def) continue;
 
           let chosen = null;
           for (const L of pref) {
@@ -1334,6 +1281,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
               break;
             }
           }
+
           const val = chosen !== null && chosen !== undefined ? chosen : entry.any;
           if (val === null || val === undefined || val === '') continue;
 
