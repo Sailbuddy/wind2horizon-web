@@ -10,15 +10,14 @@ import { REGIONS, REGION_KEYS, findRegionForPoint } from '@/lib/regions';
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
 const DEBUG_BOUNDING = false; // true = rote Bounding-Boxen über den Markern
-const DEBUG_LOG = false;
 
 // 🔒 Sichtbarkeit dynamischer Attribute (falls Spalte vorhanden)
 // 0 = öffentlich, 1 = erweitert, 2+ = intern (Beispiel). Passe bei Bedarf an.
 const INFO_VISIBILITY_MAX = 1;
 
-// ✅ Fallback-Verhalten für dynamische Attribute, wenn attribute_definitions nicht verfügbar ist.
-// true: zeige Attr <id> als letzte Notlösung
-const DYNAMIC_SMOKE_TEST = true;
+// ✅ Smoke-Test Schalter: zeigt dynamische Werte auch ohne attribute_definitions
+// Wenn true: Fallback-Label "Attr <id>" und generische Formatierung.
+const DYNAMIC_SMOKE_TEST = false;
 
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
@@ -127,8 +126,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
 
   // 🔹 Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
-  // { byId: Map<number, def>, byKey: Map<string, def>, hasVisibility: bool, loadedOk: bool }
-  const attrSchemaRef = useRef(null);
+  const attrSchemaRef = useRef(null); // { byId: Map, byKey: Map, hasVisibility: bool, loadedOk: bool }
 
   // Galerie-Lightbox
   const [gallery, setGallery] = useState(null);
@@ -142,6 +140,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Region-State
   const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS.ALL); // 'all'
   const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
+
+  const DEBUG_LOG = false;
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -253,7 +253,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         } else if (j && typeof j === 'object') {
           const hit = j[String(val)];
           if (typeof hit === 'string') return applyDisplayFormat(def, val, escapeHtml(hit));
-          if (hit && typeof hit === 'object' && hit.label) return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
+          if (hit && typeof hit === 'object' && hit.label)
+            return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
         }
       } catch {
         // ignore
@@ -264,6 +265,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return applyDisplayFormat(def, val, escapeHtml(asText));
   }
 
+  // ✅ ROBUST: schema lädt + liefert loadedOk/count für Debug (und RLS-Erkennung)
   async function ensureAttributeSchema() {
     if (attrSchemaRef.current) return attrSchemaRef.current;
 
@@ -274,27 +276,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
       'show_in_infowindow,infowindow_group,infowindow_order,display_format';
     const selectWithVisibility = `${baseSelect},visibility_level`;
 
-    let data = null;
+    let data = [];
     let hasVisibility = false;
     let loadedOk = true;
 
-    // Versuch 1: mit visibility_level
     const { data: d1, error: e1 } = await supabase.from('attribute_definitions').select(selectWithVisibility);
     if (!e1) {
       data = d1 || [];
       hasVisibility = true;
     } else {
-      // Versuch 2: ohne visibility_level
       const { data: d2, error: e2 } = await supabase.from('attribute_definitions').select(baseSelect);
       if (!e2) {
         data = d2 || [];
         hasVisibility = false;
       } else {
-        loadedOk = false;
+        loadedOk = false; // sehr wahrscheinlich RLS
         data = [];
-        if (DEBUG_LOG) {
-          console.warn('[w2h] attribute_definitions load failed (likely RLS):', e2.message);
-        }
+        if (DEBUG_LOG) console.warn('[w2h] attribute_definitions load failed (likely RLS):', e2.message);
       }
     }
 
@@ -313,9 +311,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     if (DEBUG_LOG) {
       console.log('[w2h] attribute schema loaded', {
-        count: byId.size,
-        hasVisibility,
         loadedOk,
+        hasVisibility,
+        count: byId.size,
+        sampleIds: Array.from(byId.keys()).slice(0, 10),
       });
     }
 
@@ -521,7 +520,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
               {windProfile ? (
                 <WindSwellRose size={260} wind={windProfile.wind || {}} swell={windProfile.swell || {}} />
               ) : (
-                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.</p>
+                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
+                  Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.
+                </p>
               )}
             </div>
 
@@ -540,7 +541,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 {liveWindStation ? (
                   <>
                     <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
-                      Station: <strong>{liveWindStation}{liveWindStationName ? ` – ${liveWindStationName}` : ''}</strong>
+                      Station:{' '}
+                      <strong>
+                        {liveWindStation}
+                        {liveWindStationName ? ` – ${liveWindStationName}` : ''}
+                      </strong>
                     </p>
                     <iframe
                       src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(String(liveWindStation))}`}
@@ -550,13 +555,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
                     />
                   </>
                 ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Für diesen Spot ist noch keine Live-Wind-Station verknüpft.</p>
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
+                    Für diesen Spot ist noch keine Live-Wind-Station verknüpft.
+                  </p>
                 )}
               </div>
             </div>
           </div>
 
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.</p>
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.
+          </p>
         </div>
       </div>
     );
@@ -962,7 +971,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return arr;
     };
 
-    const match =
+    let match =
       locationsRef.current.find((row) => normalizeNames(row).some((n) => n === query)) ||
       locationsRef.current.find((row) => normalizeNames(row).some((n) => n.includes(query)));
 
@@ -1049,6 +1058,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
   async function loadMarkers(langCode) {
     const schema = await ensureAttributeSchema();
 
+    if (DEBUG_LOG) {
+      console.log('[w2h] schema.loadedOk:', schema.loadedOk, 'schema.byId.size:', schema.byId.size);
+      console.log('[w2h] schema sample attr 10:', schema.byId.get(10));
+    }
+
     let locQuery = supabase.from('locations').select(`
         id,lat,lng,category_id,display_name,
         google_place_id,plus_code,
@@ -1096,15 +1110,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
       else kvRows = data || [];
     }
 
-    if (DEBUG_LOG) {
-      console.log('[w2h] attribute schema loadedOk:', schema?.loadedOk, 'count:', schema?.byId?.size);
-      console.log('[w2h] kvRows length:', kvRows?.length);
-    }
-
     const kvByLoc = new Map();
 
     function ensureDyn(obj) {
-      if (!obj._dyn) obj._dyn = new Map(); // key -> { def, valuesByLang: {}, any, attrId, labelFallback }
+      if (!obj._dyn) obj._dyn = new Map(); // key -> { def, valuesByLang: {}, any, attrId, fallbackLabel }
       return obj._dyn;
     }
 
@@ -1117,7 +1126,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       const lc = (r.language_code || '').toLowerCase();
 
-      // ✅ Definition/Key aus Schema holen (falls vorhanden)
       const defById = schema && schema.byId ? schema.byId.get(attrId) : null;
       const key = (defById && defById.key ? String(defById.key) : '').trim() || null;
 
@@ -1137,7 +1145,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }
 
         if (canon === 'photos') {
-          const googleArr = normalizeGooglePhotos(r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null);
+          const googleArr = normalizeGooglePhotos(
+            r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
+          );
           if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
           return;
         }
@@ -1229,9 +1239,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       // ✅ dynamische Attribute (nicht in FIELD_MAP)
-      // Ziel: Label aus attribute_definitions.name_<lang> nutzen.
-      // Fallback: location_values.name (falls befüllt) -> Attr <id>
-      let def = defById || null;
+      const def = defById || null;
 
       if (def && def.is_active === false) return;
       if (def && def.show_in_infowindow === false) return;
@@ -1252,28 +1260,26 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       const dynKey = (key || (def && def.key) || `attr_${attrId}`).toString();
       const dyn = ensureDyn(obj);
-
       if (!dyn.has(dynKey)) {
         dyn.set(dynKey, {
           def,
           valuesByLang: {},
           any: null,
           attrId,
-          labelFallback: r.name && String(r.name).trim() ? String(r.name).trim() : null,
+          fallbackLabel: r.name && String(r.name).trim() ? String(r.name).trim() : null,
         });
       }
-
       const entry = dyn.get(dynKey);
 
       entry.any = entry.any ?? val;
       entry.attrId = entry.attrId ?? attrId;
-      entry.labelFallback = entry.labelFallback || (r.name && String(r.name).trim() ? String(r.name).trim() : null);
+      entry.fallbackLabel = entry.fallbackLabel || (r.name && String(r.name).trim() ? String(r.name).trim() : null);
 
       if (lc) entry.valuesByLang[lc] = val;
       else entry.valuesByLang._ = val;
     });
 
-    // ✅ dyn finalisieren (Sortierung: infowindow_order -> sort_order)
+    // ✅ dyn finalisieren
     for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
 
@@ -1296,17 +1302,19 @@ export default function GoogleMapClient({ lang = 'de' }) {
           const val = chosen !== null && chosen !== undefined ? chosen : entry.any;
           if (val === null || val === undefined || val === '') continue;
 
-          // ✅ Label-Priorität:
-          // 1) attribute_definitions.name_<lang>
-          // 2) location_values.name (wenn vorhanden)
-          // 3) Attr <id> (wenn Smoke-Test erlaubt)
-          let labelTxt = '';
-          if (def) labelTxt = getAttrLabel(def, langCode);
-          if (!labelTxt && entry.labelFallback) labelTxt = String(entry.labelFallback);
-          if (!labelTxt && DYNAMIC_SMOKE_TEST && attrId !== null && attrId !== undefined) labelTxt = `Attr ${attrId}`;
+          // ✅ Label: Primär aus attribute_definitions, fallback aus location_values.name
+          const labelTxt = def
+            ? getAttrLabel(def, langCode)
+            : entry.fallbackLabel
+              ? entry.fallbackLabel
+              : DYNAMIC_SMOKE_TEST
+                ? `Attr ${attrId}`
+                : '';
+
+          if (!labelTxt) continue;
 
           const htmlValue = formatDynamicValue({ def: def || {}, val, langCode });
-          if (!labelTxt || !htmlValue) continue;
+          if (!htmlValue) continue;
 
           const ord = def ? def.infowindow_order ?? def.sort_order ?? 9999 : 9999;
           const grp = def ? def.infowindow_group ?? '' : '';
@@ -1382,7 +1390,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
-        // leichte Pan-Offset (damit InfoWindow nicht über Marker hängt)
         if (mapObj.current && typeof mapObj.current.panBy === 'function') {
           setTimeout(() => {
             try {
