@@ -21,16 +21,8 @@ const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 }
 
 // 🔹 Map-Style: Google-POI-Icons & Texte ausblenden
 const GOOGLE_MAP_STYLE = [
-  {
-    featureType: 'poi',
-    elementType: 'labels.icon',
-    stylers: [{ visibility: 'off' }],
-  },
-  {
-    featureType: 'poi',
-    elementType: 'labels.text',
-    stylers: [{ visibility: 'off' }],
-  },
+  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi', elementType: 'labels.text', stylers: [{ visibility: 'off' }] },
 ];
 
 function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
@@ -64,40 +56,22 @@ function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
   };
 
   return (
-    <svg
-      viewBox={`0 0 ${size} ${size}`}
-      width={size}
-      height={size}
-      role="img"
-      aria-label="Wind & Schwell"
-    >
-      {/* Ringe */}
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label="Wind & Schwell">
       <circle cx={cx} cy={cy} r={outerR} fill="none" stroke="#AFAFAF" strokeWidth={size * 0.03} />
       <circle cx={cx} cy={cy} r={innerR} fill="none" stroke="#AFAFAF" strokeWidth={size * 0.025} />
 
-      {/* Außen: Wind (rot) */}
       {DIRS.map((d) => (
-        <polygon
-          key={`w-${d}`}
-          points={arrow(ANGLE[d], outerR)}
-          fill={w[d] ? '#E53E3E' : '#C7C7C7'}
-        >
+        <polygon key={`w-${d}`} points={arrow(ANGLE[d], outerR)} fill={w[d] ? '#E53E3E' : '#C7C7C7'}>
           <title>{`Gefahr bei WIND aus ${d}`}</title>
         </polygon>
       ))}
 
-      {/* Innen: Schwell (blau) */}
       {DIRS.map((d) => (
-        <polygon
-          key={`s-${d}`}
-          points={arrow(ANGLE[d], innerR)}
-          fill={s[d] ? '#2563EB' : '#C7C7C7'}
-        >
+        <polygon key={`s-${d}`} points={arrow(ANGLE[d], innerR)} fill={s[d] ? '#2563EB' : '#C7C7C7'}>
           <title>{`Gefahr bei SCHWELL aus ${d}`}</title>
         </polygon>
       ))}
 
-      {/* Labels */}
       {DIRS.map((d) => {
         const r = outerR + size * 0.08;
         const rad = ((ANGLE[d] - 90) * Math.PI) / 180;
@@ -121,7 +95,6 @@ function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
     </svg>
   );
 }
-// -------------------------------------------------------------------
 
 // 🔹 Fallback-HTML, falls das Infofenster nicht gerendert werden kann
 function buildErrorInfoContent(rowId) {
@@ -144,11 +117,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
 
-  // 🔹 Neu: Marker-Map & Locations für Suche
+  // 🔹 Marker-Map & Locations für Suche
   const markerMapRef = useRef(new Map()); // location_id -> Marker
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
 
-  // 🔹 Neu: Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
+  // 🔹 Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
   const attrSchemaRef = useRef(null); // { byId: Map, byKey: Map, hasVisibility: bool }
 
   // Galerie-Lightbox
@@ -157,10 +130,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Winddaten-Modal (mit Daten)
   const [windModal, setWindModal] = useState(null);
 
-  // 🔹 Neu: Such-Query-State
+  // Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 🔹 Neu: Region-State
+  // Region-State
   const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS.ALL); // 'all'
   const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
 
@@ -185,7 +158,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const s = String(raw || '').trim();
     if (!s) return '';
     if (s.startsWith('http://') || s.startsWith('https://')) return s;
-    // sehr defensiv: keine javascript: etc.
     if (s.includes(':')) return '';
     return `https://${s}`;
   }
@@ -205,63 +177,104 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return String(raw || key || '');
   }
 
+  function applyDisplayFormat(def, rawVal, renderedText) {
+    const fmt = (def && def.display_format ? String(def.display_format) : '').trim().toLowerCase();
+    if (!fmt) return renderedText;
+
+    // Achtung: renderedText ist bereits HTML-escaped (außer bei <a>), daher hier nur sichere Fälle:
+    try {
+      if (fmt === 'upper') return escapeHtml(String(rawVal).toUpperCase());
+      if (fmt === 'lower') return escapeHtml(String(rawVal).toLowerCase());
+
+      if (fmt === 'percent') {
+        const n = typeof rawVal === 'number' ? rawVal : Number(String(rawVal));
+        if (Number.isFinite(n)) return escapeHtml(`${n}%`);
+        return renderedText;
+      }
+
+      if (fmt === 'currency_eur') {
+        const n = typeof rawVal === 'number' ? rawVal : Number(String(rawVal));
+        if (Number.isFinite(n)) return escapeHtml(`${n.toFixed(2)} €`);
+        return renderedText;
+      }
+
+      if (fmt === 'stars') {
+        const n = typeof rawVal === 'number' ? rawVal : Number(String(rawVal));
+        if (!Number.isFinite(n)) return renderedText;
+        const rInt = Math.max(0, Math.min(5, Math.round(n)));
+        const stars = '★'.repeat(rInt) + '☆'.repeat(5 - rInt);
+        return escapeHtml(`${stars} ${n.toFixed(1)}`);
+      }
+
+      if (fmt === 'json_pretty') {
+        const v = typeof rawVal === 'object' ? rawVal : JSON.parse(String(rawVal));
+        const pretty = JSON.stringify(v, null, 2);
+        return `<pre style="white-space:pre-wrap;margin:0;">${escapeHtml(pretty)}</pre>`;
+      }
+    } catch {
+      // ignore, fallback
+    }
+
+    return renderedText;
+  }
+
   function formatDynamicValue({ def, val, langCode }) {
     const inputType = (def && def.input_type) || '';
     if (val === null || val === undefined) return '';
 
-    // JSON objekt/array -> kompakt anzeigen
     const isObj = typeof val === 'object';
     const asText = isObj ? JSON.stringify(val) : String(val);
 
     // bool
     if (inputType === 'bool' || typeof val === 'boolean') {
       const b = val === true || val === 'true' || val === 1 || val === '1';
-      return b ? (langCode === 'de' ? 'Ja' : 'Yes') : (langCode === 'de' ? 'Nein' : 'No');
+      const out = b ? (langCode === 'de' ? 'Ja' : 'Yes') : (langCode === 'de' ? 'Nein' : 'No');
+      return applyDisplayFormat(def, val, escapeHtml(out));
     }
 
     // url/link
     if (inputType === 'url' || inputType === 'link') {
       const href = safeHref(asText);
-      if (!href) return escapeHtml(asText);
-      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(
-        asText,
-      )}</a>`;
+      if (!href) return applyDisplayFormat(def, asText, escapeHtml(asText));
+      const html = `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(asText)}</a>`;
+      // display_format bei Links bewusst NICHT überschreiben, sonst verlieren wir <a>
+      return html;
     }
 
-    // options (falls options JSON vorhanden ist)
+    // options/select
     if (inputType === 'option' || inputType === 'select') {
       try {
         const opts = def && def.options ? def.options : null;
-        // options kann json oder stringified json sein
         const j = typeof opts === 'string' ? JSON.parse(opts) : opts;
-        // akzeptiere Array oder Map-artig
         if (Array.isArray(j)) {
           const hit = j.find((o) => String(o.value) === String(val));
-          if (hit && hit.label) return escapeHtml(String(hit.label));
+          if (hit && hit.label) return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
         } else if (j && typeof j === 'object') {
-          // { "X":"Label" } oder { "X": {label:".."} }
           const hit = j[String(val)];
-          if (typeof hit === 'string') return escapeHtml(hit);
-          if (hit && typeof hit === 'object' && hit.label) return escapeHtml(String(hit.label));
+          if (typeof hit === 'string') return applyDisplayFormat(def, val, escapeHtml(hit));
+          if (hit && typeof hit === 'object' && hit.label)
+            return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
         }
       } catch {
         // ignore
       }
-      return escapeHtml(asText);
+      return applyDisplayFormat(def, val, escapeHtml(asText));
     }
 
     // default
-    return escapeHtml(asText);
+    return applyDisplayFormat(def, val, escapeHtml(asText));
   }
 
   async function ensureAttributeSchema() {
     if (attrSchemaRef.current) return attrSchemaRef.current;
 
     const baseSelect =
-      'attribute_id,key,input_type,options,sort_order,is_active,multilingual,name_de,name_en,name_it,name_fr,name_hr,description_de,description_en,description_it,description_fr,description_hr';
+      'attribute_id,key,input_type,options,sort_order,is_active,multilingual,' +
+      'name_de,name_en,name_it,name_fr,name_hr,' +
+      'description_de,description_en,description_it,description_fr,description_hr,' +
+      'show_in_infowindow,infowindow_group,infowindow_order,display_format';
     const selectWithVisibility = `${baseSelect},visibility_level`;
 
-    // Versuch 1: mit visibility_level (falls vorhanden)
     let data = null;
     let hasVisibility = false;
 
@@ -271,7 +284,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         data = d1 || [];
         hasVisibility = true;
       } else {
-        // Fallback: ohne visibility_level (falls DB-Spalte (noch) nicht existiert)
         const { data: d2, error: e2 } = await supabase.from('attribute_definitions').select(baseSelect);
         if (e2) {
           console.warn('[w2h] attribute_definitions load failed:', e2.message);
@@ -296,29 +308,28 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     attrSchemaRef.current = { byId, byKey, hasVisibility };
     if (DEBUG_LOG) {
-      console.log('[w2h] attribute schema loaded', {
-        count: byId.size,
-        hasVisibility,
-      });
+      console.log('[w2h] attribute schema loaded', { count: byId.size, hasVisibility });
     }
     return attrSchemaRef.current;
   }
 
-  function Lightbox({ gallery, onClose }) {
-    if (!gallery) return null;
+  // ------------------------------
+  // ✅ Lightbox + WindModal (wieder drin)
+  // ------------------------------
+  function Lightbox({ gallery: g, onClose }) {
+    if (!g) return null;
 
     let items = [];
     try {
-      if (Array.isArray(gallery.photos)) {
-        items = gallery.photos;
-      } else if (typeof gallery.photos === 'string') {
-        const parsed = JSON.parse(gallery.photos);
+      if (Array.isArray(g.photos)) items = g.photos;
+      else if (typeof g.photos === 'string') {
+        const parsed = JSON.parse(g.photos);
         items = Array.isArray(parsed) ? parsed : parsed?.photos || [];
-      } else if (gallery.photos && typeof gallery.photos === 'object') {
-        items = Array.isArray(gallery.photos.photos) ? gallery.photos.photos : [];
+      } else if (g.photos && typeof g.photos === 'object') {
+        items = Array.isArray(g.photos.photos) ? g.photos.photos : [];
       }
-    } catch (errLightbox) {
-      console.warn('[w2h] Lightbox parse failed', errLightbox);
+    } catch (err) {
+      console.warn('[w2h] Lightbox parse failed', err);
       items = [];
     }
 
@@ -341,7 +352,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           style={{
             background: '#fff',
             borderRadius: 14,
-            maxWidth: '1100px',
+            maxWidth: 1100,
             width: '95vw',
             maxHeight: '90vh',
             overflow: 'auto',
@@ -358,7 +369,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             }}
           >
             <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
-              {gallery.title} – {items.length} Fotos
+              {g.title} – {items.length} Fotos
             </h3>
             <button
               onClick={onClose}
@@ -381,63 +392,61 @@ export default function GoogleMapClient({ lang = 'de' }) {
               gap: 12,
             }}
           >
-            {items.map((p, idx) => {
-              const isGoogle = !!(p.photo_reference || p.photoreference);
-              const isUser = !!(p.public_url || p.url || p.thumb);
+            {items
+              .map((p, idx) => {
+                const isGoogle = !!(p.photo_reference || p.photoreference);
+                const isUser = !!(p.public_url || p.url || p.thumb);
 
-              let src = '';
-              if (isGoogle) {
-                const ref = p.photo_reference || p.photoreference;
-                const w = Math.min(1200, Number(p.width || 0) || 640);
-                src = photoUrl(ref, w);
-              } else if (isUser) {
-                src = p.thumb || p.public_url || p.url || '';
-              }
+                let src = '';
+                if (isGoogle) {
+                  const ref = p.photo_reference || p.photoreference;
+                  const w = Math.min(1200, Number(p.width || 0) || 640);
+                  src = photoUrl(ref, w);
+                } else if (isUser) {
+                  src = p.thumb || p.public_url || p.url || '';
+                }
 
-              if (!src) return null;
+                if (!src) return null;
 
-              return (
-                <figure
-                  key={p.public_url || p.url || p.photo_reference || p.photoreference || idx}
-                  style={{ margin: 0 }}
-                >
-                  <div
-                    style={{
-                      background: '#fafafa',
-                      border: '1px solid #eee',
-                      borderRadius: 10,
-                      minHeight: 160,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <img
-                      src={src}
-                      alt={p.caption || ''}
-                      loading="lazy"
-                      decoding="async"
-                      style={{ width: '100%', height: 'auto', display: 'block' }}
-                    />
-                  </div>
-                  {isGoogle ? (
-                    Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
-                      <figcaption
-                        style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}
-                        dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }}
+                return (
+                  <figure key={p.public_url || p.url || p.photo_reference || p.photoreference || idx} style={{ margin: 0 }}>
+                    <div
+                      style={{
+                        background: '#fafafa',
+                        border: '1px solid #eee',
+                        borderRadius: 10,
+                        minHeight: 160,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <img
+                        src={src}
+                        alt={p.caption || ''}
+                        loading="lazy"
+                        decoding="async"
+                        style={{ width: '100%', height: 'auto', display: 'block' }}
                       />
-                    ) : null
-                  ) : p.caption || p.author ? (
-                    <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
-                      {escapeHtml(
-                        [p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · '),
-                      )}
-                    </figcaption>
-                  ) : null}
-                </figure>
-              );
-            })}
+                    </div>
+
+                    {isGoogle ? (
+                      Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
+                        <figcaption
+                          style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}
+                          dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }}
+                        />
+                      ) : null
+                    ) : p.caption || p.author ? (
+                      <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
+                        {[p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · ')}
+                      </figcaption>
+                    ) : null}
+                  </figure>
+                );
+              })
+              .filter(Boolean)}
           </div>
         </div>
       </div>
@@ -481,14 +490,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             gap: 16,
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>
               💨 Winddaten · {modal.title} (#{modal.id})
             </h2>
@@ -506,29 +508,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
             </button>
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 0.9fr)',
-              gap: 20,
-              alignItems: 'flex-start',
-            }}
-          >
-            <div
-              style={{
-                background: '#fff',
-                borderRadius: 14,
-                padding: 12,
-                border: '1px solid #e5e7eb',
-              }}
-            >
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 0.9fr)', gap: 20 }}>
+            <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
               <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Wind &amp; Schwell-Rosette</h3>
               {windProfile ? (
-                <WindSwellRose
-                  size={260}
-                  wind={windProfile.wind || {}}
-                  swell={windProfile.swell || {}}
-                />
+                <WindSwellRose size={260} wind={windProfile.wind || {}} swell={windProfile.swell || {}} />
               ) : (
                 <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
                   Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.
@@ -537,32 +521,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
             </div>
 
             <div style={{ display: 'grid', gap: 12 }}>
-              <div
-                style={{
-                  background: '#fff',
-                  borderRadius: 14,
-                  padding: 12,
-                  border: '1px solid #e5e7eb',
-                }}
-              >
+              <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Hinweis</h3>
                 {hintText ? (
                   <p style={{ margin: 0, fontSize: 14, whiteSpace: 'pre-wrap' }}>{hintText}</p>
                 ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
-                    Kein spezieller Hinweistext hinterlegt.
-                  </p>
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Kein spezieller Hinweistext hinterlegt.</p>
                 )}
               </div>
 
-              <div
-                style={{
-                  background: '#fff',
-                  borderRadius: 14,
-                  padding: 12,
-                  border: '1px solid #e5e7eb',
-                }}
-              >
+              <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
                 <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
                 {liveWindStation ? (
                   <>
@@ -574,9 +542,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                       </strong>
                     </p>
                     <iframe
-                      src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(
-                        String(liveWindStation),
-                      )}`}
+                      src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(String(liveWindStation))}`}
                       style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
                       loading="lazy"
                       title="LiveWind"
@@ -592,8 +558,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           </div>
 
           <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning (windrelevant,
-            Stationen, Layout) folgt.
+            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.
           </p>
         </div>
       </div>
@@ -621,6 +586,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function repairMojibake(s = '') {
+    // eslint-disable-next-line no-undef
     return /Ã|Å|Â/.test(s) ? decodeURIComponent(escape(s)) : s;
   }
 
@@ -651,25 +617,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function label(key, langCode) {
     const L = {
-      route: {
-        de: 'Route',
-        en: 'Directions',
-        it: 'Itinerario',
-        hr: 'Ruta',
-        fr: 'Itinéraire',
-      },
+      route: { de: 'Route', en: 'Directions', it: 'Itinerario', hr: 'Ruta', fr: 'Itinéraire' },
       website: { de: 'Website', en: 'Website', it: 'Sito', hr: 'Web', fr: 'Site' },
       call: { de: 'Anrufen', en: 'Call', it: 'Chiama', hr: 'Nazovi', fr: 'Appeler' },
       open: { de: 'Geöffnet', en: 'Open now', it: 'Aperto', hr: 'Otvoreno', fr: 'Ouvert' },
       closed: { de: 'Geschlossen', en: 'Closed', it: 'Chiuso', hr: 'Zatvoreno', fr: 'Fermé' },
       photos: { de: 'Fotos', en: 'Photos', it: 'Foto', hr: 'Fotografije', fr: 'Photos' },
-      wind: {
-        de: 'Winddaten',
-        en: 'Wind data',
-        it: 'Dati vento',
-        hr: 'Podaci o vjetru',
-        fr: 'Données vent',
-      },
+      wind: { de: 'Winddaten', en: 'Wind data', it: 'Dati vento', hr: 'Podaci o vjetru', fr: 'Données vent' },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
@@ -683,7 +637,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   };
 
   const DAY_ALIASES = new Map([
-    // EN
     ['monday', 0],
     ['mon', 0],
     ['tuesday', 1],
@@ -701,7 +654,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     ['sat', 5],
     ['sunday', 6],
     ['sun', 6],
-    // DE
     ['montag', 0],
     ['mo', 0],
     ['dienstag', 1],
@@ -716,7 +668,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     ['sa', 5],
     ['sonntag', 6],
     ['so', 6],
-    // IT
     ['lunedì', 0],
     ['lunedi', 0],
     ['lun', 0],
@@ -736,22 +687,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
     ['sab', 5],
     ['domenica', 6],
     ['dom', 6],
-    // FR
     ['lundi', 0],
-    ['lun', 0],
     ['mardi', 1],
-    ['mar', 1],
     ['mercredi', 2],
-    ['mer', 2],
     ['jeudi', 3],
-    ['jeu', 3],
     ['vendredi', 4],
-    ['ven', 4],
     ['samedi', 5],
-    ['sam', 5],
     ['dimanche', 6],
-    ['dim', 6],
-    // HR
     ['ponedjeljak', 0],
     ['pon', 0],
     ['utorak', 1],
@@ -807,16 +749,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
     21: 'price',
     33: 'description',
     17: 'photos',
-
-    // neue Wind-Felder:
-    102: 'wind_profile', // JSON Wind & Schwell
-    105: 'wind_hint', // mehrsprachiger Hinweistext
-
-    // LiveWind-Stations-ID
+    102: 'wind_profile',
+    105: 'wind_hint',
     107: 'livewind_station',
   };
 
-  // Mapping per Attribut-Key
   const FIELD_MAP_BY_KEY = {
     wind_profile: 'wind_profile',
     wind_swell_profile: 'wind_profile',
@@ -827,22 +764,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
   };
 
   function getMarkerIcon(catId, svgMarkup) {
-    // 🔧 Debug: einfache Kreissymbole ohne SVG
     if (DEBUG_MARKERS && typeof google !== 'undefined' && google.maps && google.maps.SymbolPath) {
-      return {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 8,
-        fillOpacity: 0.9,
-        strokeWeight: 2,
-      };
+      return { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillOpacity: 0.9, strokeWeight: 2 };
     }
 
     const key = String(catId ?? 'default');
     if (iconCache.current.has(key)) return iconCache.current.get(key);
-    const rawSvg =
-      svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
+    const rawSvg = svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
 
-    // Standard: 40x40, Anchor unten Mitte → Spitze zeigt auf die Koordinate
     const icon = {
       url: svgToDataUrl(rawSvg),
       scaledSize: new google.maps.Size(40, 40),
@@ -853,7 +782,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return icon;
   }
 
-  // Debug-Overlay: Bounding-Boxen für Marker anzeigen
   function createDebugOverlay(map, locations) {
     if (!DEBUG_BOUNDING) return;
     if (typeof google === 'undefined' || !google.maps || !google.maps.OverlayView) return;
@@ -868,16 +796,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       onAdd() {
         const panes = this.getPanes();
-        if (panes && panes.overlayMouseTarget) {
-          panes.overlayMouseTarget.appendChild(this.div);
-        }
+        if (panes && panes.overlayMouseTarget) panes.overlayMouseTarget.appendChild(this.div);
       }
 
       draw() {
         const projection = this.getProjection();
         if (!projection || !this.locations) return;
 
-        const size = 40; // gleiche Größe wie Marker-Icon
+        const size = 40;
         const html = this.locations
           .map((loc) => {
             const latLng = new google.maps.LatLng(loc.lat, loc.lng);
@@ -886,18 +812,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             const left = pos.x - size / 2;
             const top = pos.y - size;
 
-            return `<div 
-              style="
-                position:absolute;
-                left:${left}px;
-                top:${top}px;
-                width:${size}px;
-                height:${size}px;
-                border:1px solid red;
-                box-sizing:border-box;
-                pointer-events:none;
-              ">
-            </div>`;
+            return `<div style="position:absolute;left:${left}px;top:${top}px;width:${size}px;height:${size}px;border:1px solid red;box-sizing:border-box;pointer-events:none;"></div>`;
           })
           .join('');
 
@@ -905,9 +820,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       onRemove() {
-        if (this.div && this.div.parentNode) {
-          this.div.parentNode.removeChild(this.div);
-        }
+        if (this.div && this.div.parentNode) this.div.parentNode.removeChild(this.div);
       }
     }
 
@@ -950,35 +863,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function buildInfoContent(row, kvRaw, iconSvgRaw, langCode) {
-    // 🔍 Spezial-DEBUG für Spot #527: ultraminimaler Inhalt, damit er nicht crasht
-    if (row && row.id === 527) {
-      const safeKv = kvRaw && typeof kvRaw === 'object' ? kvRaw : {};
-      const title = escapeHtml(pickName(row, langCode));
-      const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || safeKv.description || '');
-
-      return `
-        <div class="w2h-iw">
-          <div class="iw-hd">
-            <div class="iw-title">${title} <span class="iw-id">#${row.id}</span> (DEBUG 527)</div>
-          </div>
-          <div class="iw-bd">
-            ${
-              desc
-                ? `<div class="iw-row iw-desc">${desc}</div>`
-                : '<div class="iw-row iw-desc">Kein Beschreibungstext.</div>'
-            }
-          </div>
-        </div>
-      `;
-    }
-
-    // Standardpfad für alle anderen Spots – vorsichtig mit den Daten umgehen
     const kv = kvRaw && typeof kvRaw === 'object' ? kvRaw : {};
     const title = escapeHtml(pickName(row, langCode));
     const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
 
-    const addrByLang =
-      kv.addressByLang && typeof kv.addressByLang === 'object' ? kv.addressByLang : {};
+    const addrByLang = kv.addressByLang && typeof kv.addressByLang === 'object' ? kv.addressByLang : {};
     const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
     let addrSel = '';
     for (const L of pref) {
@@ -992,15 +881,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const website = kv.website || '';
     const phone = kv.phone || '';
 
-    // 🔁 robustes Rating-Handling
-    const rating =
-      kv.rating !== undefined && kv.rating !== null && kv.rating !== '' ? Number(kv.rating) : null;
+    const rating = kv.rating !== undefined && kv.rating !== null && kv.rating !== '' ? Number(kv.rating) : null;
     const ratingTotal = kv.rating_total ? parseInt(kv.rating_total, 10) : null;
     const priceLevel = kv.price ? parseInt(kv.price, 10) : null;
     const openNow = kv.opening_now === 'true' || kv.opening_now === true;
 
-    const hoursByLang =
-      kv.hoursByLang && typeof kv.hoursByLang === 'object' ? kv.hoursByLang : {};
+    const hoursByLang = kv.hoursByLang && typeof kv.hoursByLang === 'object' ? kv.hoursByLang : {};
     let hoursArr = null;
     for (const L of pref) {
       if (Array.isArray(hoursByLang[L]) && hoursByLang[L].length) {
@@ -1014,35 +900,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const firstThumb = pickFirstThumb(photos);
 
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
-    const siteHref =
-      website && website.startsWith('http') ? website : website ? `https://${website}` : '';
+    const siteHref = website && website.startsWith('http') ? website : website ? `https://${website}` : '';
     const telHref = phone ? `tel:${String(phone).replace(/\s+/g, '')}` : '';
 
     const svgMarkup = iconSvgRaw || defaultMarkerSvg;
 
-    const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label(
-      'route',
-      langCode,
-    )}</a>`;
+    const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label('route', langCode)}</a>`;
     const btnSite = siteHref
-      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label(
-          'website',
-          langCode,
-        )}</a>`
+      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label('website', langCode)}</a>`
       : '';
-    const btnTel = telHref
-      ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>`
-      : '';
+    const btnTel = telHref ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>` : '';
 
-    // Rating
     let ratingHtml = '';
     if (rating !== null && !Number.isNaN(rating)) {
       const rInt = Math.max(0, Math.min(5, Math.round(rating)));
       const stars = '★'.repeat(rInt) + '☆'.repeat(5 - rInt);
       const formatted = Number.isFinite(rating) && rating.toFixed ? rating.toFixed(1) : String(rating);
-      ratingHtml = `<div class="iw-row iw-rating">${stars} ${formatted}${
-        ratingTotal ? ` (${ratingTotal})` : ''
-      }</div>`;
+      ratingHtml = `<div class="iw-row iw-rating">${stars} ${formatted}${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
     }
 
     let priceHtml = '';
@@ -1053,14 +927,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     let openingHtml = '';
     if (kv.opening_now !== undefined) {
-      openingHtml += `<div class="iw-row iw-open">${
-        openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`
-      }</div>`;
+      openingHtml += `<div class="iw-row iw-open">${openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`}</div>`;
     }
     if (hoursLocalized && hoursLocalized.length) {
-      openingHtml += `<ul class="iw-hours">${hoursLocalized
-        .map((h) => `<li>${escapeHtml(String(h))}</li>`)
-        .join('')}</ul>`;
+      openingHtml += `<ul class="iw-hours">${hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('')}</ul>`;
     }
 
     const thumbHtml = firstThumb
@@ -1068,33 +938,42 @@ export default function GoogleMapClient({ lang = 'de' }) {
       : '';
 
     const btnPhotos = photos.length
-      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label(
-          'photos',
-          langCode,
-        )} (${photos.length})</button>`
+      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${photos.length})</button>`
       : '';
 
-    // Windbutton
     const windProfile = kv.wind_profile || null;
     const hasWindProfile = !!windProfile;
     const hasWindStation = !!kv.livewind_station;
-    const hasWindHint =
-      kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
+    const hasWindHint = kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
     const showWindBtn = hasWindProfile || hasWindStation || hasWindHint;
 
     const btnWind = showWindBtn
-      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label(
-          'wind',
-          langCode,
-        )}</button>`
+      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>`
       : '';
 
-    // ✅ Punkt 5: Dynamische Attribute aus attribute_definitions + location_values rendern
+    // ✅ Dynamische Attribute: Gruppiert rendern (infowindow_group)
     let dynamicHtml = '';
     if (Array.isArray(kv.dynamic) && kv.dynamic.length) {
-      dynamicHtml = `
-        <div class="iw-dyn">
-          ${kv.dynamic
+      const groups = new Map(); // groupName -> items[]
+      for (const it of kv.dynamic) {
+        const g = (it.group || '').trim();
+        const key = g || '';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(it);
+      }
+
+      const orderedGroupKeys = Array.from(groups.keys()).sort((a, b) => {
+        if (!a && b) return 1;
+        if (a && !b) return -1;
+        return String(a).localeCompare(String(b));
+      });
+
+      const blocks = orderedGroupKeys
+        .map((gk) => {
+          const items = groups.get(gk) || [];
+          if (!items.length) return '';
+
+          const rows = items
             .map((it) => {
               const k = escapeHtml(it.label || it.key || '');
               const v = it.htmlValue || '';
@@ -1102,9 +981,19 @@ export default function GoogleMapClient({ lang = 'de' }) {
               return `<div class="iw-row iw-dyn-row"><span class="iw-dyn-k">${k}</span><span class="iw-dyn-v">${v}</span></div>`;
             })
             .filter(Boolean)
-            .join('')}
-        </div>
-      `;
+            .join('');
+
+          if (!rows) return '';
+
+          const head = gk ? `<div class="iw-dyn-group">${escapeHtml(gk)}</div>` : '';
+          return `<div class="iw-dyn-block">${head}${rows}</div>`;
+        })
+        .filter(Boolean)
+        .join('');
+
+      if (blocks) {
+        dynamicHtml = `<div class="iw-dyn">${blocks}</div>`;
+      }
     }
 
     return `
@@ -1132,7 +1021,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     `;
   }
 
-  // 🔍 NEU: Suchlogik – arbeitet auf locationsRef & markerMapRef
   function handleSearch() {
     const query = searchQuery.trim().toLowerCase();
     if (!query || !mapObj.current || !locationsRef.current.length) return;
@@ -1144,41 +1032,31 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return arr;
     };
 
-    // 1️⃣ Exakter Treffer
     let match =
-      locationsRef.current.find((row) => {
-        const names = normalizeNames(row);
-        return names.some((n) => n === query);
-      }) ||
-      // 2️⃣ Enthält-Suche
-      locationsRef.current.find((row) => {
-        const names = normalizeNames(row);
-        return names.some((n) => n.includes(query));
-      });
+      locationsRef.current.find((row) => normalizeNames(row).some((n) => n === query)) ||
+      locationsRef.current.find((row) => normalizeNames(row).some((n) => n.includes(query)));
 
     if (!match) {
-  const regionLabel =
-    (REGIONS.find((r) => r.key === selectedRegion)?.label?.[lang] ||
-      REGIONS.find((r) => r.key === selectedRegion)?.label?.de ||
-      selectedRegion);
+      const regionLabel =
+        REGIONS.find((r) => r.key === selectedRegion)?.label?.[lang] ||
+        REGIONS.find((r) => r.key === selectedRegion)?.label?.de ||
+        selectedRegion;
 
-  alert(`Kein passender Ort gefunden.\n\nTipp: Bitte kontrollieren Sie die ausgewählte Region (aktuell: ${regionLabel}).`,);
-  return;
-  }
+      alert(
+        `Kein passender Ort gefunden.\n\nTipp: Bitte kontrollieren Sie die ausgewählte Region (aktuell: ${regionLabel}).`,
+      );
+      return;
+    }
 
-
-    // Karte zentrieren & zoomen
     mapObj.current.panTo({ lat: match.lat, lng: match.lng });
     mapObj.current.setZoom(16);
 
-    // Marker holen und künstlich klicken → öffnet Infofenster mit bestehender Logik
     const marker = markerMapRef.current.get(match.id);
     if (marker && window.google && window.google.maps && google.maps.event) {
       google.maps.event.trigger(marker, 'click');
     }
   }
 
-  // 🔹 Geolocation-Auto-Region
   useEffect(() => {
     if (!booted || !mapObj.current) return;
     if (regionMode !== 'auto') return;
@@ -1241,10 +1119,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }, [booted, lang, selectedRegion]);
 
   async function loadMarkers(langCode) {
-    // ✅ Schema einmal sicherstellen (dynamische Attribute)
     const schema = await ensureAttributeSchema();
 
-    // 🔹 Region-Filter: Bounding Box auf die Locations-Query anwenden
     let locQuery = supabase.from('locations').select(`
         id,lat,lng,category_id,display_name,
         google_place_id,plus_code,
@@ -1254,7 +1130,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       `);
 
     const region = REGIONS.find((r) => r.key === selectedRegion);
-
     if (region && region.key !== REGION_KEYS.ALL) {
       locQuery = locQuery
         .gte('lat', region.south)
@@ -1269,11 +1144,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return;
     }
 
-    // Nur aktive Locations
     const allLocs = locs || [];
     const visibleLocs = allLocs.filter((l) => l.active !== false);
 
-    // Deduplizierung pro Place (gegen echte Doppel-DB-Einträge)
     const seen = new Set();
     const locList = [];
     for (const row of visibleLocs) {
@@ -1282,19 +1155,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
         (row.plus_code && `pc:${row.plus_code}`) ||
         `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
       if (seen.has(key)) {
-        if (DEBUG_LOG) {
-          console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
-        }
+        if (DEBUG_LOG) console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
         continue;
       }
       seen.add(key);
       locList.push(row);
     }
 
-    // IDs der deduplizierten Locations
     const locIds = locList.map((l) => l.id);
 
-    // 🔹 location_values nur für diese IDs laden
     let kvRows = [];
     if (locIds.length) {
       const { data, error } = await supabase
@@ -1304,18 +1173,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
         )
         .in('location_id', locIds);
 
-      if (error) {
-        console.warn('location_values load:', error.message);
-      } else {
-        kvRows = data || [];
-      }
+      if (error) console.warn('location_values load:', error.message);
+      else kvRows = data || [];
     }
 
     const kvByLoc = new Map();
 
-    // Helper: dynamische Values pro key sammeln
     function ensureDyn(obj) {
-      if (!obj._dyn) obj._dyn = new Map(); // key -> { def, valuesByLang: {}, rawAny }
+      if (!obj._dyn) obj._dyn = new Map(); // key -> { def, valuesByLang: {}, any }
       return obj._dyn;
     }
 
@@ -1328,7 +1193,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
 
-      // bekannte Felder wie bisher behandeln
       if (canon) {
         if (
           obj[canon] &&
@@ -1352,18 +1216,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
           const googleArr = normalizeGooglePhotos(
             r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
           );
-          if (googleArr.length) {
-            obj.photos = (obj.photos || []).concat(googleArr);
-          }
+          if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
           return;
         }
 
         if (canon === 'wind_profile') {
           try {
             const j =
-              r.value_json && typeof r.value_json === 'object'
-                ? r.value_json
-                : JSON.parse(r.value_json || '{}');
+              r.value_json && typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json || '{}');
             obj.wind_profile = j || null;
           } catch (errWp) {
             console.warn('[w2h] wind_profile JSON parse failed', errWp);
@@ -1380,46 +1240,33 @@ export default function GoogleMapClient({ lang = 'de' }) {
           } else if (r.value_json) {
             try {
               const j = typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
-              if (typeof j === 'string') {
-                text = j;
-              } else if (Array.isArray(j) && j.length) {
-                text = String(j[0]);
-              } else if (j && typeof j === 'object' && j.text) {
-                text = String(j.text);
-              }
+              if (typeof j === 'string') text = j;
+              else if (Array.isArray(j) && j.length) text = String(j[0]);
+              else if (j && typeof j === 'object' && j.text) text = String(j.text);
             } catch (errWh) {
               console.warn('[w2h] wind_hint JSON parse failed', errWh, r);
             }
           }
-          if (lc && text) {
-            obj.wind_hint[lc] = text;
-          }
+          if (lc && text) obj.wind_hint[lc] = text;
           return;
         }
 
         if (canon === 'livewind_station') {
           let stationId = '';
-          if (r.value_text && String(r.value_text).trim()) {
-            stationId = String(r.value_text).trim();
-          } else if (r.value_json) {
+          if (r.value_text && String(r.value_text).trim()) stationId = String(r.value_text).trim();
+          else if (r.value_json) {
             try {
               const j = typeof r.value_json === 'object' ? r.value_json : JSON.parse(r.value_json);
-              if (typeof j === 'string' || typeof j === 'number') {
-                stationId = String(j).trim();
-              }
+              if (typeof j === 'string' || typeof j === 'number') stationId = String(j).trim();
             } catch (errLs) {
               console.warn('[w2h] livewind_station JSON parse failed', errLs, r);
             }
           }
 
-          const stationName =
-            r.name && String(r.name).trim() && String(r.name).trim().length ? String(r.name).trim() : null;
-
+          const stationName = r.name && String(r.name).trim() ? String(r.name).trim() : null;
           if (stationId) {
             obj.livewind_station = stationId;
-            if (stationName) {
-              obj.livewind_station_name = stationName;
-            }
+            if (stationName) obj.livewind_station_name = stationName;
           }
           return;
         }
@@ -1460,12 +1307,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
         return;
       }
 
-      // ✅ dynamische Attribute: alles, was NICHT in FIELD_MAP_* ist
+      // ✅ dynamische Attribute (nicht in FIELD_MAP)
       if (!key) return;
 
-      const def = (schema && schema.byId && schema.byId.get(Number(r.attribute_id))) || (schema && schema.byKey && schema.byKey.get(String(key))) || null;
+      const def =
+        (schema && schema.byId && schema.byId.get(Number(r.attribute_id))) ||
+        (schema && schema.byKey && schema.byKey.get(String(key))) ||
+        null;
       if (!def) return;
       if (def.is_active === false) return;
+
+      // ✅ show_in_infowindow respektieren (false => skip; null => zeigen für kompatibilität)
+      if (def.show_in_infowindow === false) return;
 
       // Sichtbarkeit (falls vorhanden)
       if (schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
@@ -1473,94 +1326,34 @@ export default function GoogleMapClient({ lang = 'de' }) {
         if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
       }
 
-      // Value bestimmen (mit JSON support)
       let val = null;
-      if (r.value_json !== null && r.value_json !== undefined && r.value_json !== '') {
-        val = r.value_json;
-      } else if (r.value_text !== null && r.value_text !== undefined && r.value_text !== '') {
-        val = r.value_text;
-      } else if (r.value_option !== null && r.value_option !== undefined && r.value_option !== '') {
-        val = r.value_option;
-      } else if (r.value_number !== null && r.value_number !== undefined) {
-        val = r.value_number;
-      } else if (r.value_bool !== null && r.value_bool !== undefined) {
-        val = r.value_bool;
-      } else {
-        val = null;
-      }
+      if (r.value_json !== null && r.value_json !== undefined && r.value_json !== '') val = r.value_json;
+      else if (r.value_text !== null && r.value_text !== undefined && r.value_text !== '') val = r.value_text;
+      else if (r.value_option !== null && r.value_option !== undefined && r.value_option !== '') val = r.value_option;
+      else if (r.value_number !== null && r.value_number !== undefined) val = r.value_number;
+      else if (r.value_bool !== null && r.value_bool !== undefined) val = r.value_bool;
+
       if (val === null || val === undefined || val === '') return;
 
       const dyn = ensureDyn(obj);
-      if (!dyn.has(key)) {
-        dyn.set(key, { def, valuesByLang: {}, any: null });
-      }
+      if (!dyn.has(key)) dyn.set(key, { def, valuesByLang: {}, any: null });
       const entry = dyn.get(key);
       entry.any = entry.any ?? val;
       if (lc) entry.valuesByLang[lc] = val;
       else entry.valuesByLang._ = val;
     });
 
-    // 🔹 User-Fotos pro Location laden
-    let userPhotosMap = {};
-    try {
-      if (locIds.length) {
-        const url = `/api/user-photos?ids=${locIds.join(',')}`;
-        if (DEBUG_LOG) {
-          console.log('[w2h] fetch user-photos:', url);
-        }
-        const resp = await fetch(url, { cache: 'no-store' });
-        const j = await resp.json();
-
-        if (j && j.ok && j.items) {
-          userPhotosMap = j.items || {};
-        } else if (Array.isArray(j && j.rows)) {
-          const map = {};
-          for (const r of j.rows) {
-            const entry = {
-              public_url: r.public_url || null,
-              url: r.public_url || null,
-              thumb: r.thumb || r.public_url || null,
-              caption: r.caption || null,
-              author: r.author || null,
-              source: 'user',
-            };
-            if (!map[r.location_id]) map[r.location_id] = [];
-            map[r.location_id].push(entry);
-          }
-          userPhotosMap = map;
-        } else {
-          userPhotosMap = {};
-        }
-      }
-    } catch (errUP) {
-      console.warn('[w2h] user-photos fetch failed', errUP);
-    }
-
-    // Google + User Fotos zusammenführen, Thumb setzen + dyn finalisieren
+    // ✅ dyn finalisieren (Sortierung: infowindow_order -> sort_order)
     for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
-      const googleArr = Array.isArray(obj.photos) ? obj.photos : [];
 
-      const user = (userPhotosMap[loc.id] || [])
-        .map((p) => ({
-          public_url: p.public_url || p.url || null,
-          url: p.url || p.public_url || null,
-          thumb: p.thumb || p.public_url || null,
-          caption: p.caption || null,
-          author: p.author || null,
-          source: 'user',
-        }))
-        .filter((u) => u.public_url || u.url || u.thumb);
-
-      obj.photos = mergePhotos(googleArr, user);
-      obj.first_photo_ref = pickFirstThumb(obj.photos);
-
-      // ✅ dynamische Attribute sortieren & in render-fertige Liste bringen
       if (obj._dyn && obj._dyn instanceof Map && obj._dyn.size) {
         const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr', '_'];
         const list = [];
+
         for (const [key, entry] of obj._dyn.entries()) {
           const def = entry.def;
+
           let chosen = null;
           for (const L of pref) {
             if (entry.valuesByLang && entry.valuesByLang[L] !== undefined) {
@@ -1573,20 +1366,29 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
           const labelTxt = getAttrLabel(def, langCode);
           const htmlValue = formatDynamicValue({ def, val, langCode });
-
-          // Duplikate vermeiden (z. B. wenn label leer)
           if (!labelTxt || !htmlValue) continue;
+
+          const ord = def.infowindow_order ?? def.sort_order ?? 9999;
+          const grp = def.infowindow_group ?? '';
 
           list.push({
             key,
             attribute_id: def.attribute_id,
-            sort_order: def.sort_order ?? 9999,
+            sort_order: ord,
+            group: grp,
             label: labelTxt,
             htmlValue,
           });
         }
 
         list.sort((a, b) => {
+          const ga = String(a.group || '');
+          const gb = String(b.group || '');
+          if (ga !== gb) {
+            if (!ga && gb) return 1;
+            if (ga && !gb) return -1;
+            return ga.localeCompare(gb);
+          }
           const sa = Number(a.sort_order ?? 9999);
           const sb = Number(b.sort_order ?? 9999);
           if (sa !== sb) return sa - sb;
@@ -1598,21 +1400,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
         obj.dynamic = [];
       }
 
-      // cleanup
       delete obj._dyn;
-
       kvByLoc.set(loc.id, obj);
     }
 
-    // 🔍 Debug: was liegt für die drei Spots im Speicher?
-    console.log('[w2h] wind-debug 665 ', kvByLoc.get(665));
-    console.log('[w2h] wind-debug 3396', kvByLoc.get(3396));
-    console.log('[w2h] wind-debug 3511', kvByLoc.get(3511));
-
-    // 🔹 Neu: Locations für Suche speichern
+    // 🔹 Locations für Suche speichern
     locationsRef.current = locList;
 
-    // Bisherige Marker entfernen & MarkerMap leeren
+    // Alte Marker entfernen
     markers.current.forEach((m) => m.setMap(null));
     markers.current = [];
     markerMapRef.current = new Map();
@@ -1621,16 +1416,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     locList.forEach((row) => {
       const title = pickName(row, langCode);
       const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
-
-      if (DEBUG_LOG) {
-        console.log('[w2h] marker debug', {
-          id: row.id,
-          lat: row.lat,
-          lng: row.lng,
-          category_id: row.category_id,
-          iconSvgLength: svg ? String(svg).length : 0,
-        });
-      }
 
       const marker = new google.maps.Marker({
         position: { lat: row.lat, lng: row.lng },
@@ -1642,14 +1427,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
       });
 
       marker._cat = String(row.category_id);
-
-      // 🔹 Marker in Map merken, damit Suche darauf zugreifen kann
       markerMapRef.current.set(row.id, marker);
 
-      // ⬇️ Klick-Handler mit Fallback + Pan-Offset
       marker.addListener('click', () => {
         const meta = kvByLoc.get(row.id) || {};
-
         let html;
         try {
           html = buildInfoContent(row, meta, svg, langCode);
@@ -1661,31 +1442,24 @@ export default function GoogleMapClient({ lang = 'de' }) {
         infoWin.current.setContent(html);
         infoWin.current.open({ map: mapObj.current, anchor: marker });
 
-        // 🔄 Karte verschieben, damit das Infofenster nicht unter Suche/Region liegt
         if (mapObj.current && typeof mapObj.current.panBy === 'function') {
           setTimeout(() => {
             try {
-              // Basiswerte: Desktop
-              let offsetX = 160; // nach links (Suchleiste ist rechts)
-              let offsetY = -140; // nach unten (Overlays sind oben)
+              let offsetX = 160;
+              let offsetY = -140;
 
               if (typeof window !== 'undefined') {
                 const w = window.innerWidth;
                 const h = window.innerHeight;
-
-                // Tablet / kleines Notebook
                 if (w <= 1024) {
                   offsetX = 140;
                   offsetY = -160;
                 }
-
-                // Handy hochkant → noch stärker nach unten
                 if (w <= 640 && h > w) {
                   offsetX = 120;
                   offsetY = -220;
                 }
               }
-
               mapObj.current.panBy(offsetX, offsetY);
             } catch (e) {
               console.warn('[w2h] panBy failed', e);
@@ -1701,9 +1475,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             if (btn) {
               btn.addEventListener('click', () => {
                 const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-                if (photos.length) {
-                  setGallery({ title: pickName(row, langCode), photos });
-                }
+                if (photos.length) setGallery({ title: pickName(row, langCode), photos });
               });
             }
 
@@ -1729,11 +1501,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       markers.current.push(marker);
     });
 
-    // Optional: Bounding-Box-Debug-Overlay
-    if (DEBUG_BOUNDING) {
-      createDebugOverlay(mapObj.current, locList);
-    }
-
+    if (DEBUG_BOUNDING) createDebugOverlay(mapObj.current, locList);
     applyLayerVisibility();
   }
 
@@ -1746,7 +1514,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   return (
     <div className="w2h-map-wrap">
-      {/* 🌍 Regions-Overlay – Position via CSS, Breite am Handy schmäler */}
       <div
         className="w2h-region-panel"
         style={{
@@ -1803,7 +1570,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         </button>
       </div>
 
-      {/* 🔍 Suchfeld-Overlay oben rechts */}
       <div
         style={{
           position: 'absolute',
@@ -1876,6 +1642,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }}
       />
 
+      {/* ✅ Wieder aktiv */}
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
       <WindModal modal={windModal} onClose={() => setWindModal(null)} />
 
@@ -1889,7 +1656,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
           height: 100%;
           width: 100%;
         }
-        /* Region-Panel: Desktop zentriert unter der Suche */
         .w2h-region-panel {
           position: absolute;
           top: 64px;
@@ -1898,7 +1664,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
           min-width: 210px;
           max-width: 320px;
         }
-        /* Handy hochkant: nach rechts oben, schmäler */
         @media (max-width: 640px) {
           .w2h-region-panel {
             top: 80px;
@@ -1962,6 +1727,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           font-weight: 600;
           font-size: 12px;
           cursor: pointer;
+          border: none;
         }
         .gm-style .w2h-iw .iw-btn:hover {
           filter: brightness(0.95);
@@ -1990,6 +1756,19 @@ export default function GoogleMapClient({ lang = 'de' }) {
           margin-top: 8px;
           padding-top: 8px;
           border-top: 1px solid #eee;
+          display: grid;
+          gap: 10px;
+        }
+        .gm-style .w2h-iw .iw-dyn-block {
+          display: grid;
+          gap: 6px;
+        }
+        .gm-style .w2h-iw .iw-dyn-group {
+          font-weight: 800;
+          font-size: 12px;
+          letter-spacing: 0.2px;
+          color: #111;
+          margin-top: 2px;
         }
         .gm-style .w2h-iw .iw-dyn-row {
           display: grid;
