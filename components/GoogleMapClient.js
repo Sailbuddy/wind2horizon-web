@@ -142,8 +142,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
-  const photoUrl = (ref, max = 800) =>
-    `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+  const photoUrl = (ref, max = 800) => `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
 
   function escapeHtml(str = '') {
     return String(str)
@@ -181,7 +180,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const fmt = (def && def.display_format ? String(def.display_format) : '').trim().toLowerCase();
     if (!fmt) return renderedText;
 
-    // Achtung: renderedText ist bereits HTML-escaped (außer bei <a>), daher hier nur sichere Fälle:
     try {
       if (fmt === 'upper') return escapeHtml(String(rawVal).toUpperCase());
       if (fmt === 'lower') return escapeHtml(String(rawVal).toLowerCase());
@@ -212,7 +210,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         return `<pre style="white-space:pre-wrap;margin:0;">${escapeHtml(pretty)}</pre>`;
       }
     } catch {
-      // ignore, fallback
+      // ignore
     }
 
     return renderedText;
@@ -225,23 +223,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const isObj = typeof val === 'object';
     const asText = isObj ? JSON.stringify(val) : String(val);
 
-    // bool
     if (inputType === 'bool' || typeof val === 'boolean') {
       const b = val === true || val === 'true' || val === 1 || val === '1';
       const out = b ? (langCode === 'de' ? 'Ja' : 'Yes') : (langCode === 'de' ? 'Nein' : 'No');
       return applyDisplayFormat(def, val, escapeHtml(out));
     }
 
-    // url/link
     if (inputType === 'url' || inputType === 'link') {
       const href = safeHref(asText);
       if (!href) return applyDisplayFormat(def, asText, escapeHtml(asText));
-      const html = `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(asText)}</a>`;
-      // display_format bei Links bewusst NICHT überschreiben, sonst verlieren wir <a>
-      return html;
+      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(asText)}</a>`;
     }
 
-    // options/select
     if (inputType === 'option' || inputType === 'select') {
       try {
         const opts = def && def.options ? def.options : null;
@@ -252,8 +245,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         } else if (j && typeof j === 'object') {
           const hit = j[String(val)];
           if (typeof hit === 'string') return applyDisplayFormat(def, val, escapeHtml(hit));
-          if (hit && typeof hit === 'object' && hit.label)
-            return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
+          if (hit && typeof hit === 'object' && hit.label) return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
         }
       } catch {
         // ignore
@@ -261,7 +253,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return applyDisplayFormat(def, val, escapeHtml(asText));
     }
 
-    // default
     return applyDisplayFormat(def, val, escapeHtml(asText));
   }
 
@@ -307,14 +298,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
     });
 
     attrSchemaRef.current = { byId, byKey, hasVisibility };
-    if (DEBUG_LOG) {
-      console.log('[w2h] attribute schema loaded', { count: byId.size, hasVisibility });
-    }
+    if (DEBUG_LOG) console.log('[w2h] attribute schema loaded', { count: byId.size, hasVisibility });
     return attrSchemaRef.current;
   }
 
   // ------------------------------
-  // ✅ Lightbox + WindModal (wieder drin)
+  // ✅ Lightbox + WindModal
   // ------------------------------
   function Lightbox({ gallery: g, onClose }) {
     if (!g) return null;
@@ -549,17 +538,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
                     />
                   </>
                 ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
-                    Für diesen Spot ist noch keine Live-Wind-Station verknüpft.
-                  </p>
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Für diesen Spot ist noch keine Live-Wind-Station verknüpft.</p>
                 )}
               </div>
             </div>
           </div>
 
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.
-          </p>
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.</p>
         </div>
       </div>
     );
@@ -849,10 +834,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
   }
 
-  function mergePhotos(googleArr, userArr) {
-    return [...(userArr || []), ...(googleArr || [])];
-  }
-
   function pickFirstThumb(photos) {
     if (!Array.isArray(photos) || !photos.length) return null;
     const user = photos.find((p) => p.thumb || p.public_url || p.url);
@@ -947,9 +928,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const hasWindHint = kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
     const showWindBtn = hasWindProfile || hasWindStation || hasWindHint;
 
-    const btnWind = showWindBtn
-      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>`
-      : '';
+    const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
 
     // ✅ Dynamische Attribute: Gruppiert rendern (infowindow_group)
     let dynamicHtml = '';
@@ -957,9 +936,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const groups = new Map(); // groupName -> items[]
       for (const it of kv.dynamic) {
         const g = (it.group || '').trim();
-        const key = g || '';
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(it);
+        const k = g || '';
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(it);
       }
 
       const orderedGroupKeys = Array.from(groups.keys()).sort((a, b) => {
@@ -984,16 +963,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
             .join('');
 
           if (!rows) return '';
-
           const head = gk ? `<div class="iw-dyn-group">${escapeHtml(gk)}</div>` : '';
           return `<div class="iw-dyn-block">${head}${rows}</div>`;
         })
         .filter(Boolean)
         .join('');
 
-      if (blocks) {
-        dynamicHtml = `<div class="iw-dyn">${blocks}</div>`;
-      }
+      if (blocks) dynamicHtml = `<div class="iw-dyn">${blocks}</div>`;
     }
 
     return `
@@ -1032,7 +1008,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return arr;
     };
 
-    let match =
+    const match =
       locationsRef.current.find((row) => normalizeNames(row).some((n) => n === query)) ||
       locationsRef.current.find((row) => normalizeNames(row).some((n) => n.includes(query)));
 
@@ -1042,9 +1018,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         REGIONS.find((r) => r.key === selectedRegion)?.label?.de ||
         selectedRegion;
 
-      alert(
-        `Kein passender Ort gefunden.\n\nTipp: Bitte kontrollieren Sie die ausgewählte Region (aktuell: ${regionLabel}).`,
-      );
+      alert(`Kein passender Ort gefunden.\n\nTipp: Bitte kontrollieren Sie die ausgewählte Region (aktuell: ${regionLabel}).`);
       return;
     }
 
@@ -1131,11 +1105,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const region = REGIONS.find((r) => r.key === selectedRegion);
     if (region && region.key !== REGION_KEYS.ALL) {
-      locQuery = locQuery
-        .gte('lat', region.south)
-        .lte('lat', region.north)
-        .gte('lng', region.west)
-        .lte('lng', region.east);
+      locQuery = locQuery.gte('lat', region.south).lte('lat', region.north).gte('lng', region.west).lte('lng', region.east);
     }
 
     const { data: locs, error: errLocs } = await locQuery;
@@ -1150,15 +1120,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const seen = new Set();
     const locList = [];
     for (const row of visibleLocs) {
-      const key =
+      const dedupeKey =
         (row.google_place_id && `pid:${row.google_place_id}`) ||
         (row.plus_code && `pc:${row.plus_code}`) ||
         `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
-      if (seen.has(key)) {
-        if (DEBUG_LOG) console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
+      if (seen.has(dedupeKey)) {
+        if (DEBUG_LOG) console.log('[w2h] skip duplicate location for key', dedupeKey, 'id', row.id);
         continue;
       }
-      seen.add(key);
+      seen.add(dedupeKey);
       locList.push(row);
     }
 
@@ -1169,7 +1139,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       const { data, error } = await supabase
         .from('location_values')
         .select(
-          'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )',
+          'location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code, attribute_definitions:attribute_id ( key )'
         )
         .in('location_id', locIds);
 
@@ -1180,18 +1150,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const kvByLoc = new Map();
 
     function ensureDyn(obj) {
-      if (!obj._dyn) obj._dyn = new Map(); // key -> { def, valuesByLang: {}, any }
+      if (!obj._dyn) obj._dyn = new Map(); // dynKey -> { def, valuesByLang: {}, any }
       return obj._dyn;
     }
 
     (kvRows || []).forEach((r) => {
       const locId = r.location_id;
-      const key = (r.attribute_definitions && r.attribute_definitions.key) || null;
-      const canon = FIELD_MAP_BY_ID[r.attribute_id] || (key && FIELD_MAP_BY_KEY[key]);
 
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
       const obj = kvByLoc.get(locId);
       const lc = (r.language_code || '').toLowerCase();
+
+      // ✅ Robust: key notfalls aus Schema ableiten (Join kann leer sein)
+      const defById = schema?.byId?.get(Number(r.attribute_id)) || null;
+      const key =
+        (r.attribute_definitions && r.attribute_definitions.key) ||
+        (defById && defById.key) ||
+        null;
+
+      const canon = FIELD_MAP_BY_ID[r.attribute_id] || (key && FIELD_MAP_BY_KEY[key]);
 
       if (canon) {
         if (
@@ -1206,7 +1183,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           if (DEBUG_LOG) {
             console.warn(
               `[w2h] WARNUNG: doppeltes Attribut "${canon}" bei location_id=${locId}. Der zusätzliche Eintrag wird ignoriert.`,
-              r,
+              r
             );
           }
           return;
@@ -1214,7 +1191,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         if (canon === 'photos') {
           const googleArr = normalizeGooglePhotos(
-            r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
+            r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null
           );
           if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
           return;
@@ -1308,19 +1285,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
 
       // ✅ dynamische Attribute (nicht in FIELD_MAP)
-      if (!key) return;
-
-      const def =
-        (schema && schema.byId && schema.byId.get(Number(r.attribute_id))) ||
-        (schema && schema.byKey && schema.byKey.get(String(key))) ||
-        null;
+      // Robust: def primär über byId (und nur sekundär byKey)
+      const def = defById || (key && schema?.byKey?.get(String(key))) || null;
       if (!def) return;
       if (def.is_active === false) return;
-
-      // ✅ show_in_infowindow respektieren (false => skip; null => zeigen für kompatibilität)
       if (def.show_in_infowindow === false) return;
 
-      // Sichtbarkeit (falls vorhanden)
       if (schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
         const lvl = Number(def.visibility_level);
         if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
@@ -1335,9 +1305,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       if (val === null || val === undefined || val === '') return;
 
+      // ✅ dynKey: stabil auch wenn Join/key fehlt
+      const dynKey = String(def.key || key || r.attribute_id);
+
       const dyn = ensureDyn(obj);
-      if (!dyn.has(key)) dyn.set(key, { def, valuesByLang: {}, any: null });
-      const entry = dyn.get(key);
+      if (!dyn.has(dynKey)) dyn.set(dynKey, { def, valuesByLang: {}, any: null });
+      const entry = dyn.get(dynKey);
       entry.any = entry.any ?? val;
       if (lc) entry.valuesByLang[lc] = val;
       else entry.valuesByLang._ = val;
@@ -1351,7 +1324,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr', '_'];
         const list = [];
 
-        for (const [key, entry] of obj._dyn.entries()) {
+        for (const [k, entry] of obj._dyn.entries()) {
           const def = entry.def;
 
           let chosen = null;
@@ -1372,7 +1345,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           const grp = def.infowindow_group ?? '';
 
           list.push({
-            key,
+            key: k,
             attribute_id: def.attribute_id,
             sort_order: ord,
             group: grp,
