@@ -17,7 +17,7 @@ const INFO_VISIBILITY_MAX = 1;
 
 // ✅ Smoke-Test Schalter: zeigt dynamische Werte auch ohne attribute_definitions
 // Wenn true: Fallback-Label "Attr <id>" und generische Formatierung.
-const DYNAMIC_SMOKE_TEST = false;
+const DYNAMIC_SMOKE_TEST = true;
 
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
@@ -141,7 +141,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS.ALL); // 'all'
   const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
 
-  const DEBUG_LOG = false;
+  const DEBUG_LOG = true;
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
