@@ -1,3 +1,4 @@
+```jsx
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -5,7 +6,6 @@ import { supabase } from '@/lib/supabaseClient';
 import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
-import { REGIONS, REGION_KEYS, findRegionForPoint } from '@/lib/regions';
 
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
@@ -139,8 +139,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Region-State
-  const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS.ALL); // 'all'
+  // ✅ Regions aus Supabase (fitBounds)
+  const [regions, setRegions] = useState([]); // rows aus public.regions
+  const [selectedRegion, setSelectedRegion] = useState('all'); // 'all' oder region.slug
   const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
 
   // ✅ Track, ob InfoWindow zuletzt durch Marker geöffnet wurde
@@ -175,6 +176,43 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (s.startsWith('http://') || s.startsWith('https://')) return s;
     if (s.includes(':')) return '';
     return `https://${s}`;
+  }
+
+  // ---------------------------------------------
+  // ✅ Regions Helpers (Supabase + fitBounds)
+  // ---------------------------------------------
+  function pickRegionName(r, langCode) {
+    return (
+      (langCode === 'de' && r.name_de) ||
+      (langCode === 'en' && r.name_en) ||
+      (langCode === 'it' && r.name_it) ||
+      (langCode === 'fr' && r.name_fr) ||
+      (langCode === 'hr' && r.name_hr) ||
+      r.name_de ||
+      r.name_en ||
+      r.slug
+    );
+  }
+
+  function boundsToLatLngBounds(r) {
+    const sw = new google.maps.LatLng(Number(r.bounds_south), Number(r.bounds_west));
+    const ne = new google.maps.LatLng(Number(r.bounds_north), Number(r.bounds_east));
+    return new google.maps.LatLngBounds(sw, ne);
+  }
+
+  function pointInRegion(lat, lng, r) {
+    const la = Number(lat);
+    const lo = Number(lng);
+    return (
+      la >= Number(r.bounds_south) &&
+      la <= Number(r.bounds_north) &&
+      lo >= Number(r.bounds_west) &&
+      lo <= Number(r.bounds_east)
+    );
+  }
+
+  function allLabel(langCode) {
+    return langCode === 'de' ? 'Alle' : langCode === 'it' ? 'Tutte' : langCode === 'fr' ? 'Toutes' : langCode === 'hr' ? 'Sve' : 'All';
   }
 
   function getAttrLabel(def, langCode) {
@@ -1130,9 +1168,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     if (!match) {
       const regionLabel =
-        REGIONS.find((r) => r.key === selectedRegion)?.label?.[lang] ||
-        REGIONS.find((r) => r.key === selectedRegion)?.label?.de ||
-        selectedRegion;
+        selectedRegion === 'all'
+          ? allLabel(lang)
+          : pickRegionName(regions.find((r) => r.slug === selectedRegion) || { slug: selectedRegion }, lang);
 
       alert(`Kein passender Ort gefunden.\n\nTipp: Bitte kontrollieren Sie die ausgewählte Region (aktuell: ${regionLabel}).`);
       return;
@@ -1147,19 +1185,34 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
   }
 
+  // ✅ Auto-Region anhand Geolocation + Regions-Bounds (wenn regions geladen)
   useEffect(() => {
     if (!booted || !mapObj.current) return;
     if (regionMode !== 'auto') return;
+    if (!regions.length) return;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     const onSuccess = (pos) => {
       const { latitude, longitude } = pos.coords;
-      const region = findRegionForPoint(latitude, longitude);
-      setSelectedRegion(region.key);
 
-      if (mapObj.current && window.google) {
-        mapObj.current.setCenter({ lat: region.centerLat, lng: region.centerLng });
-        mapObj.current.setZoom(region.zoom);
+      const hit = regions.find((r) => pointInRegion(latitude, longitude, r)) || null;
+
+      if (hit) {
+        setSelectedRegion(hit.slug);
+
+        if (mapObj.current && window.google) {
+          const b = boundsToLatLngBounds(hit);
+          // robust bei initialem Layout
+          setTimeout(() => {
+            try {
+              mapObj.current.fitBounds(b, 40);
+            } catch (e) {
+              console.warn('[w2h] fitBounds failed', e);
+            }
+          }, 0);
+        }
+      } else {
+        setSelectedRegion('all');
       }
     };
 
@@ -1173,7 +1226,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       timeout: 5000,
       maximumAge: 600000,
     });
-  }, [booted, regionMode]);
+  }, [booted, regionMode, regions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1194,8 +1247,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         // ✅ NEU: Klick in die Karte schließt InfoWindow (aber nicht bei Klick auf UI-Overlays)
         mapObj.current.addListener('click', () => {
-          // Wenn gerade ein Marker-Klick das IW geöffnet hat, wird der Map-Click event
-          // in der Regel nicht zusätzlich gefeuert – aber wir halten das robust.
           closeInfoWindow();
           infoWinOpenedByMarkerRef.current = false;
         });
@@ -1212,11 +1263,40 @@ export default function GoogleMapClient({ lang = 'de' }) {
     };
   }, [lang]);
 
+  // ✅ Regions laden (Supabase)
+  useEffect(() => {
+    if (!booted) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const { data, error } = await supabase
+        .from('regions')
+        .select('slug,name_de,name_en,name_it,name_fr,name_hr,bounds_north,bounds_south,bounds_east,bounds_west,sort_order,is_active')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.warn('[w2h] regions load failed:', error.message);
+        setRegions([]);
+        return;
+      }
+
+      setRegions(data || []);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [booted]);
+
   useEffect(() => {
     if (!booted || !mapObj.current) return;
     loadMarkers(lang);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booted, lang, selectedRegion]);
+  }, [booted, lang, selectedRegion, regions]);
 
   async function loadMarkers(langCode) {
     const schema = await ensureAttributeSchema();
@@ -1229,9 +1309,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
         categories:category_id ( icon_svg )
       `);
 
-    const region = REGIONS.find((r) => r.key === selectedRegion);
-    if (region && region.key !== REGION_KEYS.ALL) {
-      locQuery = locQuery.gte('lat', region.south).lte('lat', region.north).gte('lng', region.west).lte('lng', region.east);
+    const r = selectedRegion === 'all' ? null : regions.find((x) => x.slug === selectedRegion);
+    if (r) {
+      locQuery = locQuery
+        .gte('lat', r.bounds_south)
+        .lte('lat', r.bounds_north)
+        .gte('lng', r.bounds_west)
+        .lte('lng', r.bounds_east);
     }
 
     const { data: locs, error: errLocs } = await locQuery;
@@ -1660,13 +1744,28 @@ export default function GoogleMapClient({ lang = 'de' }) {
         <select
           value={selectedRegion}
           onChange={(e) => {
-            const key = e.target.value;
+            const slug = e.target.value;
             setRegionMode('manual');
-            setSelectedRegion(key);
-            const region = REGIONS.find((r) => r.key === key);
-            if (region && mapObj.current && window.google) {
-              mapObj.current.setCenter({ lat: region.centerLat, lng: region.centerLng });
-              mapObj.current.setZoom(region.zoom);
+            setSelectedRegion(slug);
+
+            if (!mapObj.current || !window.google) return;
+
+            if (slug === 'all') {
+              mapObj.current.setCenter({ lat: 45.6, lng: 13.8 });
+              mapObj.current.setZoom(7);
+              return;
+            }
+
+            const r = regions.find((x) => x.slug === slug);
+            if (r) {
+              const b = boundsToLatLngBounds(r);
+              setTimeout(() => {
+                try {
+                  mapObj.current.fitBounds(b, 40);
+                } catch (err) {
+                  console.warn('[w2h] fitBounds failed', err);
+                }
+              }, 0);
             }
           }}
           style={{
@@ -1678,9 +1777,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
             marginBottom: 4,
           }}
         >
-          {REGIONS.map((r) => (
-            <option key={r.key} value={r.key}>
-              {r.label[lang] || r.label.de}
+          <option value="all">{allLabel(lang)}</option>
+          {regions.map((r) => (
+            <option key={r.slug} value={r.slug}>
+              {pickRegionName(r, lang)}
             </option>
           ))}
         </select>
@@ -1922,3 +2022,4 @@ export default function GoogleMapClient({ lang = 'de' }) {
     </div>
   );
 }
+```
