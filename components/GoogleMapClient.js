@@ -125,6 +125,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const markerMapRef = useRef(new Map()); // location_id -> Marker
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
 
+  // 🔹 Meta pro Location (für Suche/InfoWindow)
+  const metaByLocRef = useRef(new Map()); // location_id -> aggregated meta (kv)
+
   // 🔹 Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
   // { byId: Map<number, def>, byKey: Map<string, def>, hasVisibility: bool }
   const attrSchemaRef = useRef(null);
@@ -1118,22 +1121,158 @@ export default function GoogleMapClient({ lang = 'de' }) {
     `;
   }
 
+  // ------------------------------
+  // ✅ Suche: Token-basierte Suche über Name + Kategorie + Adresse (+ Fallback)
+  // ------------------------------
+  function normalizeTextForSearch(input) {
+    const s = String(input || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''); // diacritics
+    return s
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function pickCategoryName(cat, langCode) {
+    if (!cat) return '';
+    const raw =
+      (langCode === 'de' && cat.name_de) ||
+      (langCode === 'it' && cat.name_it) ||
+      (langCode === 'fr' && cat.name_fr) ||
+      (langCode === 'hr' && cat.name_hr) ||
+      (langCode === 'en' && cat.name_en) ||
+      cat.name_de ||
+      cat.name_en ||
+      '';
+    return String(raw || '').trim();
+  }
+
+  function buildSearchHaystack(row, meta, langCode) {
+    const parts = [];
+
+    // names
+    parts.push(row.display_name, row.name_de, row.name_en, row.name_it, row.name_fr, row.name_hr);
+
+    // descriptions
+    parts.push(row.description_de, row.description_en, row.description_it, row.description_fr, row.description_hr);
+
+    // ids / plus codes
+    parts.push(row.google_place_id, row.plus_code);
+
+    // category names
+    if (row.categories) {
+      parts.push(
+        pickCategoryName(row.categories, 'de'),
+        pickCategoryName(row.categories, 'en'),
+        pickCategoryName(row.categories, 'it'),
+        pickCategoryName(row.categories, 'fr'),
+        pickCategoryName(row.categories, 'hr')
+      );
+      if (row.categories.google_cat_id) parts.push(String(row.categories.google_cat_id));
+    }
+
+    // meta address / website / phone (optional but helpful)
+    if (meta && typeof meta === 'object') {
+      if (meta.address) parts.push(meta.address);
+      if (meta.addressByLang && typeof meta.addressByLang === 'object') {
+        Object.values(meta.addressByLang).forEach((v) => parts.push(v));
+      }
+      if (meta.website) parts.push(meta.website);
+      if (meta.phone) parts.push(meta.phone);
+      if (meta.description) parts.push(meta.description);
+    }
+
+    const joined = parts.filter(Boolean).join(' ');
+    return normalizeTextForSearch(joined);
+  }
+
+  function scoreMatch({ hay, tokens, nameHay }) {
+    // All tokens must match (AND). Score rewards tighter matches.
+    let score = 0;
+
+    for (const t of tokens) {
+      if (!t) continue;
+
+      // exact word bonus
+      const wordRe = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (wordRe.test(hay)) score += 30;
+      else if (hay.includes(t)) score += 15;
+      else return -1; // AND requirement: token missing
+    }
+
+    // prefer name/title matches
+    if (nameHay) {
+      for (const t of tokens) {
+        if (!t) continue;
+        if (nameHay === t) score += 40;
+        else if (nameHay.startsWith(t)) score += 25;
+        else if (nameHay.includes(t)) score += 10;
+      }
+    }
+
+    return score;
+  }
+
   function handleSearch() {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query || !mapObj.current || !locationsRef.current.length) return;
+    const raw = searchQuery.trim();
+    if (!raw || !mapObj.current || !locationsRef.current.length) return;
 
-    const normalizeNames = (row) => {
-      const arr = [row.display_name, row.name_de, row.name_en, row.name_hr, row.name_it, row.name_fr]
-        .filter(Boolean)
-        .map((n) => String(n).toLowerCase());
-      return arr;
-    };
+    const q = normalizeTextForSearch(raw);
+    if (!q) return;
 
-    let match =
-      locationsRef.current.find((row) => normalizeNames(row).some((n) => n === query)) ||
-      locationsRef.current.find((row) => normalizeNames(row).some((n) => n.includes(query)));
+    const tokens = q.split(' ').filter((t) => t.length >= 2); // ignore 1-char noise
+    if (!tokens.length) return;
 
-    if (!match) {
+    // Rank best match over all loaded locations (already region-filtered by selectedRegion).
+    let best = null;
+    let bestScore = -1;
+
+    for (const row of locationsRef.current) {
+      const meta = metaByLocRef.current.get(row.id) || {};
+      const hay = buildSearchHaystack(row, meta, lang);
+      if (!hay) continue;
+
+      const nameHay = normalizeTextForSearch(
+        [
+          row.display_name,
+          row.name_de,
+          row.name_en,
+          row.name_it,
+          row.name_fr,
+          row.name_hr,
+          pickCategoryName(row.categories, lang),
+        ]
+          .filter(Boolean)
+          .join(' ')
+      );
+
+      const s = scoreMatch({ hay, tokens, nameHay });
+      if (s > bestScore) {
+        bestScore = s;
+        best = row;
+      }
+    }
+
+    // Fallback: old behavior (substring in names only) if token-AND found nothing
+    if (!best || bestScore < 0) {
+      const query = q;
+
+      const normalizeNames = (row) => {
+        const arr = [row.display_name, row.name_de, row.name_en, row.name_hr, row.name_it, row.name_fr]
+          .filter(Boolean)
+          .map((n) => normalizeTextForSearch(n));
+        return arr;
+      };
+
+      best =
+        locationsRef.current.find((row) => normalizeNames(row).some((n) => n === query)) ||
+        locationsRef.current.find((row) => normalizeNames(row).some((n) => n.includes(query))) ||
+        null;
+    }
+
+    if (!best) {
       const regionLabel =
         selectedRegion === 'all'
           ? allLabel(lang)
@@ -1143,10 +1282,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return;
     }
 
-    mapObj.current.panTo({ lat: match.lat, lng: match.lng });
+    mapObj.current.panTo({ lat: best.lat, lng: best.lng });
     mapObj.current.setZoom(16);
 
-    const marker = markerMapRef.current.get(match.id);
+    const marker = markerMapRef.current.get(best.id);
     if (marker && window.google && window.google.maps && google.maps.event) {
       google.maps.event.trigger(marker, 'click');
     }
@@ -1273,7 +1412,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         google_place_id,plus_code,
         name_de,name_en,name_hr,name_it,name_fr,
         description_de,description_en,description_hr,description_it,description_fr,active,
-        categories:category_id ( icon_svg )
+        categories:category_id ( icon_svg, google_cat_id, name_de, name_en, name_it, name_fr, name_hr )
       `);
 
     const r = selectedRegion === 'all' ? null : regions.find((x) => x.slug === selectedRegion);
@@ -1575,8 +1714,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.log('[w2h] dynamic total count:', dynCountTotal);
     }
 
-    // 🔹 Locations für Suche speichern
+    // 🔹 Locations + Meta für Suche speichern
     locationsRef.current = locList;
+    metaByLocRef.current = kvByLoc;
 
     // Alte Marker entfernen
     markers.current.forEach((m) => m.setMap(null));
