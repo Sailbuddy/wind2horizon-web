@@ -1,4 +1,3 @@
-```jsx
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -143,6 +142,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Region-State
   const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS.ALL); // 'all'
   const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
+
+  // ✅ Track, ob InfoWindow zuletzt durch Marker geöffnet wurde
+  const infoWinOpenedByMarkerRef = useRef(false);
+
+  // ✅ Helper: InfoWindow schließen
+  const closeInfoWindow = () => {
+    try {
+      if (infoWin.current) infoWin.current.close();
+    } catch {
+      // ignore
+    }
+  };
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -992,10 +1003,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label('route', langCode)}</a>`;
     const btnSite = siteHref
-      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label(
-          'website',
-          langCode,
-        )}</a>`
+      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label('website', langCode)}</a>`
       : '';
     const btnTel = telHref ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>` : '';
 
@@ -1015,10 +1023,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     let openingHtml = '';
     if (kv.opening_now !== undefined) {
-      openingHtml += `<div class="iw-row iw-open">${openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label(
-        'closed',
-        langCode,
-      )}`}</div>`;
+      openingHtml += `<div class="iw-row iw-open">${openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`}</div>`;
     }
     if (hoursLocalized && hoursLocalized.length) {
       openingHtml += `<ul class="iw-hours">${hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('')}</ul>`;
@@ -1038,9 +1043,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const hasWindHint = kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
     const showWindBtn = hasWindProfile || hasWindStation || hasWindHint;
 
-    const btnWind = showWindBtn
-      ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>`
-      : '';
+    const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
 
     // ✅ Dynamische Attribute: Gruppiert rendern (infowindow_group)
     let dynamicHtml = '';
@@ -1186,7 +1189,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
           clickableIcons: false,
           styles: GOOGLE_MAP_STYLE,
         });
+
         infoWin.current = new google.maps.InfoWindow();
+
+        // ✅ NEU: Klick in die Karte schließt InfoWindow (aber nicht bei Klick auf UI-Overlays)
+        mapObj.current.addListener('click', () => {
+          // Wenn gerade ein Marker-Klick das IW geöffnet hat, wird der Map-Click event
+          // in der Regel nicht zusätzlich gefeuert – aber wir halten das robust.
+          closeInfoWindow();
+          infoWinOpenedByMarkerRef.current = false;
+        });
+
         setBooted(true);
       } catch (errBoot) {
         console.error('[w2h] Google Maps load failed:', errBoot);
@@ -1539,6 +1552,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
       markerMapRef.current.set(row.id, marker);
 
       marker.addListener('click', () => {
+        infoWinOpenedByMarkerRef.current = true;
+
         const meta = kvByLoc.get(row.id) || {};
         let html;
         try {
@@ -1907,4 +1922,3 @@ export default function GoogleMapClient({ lang = 'de' }) {
     </div>
   );
 }
-```
