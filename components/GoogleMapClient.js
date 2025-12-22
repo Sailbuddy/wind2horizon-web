@@ -17,6 +17,7 @@ const DEBUG_LOG = true; // true = extra Console-Logs
 const INFO_VISIBILITY_MAX = 1;
 
 // ✅ Smoke-Test: zeigt dynamische Werte auch ohne attribute_definitions (Fallback-Label)
+// Zusätzlich: übersteuert show_in_infowindow-Filter (zeigt auch wenn false)
 const DYNAMIC_SMOKE_TEST = true;
 
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
@@ -771,6 +772,85 @@ export default function GoogleMapClient({ lang = 'de' }) {
     livewind_station: 'livewind_station',
   };
 
+  // ---- Canonical duplicate handling (Fix B) -------------------------
+  const LANG_PREF = (langCode) => [langCode, 'de', 'en', 'it', 'fr', 'hr', ''];
+
+  function toStrMaybe(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
+
+  function isMeaningfulValueForCanon(canon, v) {
+    if (v === null || v === undefined) return false;
+    if (canon === 'rating' || canon === 'rating_total' || canon === 'price') {
+      const n = typeof v === 'number' ? v : Number(String(v));
+      return Number.isFinite(n) && n !== 0; // 0 ist oft "leer"
+    }
+    const s = String(v).trim();
+    if (!s) return false;
+
+    // AI-Ausreden/Fehlermeldungen in value_text bei website/phone etc. nicht bevorzugen
+    const badSnippets = [
+      'entschuldigung',
+      'ich kann',
+      'ne mogu',
+      'žao mi je',
+      'je suis',
+      'i am not able',
+      'cannot',
+      'kann den angegebenen inhalt nicht',
+      'nicht übersetzen',
+    ];
+    const low = s.toLowerCase();
+    if ((canon === 'website' || canon === 'phone') && badSnippets.some((b) => low.includes(b))) return false;
+
+    return true;
+  }
+
+  function shouldReplaceCanon(existingVal, existingLang, candidateVal, candidateLang, canon, langCode) {
+    const pref = LANG_PREF(langCode);
+
+    const exOk = isMeaningfulValueForCanon(canon, existingVal);
+    const caOk = isMeaningfulValueForCanon(canon, candidateVal);
+
+    if (!exOk && caOk) return true;
+    if (exOk && !caOk) return false;
+    if (!exOk && !caOk) return false;
+
+    const exL = (existingLang || '').toLowerCase();
+    const caL = (candidateLang || '').toLowerCase();
+
+    const exRank = pref.indexOf(exL) === -1 ? 999 : pref.indexOf(exL);
+    const caRank = pref.indexOf(caL) === -1 ? 999 : pref.indexOf(caL);
+
+    return caRank < exRank;
+  }
+
+  function setCanon(obj, canon, val, lc, langCode) {
+    obj._canonLang = obj._canonLang || {};
+    const existing = obj[canon];
+    const existingLc = obj._canonLang[canon];
+
+    if (existing === undefined) {
+      obj[canon] = val;
+      obj._canonLang[canon] = (lc || '').toLowerCase();
+      return;
+    }
+
+    if (shouldReplaceCanon(existing, existingLc, val, lc, canon, langCode)) {
+      obj[canon] = val;
+      obj._canonLang[canon] = (lc || '').toLowerCase();
+    } else if (DEBUG_LOG) {
+      console.warn(`[w2h] skip weaker duplicate "${canon}"`, { existing, existingLc, candidate: val, lc });
+    }
+  }
+
   function getMarkerIcon(catId, svgMarkup) {
     if (DEBUG_MARKERS && typeof google !== 'undefined' && google.maps && google.maps.SymbolPath) {
       return { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillOpacity: 0.9, strokeWeight: 2 };
@@ -1181,7 +1261,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     if (DEBUG_LOG) {
       console.log('[w2h] schema.byId size:', schema?.byId?.size);
-      console.log('[w2h] kvRows length:', kvRows?.length, kvRows?.slice(0, 8));
+      console.log('[w2h] kvRows length:', kvRows?.length);
     }
 
     // Aggregation pro Location
@@ -1208,26 +1288,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       const canon = FIELD_MAP_BY_ID[attrId] || (key && FIELD_MAP_BY_KEY[key]);
 
-      // 1) Canonical Fields
+      // 1) Canonical Fields (mit Fix B)
       if (canon) {
-        if (
-          obj[canon] &&
-          canon !== 'opening_hours' &&
-          canon !== 'address' &&
-          canon !== 'photos' &&
-          canon !== 'wind_profile' &&
-          canon !== 'wind_hint' &&
-          canon !== 'livewind_station'
-        ) {
-          if (DEBUG_LOG) {
-            console.warn(
-              `[w2h] WARN: doppeltes Attribut "${canon}" bei location_id=${locId}. Zusätzlicher Eintrag wird ignoriert.`,
-              r,
-            );
-          }
-          return;
-        }
-
         if (canon === 'photos') {
           const googleArr = normalizeGooglePhotos(
             r.value_json !== null && r.value_json !== undefined ? r.value_json : r.value_text || null,
@@ -1286,15 +1348,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
           return;
         }
 
-        const val =
-          r.value_text ??
-          r.value_option ??
-          (r.value_number !== null && r.value_number !== undefined ? String(r.value_number) : '') ??
-          (r.value_bool !== null && r.value_bool !== undefined ? String(r.value_bool) : '') ??
-          (r.value_json ? r.value_json : '');
+        // Value pick
+        let val = null;
+        if (r.value_json !== null && r.value_json !== undefined && r.value_json !== '') val = r.value_json;
+        else if (r.value_text !== null && r.value_text !== undefined && r.value_text !== '') val = r.value_text;
+        else if (r.value_option !== null && r.value_option !== undefined && r.value_option !== '') val = r.value_option;
+        else if (r.value_number !== null && r.value_number !== undefined) val = r.value_number;
+        else if (r.value_bool !== null && r.value_bool !== undefined) val = r.value_bool;
 
-        if (val === '' || val === null || val === undefined) return;
+        if (val === null || val === undefined || val === '') return;
 
+        // Canon per-type handling
         if (canon === 'opening_hours') {
           obj.hoursByLang = obj.hoursByLang || {};
           let arr = null;
@@ -1307,27 +1371,48 @@ export default function GoogleMapClient({ lang = 'de' }) {
             }
           }
           if (!arr) arr = String(val).split('\n');
-          obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
-        } else if (canon === 'address') {
-          obj.addressByLang = obj.addressByLang || {};
-          if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || String(val);
-          else obj.address = obj.address || String(val);
-        } else if (canon === 'website' || canon === 'phone') {
-          obj[canon] = obj[canon] || String(val);
-        } else if (canon === 'description') {
-          if (!obj.description || (lc && lc === langCode)) obj.description = String(val);
-        } else {
-          obj[canon] = String(val);
+          if (lc) obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
+          else obj.hoursByLang._ = (obj.hoursByLang._ || []).concat(arr);
+          return;
         }
+
+        if (canon === 'address') {
+          obj.addressByLang = obj.addressByLang || {};
+          const v = toStrMaybe(val);
+          if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || v;
+          else obj.address = obj.address || v;
+          return;
+        }
+
+        if (canon === 'description') {
+          const v = toStrMaybe(val);
+          // prefer exact lang match
+          if (!obj.description) obj.description = v;
+          else if (lc && lc === langCode) obj.description = v;
+          return;
+        }
+
+        // ✅ For scalar canon: choose best candidate (Fix B)
+        if (canon === 'rating' || canon === 'rating_total' || canon === 'price') {
+          const n = typeof val === 'number' ? val : Number(String(val));
+          if (!Number.isFinite(n)) return;
+          setCanon(obj, canon, n, lc, langCode);
+          return;
+        }
+
+        // website / phone / others
+        setCanon(obj, canon, toStrMaybe(val), lc, langCode);
         return;
       }
 
-      // 2) Dynamische Attribute (alles, was nicht in FIELD_MAP ist)
+      // 2) Dynamische Attribute
       let def = defById || null;
 
-      // Filter nur, wenn Def vorhanden (sonst Smoke-Test greift)
+      // Filter nur, wenn Def vorhanden
       if (def && def.is_active === false) return;
-      if (def && def.show_in_infowindow === false) return;
+
+      // ✅ Fix A: show_in_infowindow nur filtern, wenn Smoke-Test aus
+      if (!DYNAMIC_SMOKE_TEST && def && def.show_in_infowindow === false) return;
 
       if (def && schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
         const lvl = Number(def.visibility_level);
@@ -1356,7 +1441,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       else entry.valuesByLang._ = val;
     });
 
-    // 3) Dyn finalisieren (Label aus attribute_definitions in Sprache, sonst Fallback)
+    // 3) Dyn finalisieren
+    let dynCountTotal = 0;
+
     for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
 
@@ -1376,11 +1463,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
             }
           }
 
-          const val = chosen !== null && chosen !== undefined ? chosen : entry.any;
-          if (val === null || val === undefined || val === '') continue;
+          const v = chosen !== null && chosen !== undefined ? chosen : entry.any;
+          if (v === null || v === undefined || v === '') continue;
 
           const labelTxt = def ? getAttrLabel(def, langCode) : DYNAMIC_SMOKE_TEST ? `Attr ${attrId}` : '';
-          const htmlValue = formatDynamicValue({ def: def || {}, val, langCode });
+          const htmlValue = formatDynamicValue({ def: def || {}, val: v, langCode });
           if (!labelTxt || !htmlValue) continue;
 
           const ord = def ? def.infowindow_order ?? def.sort_order ?? 9999 : 9999;
@@ -1411,12 +1498,18 @@ export default function GoogleMapClient({ lang = 'de' }) {
         });
 
         obj.dynamic = list;
+        dynCountTotal += list.length;
       } else {
         obj.dynamic = [];
       }
 
       delete obj._dyn;
+      delete obj._canonLang;
       kvByLoc.set(loc.id, obj);
+    }
+
+    if (DEBUG_LOG) {
+      console.log('[w2h] dynamic total count:', dynCountTotal);
     }
 
     // 🔹 Locations für Suche speichern
