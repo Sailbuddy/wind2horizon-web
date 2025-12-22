@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
@@ -19,10 +19,6 @@ const INFO_VISIBILITY_MAX = 1;
 // Zusätzlich: übersteuert show_in_infowindow-Filter (zeigt auch wenn false)
 const DYNAMIC_SMOKE_TEST = true;
 
-// ✅ Visibility-Tier (Paywall-Ready)
-// 0 = Free, 1 = Plus, 2 = Pro (Beispiel)
-const USER_VISIBILITY_TIER = 0;
-
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
 const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
@@ -32,6 +28,10 @@ const GOOGLE_MAP_STYLE = [
   { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
   { featureType: 'poi', elementType: 'labels.text', stylers: [{ visibility: 'off' }] },
 ];
+
+// --- Search Focus Mode (B2) -----------------------------------------
+const SEARCH_MAX_RESULTS = 80;
+const SEARCH_ANCHOR_RADIUS_KM = 25; // Bereich um "Porec" etc. wenn Anker gefunden
 
 function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
   const cx = size / 2;
@@ -129,9 +129,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const markerMapRef = useRef(new Map()); // location_id -> Marker
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
 
-  // 🔹 Meta pro Location (für Suche/InfoWindow)
-  const metaByLocRef = useRef(new Map()); // location_id -> aggregated meta (kv)
-
   // 🔹 Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
   // { byId: Map<number, def>, byKey: Map<string, def>, hasVisibility: bool }
   const attrSchemaRef = useRef(null);
@@ -145,16 +142,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
 
-  // ✅ Search Focus Mode
-  const [searchMode, setSearchMode] = useState({
-    active: false,
-    query: '',
-    results: [], // [{ row, score }]
-    message: '', // Hinweise (z.B. Kategorie deaktiviert)
-    matchedCategories: [], // [{id, name, group_key}]
-  });
-  const prevVisibilityRef = useRef(null); // Map(markerId -> bool) zur Restore-Logik
-
   // ✅ Regions aus Supabase (fitBounds)
   const [regions, setRegions] = useState([]); // rows aus public.regions
   const [selectedRegion, setSelectedRegion] = useState('all'); // 'all' oder region.slug
@@ -162,6 +149,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   // ✅ Track, ob InfoWindow zuletzt durch Marker geöffnet wurde
   const infoWinOpenedByMarkerRef = useRef(false);
+
+  // ✅ categories für Search-Mapping (name + google_cat_id + group_key + visibility_tier)
+  const categoriesRef = useRef([]);
+  const categoriesIndexRef = useRef(null); // { byId, tokensToCategoryIds }
+
+  // ✅ Search Focus Mode State
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchResults, setSearchResults] = useState([]); // array of location rows
+  const [searchMessage, setSearchMessage] = useState('');
+  const savedLayerStateRef = useRef(null); // Map snapshot vor Search Mode
+  const searchMatchedCategoryIdsRef = useRef([]); // used for "layer disabled" message
 
   // ✅ Helper: InfoWindow schließen
   const closeInfoWindow = () => {
@@ -703,10 +701,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       closed: { de: 'Geschlossen', en: 'Closed', it: 'Chiuso', hr: 'Zatvoreno', fr: 'Fermé' },
       photos: { de: 'Fotos', en: 'Photos', it: 'Foto', hr: 'Fotografije', fr: 'Photos' },
       wind: { de: 'Winddaten', en: 'Wind data', it: 'Dati vento', hr: 'Podaci o vjetru', fr: 'Données vent' },
-      searchResults: { de: 'Suchergebnisse', en: 'Search results', it: 'Risultati', hr: 'Rezultati', fr: 'Résultats' },
-      resetSearch: { de: 'Suche aufheben', en: 'Clear search', it: 'Annulla', hr: 'Poništi', fr: 'Réinitialiser' },
-      disabledCat: { de: 'Kategorie ist deaktiviert', en: 'Category is disabled', it: 'Categoria disattivata', hr: 'Kategorija isključena', fr: 'Catégorie désactivée' },
-      paywalledCat: { de: 'Kategorie ist in dieser Version nicht verfügbar', en: 'Not available in this plan', it: 'Non disponibile', hr: 'Nije dostupno', fr: 'Non disponible' },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
@@ -1140,364 +1134,365 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   // ------------------------------
-  // ✅ Suche: Result-Set + Search Focus Mode
+  // ✅ Kategorien laden + Index für Suche
   // ------------------------------
-  function normalizeTextForSearch(input) {
-    const s = String(input || '')
+  function normToken(s) {
+    return String(s || '')
+      .trim()
       .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, ''); // diacritics
-    return s
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
+      .replaceAll('ß', 'ss')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
       .trim();
   }
 
-  function pickCategoryName(cat, langCode) {
-    if (!cat) return '';
-    const raw =
-      (langCode === 'de' && cat.name_de) ||
-      (langCode === 'it' && cat.name_it) ||
-      (langCode === 'fr' && cat.name_fr) ||
-      (langCode === 'hr' && cat.name_hr) ||
-      (langCode === 'en' && cat.name_en) ||
-      cat.name_de ||
-      cat.name_en ||
-      '';
-    return String(raw || '').trim();
+  function splitTokens(q) {
+    const x = normToken(q);
+    if (!x) return [];
+    return x.split(/\s+/g).filter(Boolean);
   }
 
-  // ✅ Kategorie-Index aus geladenen Locations (inkl. group_key / visibility_tier)
-  const categoryIndex = useMemo(() => {
-    const idx = new Map(); // catId -> {id, group_key, visibility_tier, namesNorm:Set, displayName}
-    const locs = locationsRef.current || [];
-    for (const row of locs) {
-      const c = row.categories;
-      if (!c) continue;
-      const id = row.category_id;
-      if (id === null || id === undefined) continue;
-      const key = String(id);
-      if (!idx.has(key)) {
-        const names = [
-          pickCategoryName(c, 'de'),
-          pickCategoryName(c, 'en'),
-          pickCategoryName(c, 'it'),
-          pickCategoryName(c, 'fr'),
-          pickCategoryName(c, 'hr'),
-          c.google_cat_id ? String(c.google_cat_id) : '',
-        ].filter(Boolean);
-        const namesNorm = new Set(names.map((n) => normalizeTextForSearch(n)).filter(Boolean));
+  function buildCategoriesIndex(rows) {
+    const byId = new Map();
+    const tokensToCategoryIds = new Map(); // token -> Set(ids)
 
-        idx.set(key, {
-          id: String(id),
-          group_key: c.group_key || null,
-          visibility_tier: Number.isFinite(Number(c.visibility_tier)) ? Number(c.visibility_tier) : 0,
-          namesNorm,
-          displayName: pickCategoryName(c, lang) || pickCategoryName(c, 'de') || pickCategoryName(c, 'en') || `#${id}`,
-        });
-      }
-    }
-    return idx;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, selectedRegion, regions, booted]); // genügt, weil locationsRef in loadMarkers aktualisiert wird
+    const addToken = (tok, id) => {
+      const t = normToken(tok);
+      if (!t) return;
+      if (!tokensToCategoryIds.has(t)) tokensToCategoryIds.set(t, new Set());
+      tokensToCategoryIds.get(t).add(id);
+    };
 
-  function buildSearchHaystack(row, meta, langCode) {
-    const parts = [];
+    (rows || []).forEach((c) => {
+      if (!c) return;
+      const id = Number(c.id);
+      if (!Number.isFinite(id)) return;
 
-    // names
-    parts.push(row.display_name, row.name_de, row.name_en, row.name_it, row.name_fr, row.name_hr);
+      byId.set(id, c);
 
-    // descriptions
-    parts.push(row.description_de, row.description_en, row.description_it, row.description_fr, row.description_hr);
+      // match tokens for category names
+      [c.name_de, c.name_en, c.name_it, c.name_fr, c.name_hr, c.google_cat_id, c.group_key].forEach((v) => {
+        const t = normToken(v);
+        if (!t) return;
+        // add full token
+        addToken(t, id);
+        // add each word too (Restaurant -> restaurant, Essen & Trinken -> essen/trinken)
+        t.split(/\s+/g).forEach((w) => addToken(w, id));
+      });
+    });
 
-    // ids / plus codes
-    parts.push(row.google_place_id, row.plus_code);
-
-    // category names + google type
-    if (row.categories) {
-      parts.push(
-        pickCategoryName(row.categories, 'de'),
-        pickCategoryName(row.categories, 'en'),
-        pickCategoryName(row.categories, 'it'),
-        pickCategoryName(row.categories, 'fr'),
-        pickCategoryName(row.categories, 'hr')
-      );
-      if (row.categories.google_cat_id) parts.push(String(row.categories.google_cat_id));
-    }
-
-    // meta address / website / phone (optional but helpful)
-    if (meta && typeof meta === 'object') {
-      if (meta.address) parts.push(meta.address);
-      if (meta.addressByLang && typeof meta.addressByLang === 'object') {
-        Object.values(meta.addressByLang).forEach((v) => parts.push(v));
-      }
-      if (meta.website) parts.push(meta.website);
-      if (meta.phone) parts.push(meta.phone);
-      if (meta.description) parts.push(meta.description);
-    }
-
-    const joined = parts.filter(Boolean).join(' ');
-    return normalizeTextForSearch(joined);
+    return { byId, tokensToCategoryIds };
   }
 
-  function scoreMatch({ hay, tokens, nameHay }) {
-    // All tokens must match (AND). Score rewards tighter matches.
-    let score = 0;
+  useEffect(() => {
+    if (!booted) return;
 
-    for (const t of tokens) {
-      if (!t) continue;
+    let cancelled = false;
 
-      // exact word bonus
-      const wordRe = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      if (wordRe.test(hay)) score += 30;
-      else if (hay.includes(t)) score += 15;
-      else return -1; // AND requirement: token missing
-    }
+    (async () => {
+      // group_key & visibility_tier sind neu – falls noch nicht vorhanden, bricht select nicht,
+      // aber Supabase kann dann Fehler liefern; wir fangen ab.
+      const sel =
+        'id,name_de,name_en,name_it,name_fr,name_hr,google_cat_id,group_key,visibility_tier,active,sort_order,is_manual';
+      const { data, error } = await supabase.from('categories').select(sel);
 
-    // prefer name/title matches
-    if (nameHay) {
+      if (cancelled) return;
+
+      if (error) {
+        console.warn('[w2h] categories load failed:', error.message);
+        categoriesRef.current = [];
+        categoriesIndexRef.current = buildCategoriesIndex([]);
+        return;
+      }
+
+      const rows = (data || []).filter((c) => c && c.active !== false);
+      categoriesRef.current = rows;
+      categoriesIndexRef.current = buildCategoriesIndex(rows);
+
+      if (DEBUG_LOG) {
+        console.log('[w2h] categories loaded for search', { count: rows.length, sample: rows[0] || null });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [booted]);
+
+  // ------------------------------
+  // ✅ Search Focus Mode helpers
+  // ------------------------------
+  function haversineKm(a, b) {
+    const toRad = (x) => (x * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const s =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+    const c = 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+    return R * c;
+  }
+
+  function normalizeNames(row) {
+    return [row.display_name, row.name_de, row.name_en, row.name_hr, row.name_it, row.name_fr]
+      .filter(Boolean)
+      .map((n) => normToken(String(n)));
+  }
+
+  function findAnchorLocation(tokens, rows) {
+    // Anchor = best name match for any non-category token
+    const idx = categoriesIndexRef.current;
+    const catTokenSet = new Set();
+    if (idx && idx.tokensToCategoryIds) {
       for (const t of tokens) {
-        if (!t) continue;
-        if (nameHay === t) score += 40;
-        else if (nameHay.startsWith(t)) score += 25;
-        else if (nameHay.includes(t)) score += 10;
+        if (idx.tokensToCategoryIds.has(t)) catTokenSet.add(t);
       }
     }
+    const nonCat = tokens.filter((t) => !catTokenSet.has(t));
+    if (!nonCat.length) return null;
 
-    return score;
+    // exact match first
+    for (const t of nonCat) {
+      const hit = rows.find((r) => normalizeNames(r).some((n) => n === t));
+      if (hit) return hit;
+    }
+    // contains match
+    for (const t of nonCat) {
+      const hit = rows.find((r) => normalizeNames(r).some((n) => n.includes(t)));
+      if (hit) return hit;
+    }
+    return null;
   }
 
-  // ✅ Kategorie-Erkennung aus Query (z.B. "Porec Restaurant")
-  function detectCategoriesFromQuery(qNorm) {
-    const hits = [];
-    if (!qNorm) return hits;
-    for (const [catId, rec] of categoryIndex.entries()) {
-      for (const n of rec.namesNorm) {
-        if (!n) continue;
-        // Match, wenn der Normalized Category Name als Wort/Token vorkommt
-        // (bei kurzen Begriffen reicht includes)
-        if (qNorm === n || qNorm.includes(` ${n} `) || qNorm.endsWith(` ${n}`) || qNorm.startsWith(`${n} `) || qNorm.includes(n)) {
-          hits.push({ id: catId, group_key: rec.group_key, name: rec.displayName, visibility_tier: rec.visibility_tier });
-          break;
-        }
-      }
+  function resolveQueryCategories(tokens) {
+    const idx = categoriesIndexRef.current;
+    if (!idx || !idx.tokensToCategoryIds) return [];
+
+    const ids = new Set();
+    for (const t of tokens) {
+      const set = idx.tokensToCategoryIds.get(t);
+      if (set) set.forEach((id) => ids.add(id));
     }
-    // dedupe
-    const seen = new Set();
-    return hits.filter((h) => {
-      const k = `${h.id}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
+    return Array.from(ids);
+  }
+
+  function categoryLabel(catRow) {
+    if (!catRow) return '';
+    return (
+      (lang === 'de' && catRow.name_de) ||
+      (lang === 'en' && catRow.name_en) ||
+      (lang === 'it' && catRow.name_it) ||
+      (lang === 'fr' && catRow.name_fr) ||
+      (lang === 'hr' && catRow.name_hr) ||
+      catRow.name_de ||
+      catRow.name_en ||
+      catRow.google_cat_id ||
+      `#${catRow.id}`
+    );
+  }
+
+  function enterSearchMode(results, message = '') {
+    if (!savedLayerStateRef.current) {
+      savedLayerStateRef.current = new Map(layerState.current);
+    }
+    setSearchMode(true);
+    setSearchResults(results);
+    setSearchMessage(message);
+
+    // Hide everything except results
+    const visibleIds = new Set(results.map((r) => r.id));
+    markers.current.forEach((m) => {
+      const locId = m._locId;
+      m.setVisible(visibleIds.has(locId));
     });
   }
 
-  function getGroupMembers(catHitIds) {
-    // Wenn Kategorie in einer Gruppe ist -> alle IDs mit gleichem group_key zurückgeben
-    const groups = new Set();
-    for (const id of catHitIds) {
-      const rec = categoryIndex.get(String(id));
-      if (rec && rec.group_key) groups.add(String(rec.group_key));
-    }
-    const out = new Set(catHitIds.map((x) => String(x)));
-    if (!groups.size) return Array.from(out);
-
-    for (const [id, rec] of categoryIndex.entries()) {
-      if (rec.group_key && groups.has(String(rec.group_key))) out.add(String(id));
-    }
-    return Array.from(out);
-  }
-
-  function isCategoryAllowedByTier(catId) {
-    const rec = categoryIndex.get(String(catId));
-    if (!rec) return true;
-    const tier = Number(rec.visibility_tier || 0);
-    return tier <= USER_VISIBILITY_TIER;
-  }
-
-  function isLayerEnabled(catId) {
-    // layerState ist Map<string,bool> (catId als string)
-    const v = layerState.current.get(String(catId));
-    return v ?? true;
-  }
-
-  // ✅ Search Focus: Marker Visibility Override
-  function enterSearchFocus(resultRows) {
-    if (!mapObj.current) return;
-
-    // Save current marker visibility
-    const prev = new Map();
-    for (const m of markers.current) {
-      prev.set(m, m.getVisible());
-    }
-    prevVisibilityRef.current = prev;
-
-    // Hide all, then show only results
-    const allowedIds = new Set(resultRows.map((r) => r.id));
-    for (const m of markers.current) {
-      const locId = [...markerMapRef.current.entries()].find(([, marker]) => marker === m)?.[0]; // expensive but small
-      // Statt reverse lookup: wir nutzen markerMapRef nur id->marker, daher:
-      // -> Wir setzen Visible über direkte Map unten
-      m.setVisible(false);
-    }
-    for (const row of resultRows) {
-      const marker = markerMapRef.current.get(row.id);
-      if (marker) marker.setVisible(true);
-    }
-
-    // fitBounds
-    try {
-      const b = new google.maps.LatLngBounds();
-      resultRows.forEach((r) => b.extend(new google.maps.LatLng(r.lat, r.lng)));
-      if (!b.isEmpty()) mapObj.current.fitBounds(b, 60);
-    } catch (e) {
-      console.warn('[w2h] fitBounds in search focus failed', e);
-    }
-  }
-
-  function exitSearchFocus() {
-    // Restore marker visibility using normal layer logic
-    prevVisibilityRef.current = null;
-    applyLayerVisibility();
-  }
-
   function clearSearchMode() {
-    closeInfoWindow();
-    setSearchMode({ active: false, query: '', results: [], message: '', matchedCategories: [] });
-    exitSearchFocus();
+    setSearchMode(false);
+    setSearchResults([]);
+    setSearchMessage('');
+    searchMatchedCategoryIdsRef.current = [];
+
+    // Restore layer vis
+    if (savedLayerStateRef.current) {
+      layerState.current = new Map(savedLayerStateRef.current);
+      savedLayerStateRef.current = null;
+      applyLayerVisibility();
+    } else {
+      applyLayerVisibility();
+    }
   }
 
-  function openResult(row) {
+  function fitToResults(results) {
+    if (!mapObj.current || !window.google || !google.maps || !results.length) return;
+
+    const b = new google.maps.LatLngBounds();
+    results.forEach((r) => b.extend(new google.maps.LatLng(r.lat, r.lng)));
+
+    setTimeout(() => {
+      try {
+        mapObj.current.fitBounds(b, 60);
+      } catch (e) {
+        console.warn('[w2h] fitBounds(results) failed', e);
+      }
+    }, 0);
+  }
+
+  function openLocation(row, langCode) {
     const marker = markerMapRef.current.get(row.id);
     if (marker && window.google && window.google.maps && google.maps.event) {
       google.maps.event.trigger(marker, 'click');
-      // Fokus bleibt aktiv (kein reset)
     } else if (mapObj.current) {
       mapObj.current.panTo({ lat: row.lat, lng: row.lng });
       mapObj.current.setZoom(16);
     }
   }
 
+  // ------------------------------
+  // ✅ Suche (B2): Result-Set + Focus Mode
+  // ------------------------------
   function handleSearch() {
-    const raw = searchQuery.trim();
-    if (!raw || !mapObj.current || !locationsRef.current.length) return;
+    const q = searchQuery.trim();
+    const queryTokens = splitTokens(q);
 
-    const qNorm = normalizeTextForSearch(raw);
-    if (!qNorm) return;
+    if (!q || !mapObj.current || !locationsRef.current.length) return;
 
-    const tokens = qNorm.split(' ').filter((t) => t.length >= 2);
-    if (!tokens.length) return;
+    const rows = locationsRef.current;
 
-    // Kategorie-Hits + Gruppen-Erweiterung
-    const catHits = detectCategoriesFromQuery(` ${qNorm} `);
-    const catIds = catHits.map((h) => h.id);
-    const groupExpandedCatIds = catIds.length ? getGroupMembers(catIds) : [];
+    // 1) Kategorie(n) aus Query erkennen
+    const matchedCategoryIds = resolveQueryCategories(queryTokens);
+    searchMatchedCategoryIdsRef.current = matchedCategoryIds;
 
-    // Tier-Block (Paywall)
-    const tierBlocked = groupExpandedCatIds.filter((id) => !isCategoryAllowedByTier(id));
-    if (catIds.length && tierBlocked.length) {
-      setSearchMode({
-        active: true,
-        query: raw,
-        results: [],
-        message: `${label('paywalledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
-        matchedCategories: catHits,
-      });
-      exitSearchFocus();
-      return;
-    }
+    // 2) Wenn explizite Kategorie gesucht und Layer dafür deaktiviert: Hinweis + keine Treffer
+    if (matchedCategoryIds.length) {
+      // wenn ANY matched category im Layer-Menü aus ist, blockieren wir (wie von dir gewünscht)
+      // (später kannst du hier Paywall-Logik ergänzen via visibility_tier)
+      const disabled = matchedCategoryIds
+        .map((id) => String(id))
+        .filter((cid) => layerState.current.get(cid) === false);
 
-    // Layer-Block (Deaktiviert)
-    // Nur wenn die Suche explizit kategorisch ist (catIds.length > 0)
-    if (catIds.length) {
-      const enabledAny = groupExpandedCatIds.some((id) => isLayerEnabled(id));
-      if (!enabledAny) {
-        setSearchMode({
-          active: true,
-          query: raw,
-          results: [],
-          message: `${label('disabledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
-          matchedCategories: catHits,
-        });
-        exitSearchFocus();
+      if (disabled.length) {
+        const idx = categoriesIndexRef.current;
+        const labels = disabled
+          .map((cid) => (idx && idx.byId ? idx.byId.get(Number(cid)) : null))
+          .filter(Boolean)
+          .map((c) => categoryLabel(c));
+
+        const msg =
+          lang === 'de'
+            ? `Kategorie ${labels.length === 1 ? `"${labels[0]}"` : `"${labels.join('", "')}"`} ist im Layer-Menü deaktiviert.\nBitte aktivieren – sonst werden keine Treffer angezeigt.`
+            : `Category ${labels.length === 1 ? `"${labels[0]}"` : `"${labels.join('", "')}"`} is disabled in the layer menu.\nEnable it to see results.`;
+
+        alert(msg);
+        // Optional: Search Mode NICHT aktivieren, weil es ja wirklich "nichts zeigt".
+        clearSearchMode();
         return;
       }
     }
 
-    // Ergebnisbildung:
-    // - Wenn Kategorie erkannt: filtere primär nach Kategorie (inkl. Group-Members), dann text-filter mit Resttokens
-    // - Sonst: global text AND-match
-    const results = [];
-    for (const row of locationsRef.current) {
-      const meta = metaByLocRef.current.get(row.id) || {};
-      const hay = buildSearchHaystack(row, meta, lang);
-      if (!hay) continue;
+    // 3) Anchor bestimmen (z.B. "Porec")
+    const anchor = findAnchorLocation(queryTokens, rows);
+    const anchorPos = anchor ? { lat: Number(anchor.lat), lng: Number(anchor.lng) } : null;
 
-      // Wenn kategorisch gesucht, müssen wir in der Kategorie (oder Gruppe) sein UND Layer an (mindestens einer in Gruppe ist an)
-      if (catIds.length) {
-        const inCat = groupExpandedCatIds.includes(String(row.category_id));
-        if (!inCat) continue;
+    // 4) Result-Set bilden
+    const nameMatch = (row, tok) => normalizeNames(row).some((n) => n === tok || n.includes(tok));
 
-        // Wenn einzelne Kategorie aus ist, aber Partner aus Gruppe an ist:
-        // -> Ergebnis wird trotzdem gezeigt (weil Suchintention "Essen/Restaurant") und die Gruppe aktiv ist.
-        // Das spiegelt "gekoppelte Layer" wider.
+    // category match: row.category_id is in matchedCategoryIds OR group_key match
+    const idx = categoriesIndexRef.current;
+    const rowMatchesCategory = (row) => {
+      if (!matchedCategoryIds.length) return true;
+      const cid = Number(row.category_id);
+      if (matchedCategoryIds.includes(cid)) return true;
+
+      // group_key matching: wenn Query eine Kategorie trifft, die als Gruppe gedacht ist,
+      // dann matchen auch alle Kategorien mit gleichem group_key
+      const matchedGroups = matchedCategoryIds
+        .map((id) => (idx && idx.byId ? idx.byId.get(Number(id)) : null))
+        .filter(Boolean)
+        .map((c) => String(c.group_key || '').trim())
+        .filter(Boolean);
+
+      if (!matchedGroups.length) return matchedCategoryIds.includes(cid);
+
+      const cRow = idx && idx.byId ? idx.byId.get(cid) : null;
+      const gk = cRow ? String(cRow.group_key || '').trim() : '';
+      return gk && matchedGroups.includes(gk);
+    };
+
+    // non-category tokens: must match name/description-ish (hier nur name)
+    const nonCatTokens = (() => {
+      if (!idx || !idx.tokensToCategoryIds) return queryTokens;
+      return queryTokens.filter((t) => !idx.tokensToCategoryIds.has(t));
+    })();
+
+    let results = rows.filter((row) => {
+      if (!rowMatchesCategory(row)) return false;
+
+      // If anchor exists and query has both (anchor-ish + category), then constrain by radius
+      if (anchorPos && matchedCategoryIds.length) {
+        const d = haversineKm(anchorPos, { lat: Number(row.lat), lng: Number(row.lng) });
+        if (Number.isFinite(d) && d > SEARCH_ANCHOR_RADIUS_KM) return false;
       }
 
-      const nameHay = normalizeTextForSearch(
-        [
-          row.display_name,
-          row.name_de,
-          row.name_en,
-          row.name_it,
-          row.name_fr,
-          row.name_hr,
-          pickCategoryName(row.categories, lang),
-        ]
-          .filter(Boolean)
-          .join(' ')
-      );
+      // all non-category tokens should be satisfied by name (soft):
+      // if there is an anchor, we do not force anchor token to match each row.
+      // We'll require at least one token match OR category match already narrowed.
+      if (!nonCatTokens.length) return true;
 
-      // Bei kategorischer Suche: Tokens bleiben (inkl Kategorie-Wort). Das ist ok, weil Category im Haystack ist.
-      // (Optional könnte man Category-Tokens rausnehmen, aber das ist stabil genug.)
-      const s = scoreMatch({ hay, tokens, nameHay });
-      if (s >= 0) results.push({ row, score: s });
+      // if anchor exists, allow "porec restaurant": anchor token defines area, not each row name
+      if (anchor && nonCatTokens.length) {
+        // if token directly matches anchor name (likely), skip forcing that token
+        const anchorNames = new Set(normalizeNames(anchor));
+        const filtered = nonCatTokens.filter((t) => !anchorNames.has(t));
+        if (!filtered.length) return true;
+        return filtered.every((t) => nameMatch(row, t));
+      }
+
+      return nonCatTokens.every((t) => nameMatch(row, t));
+    });
+
+    // 5) Sortierung (distance to anchor, else name)
+    if (anchorPos) {
+      results = results
+        .map((r) => ({
+          row: r,
+          dist: haversineKm(anchorPos, { lat: Number(r.lat), lng: Number(r.lng) }),
+        }))
+        .sort((a, b) => (a.dist ?? 999999) - (b.dist ?? 999999))
+        .map((x) => x.row);
+    } else {
+      results = results.sort((a, b) => pickName(a, lang).localeCompare(pickName(b, lang)));
     }
 
-    results.sort((a, b) => b.score - a.score);
+    // limit
+    if (results.length > SEARCH_MAX_RESULTS) results = results.slice(0, SEARCH_MAX_RESULTS);
 
-    // Limit (Performance + UX)
-    const limited = results.slice(0, 50);
-
-    if (!limited.length) {
+    if (!results.length) {
       const regionLabel =
         selectedRegion === 'all'
           ? allLabel(lang)
           : pickRegionName(regions.find((r) => r.slug === selectedRegion) || { slug: selectedRegion }, lang);
 
-      setSearchMode({
-        active: true,
-        query: raw,
-        results: [],
-        message:
-          catIds.length
-            ? `${label('disabledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`
-            : `Kein passender Ort gefunden. Tipp: Bitte kontrollieren Sie die ausgewählte Region (aktuell: ${regionLabel}).`,
-        matchedCategories: catHits,
-      });
-      exitSearchFocus();
+      const msg =
+        lang === 'de'
+          ? `Keine Treffer.\n\nTipp: Region prüfen (aktuell: ${regionLabel}) oder Query vereinfachen.`
+          : `No results.\n\nTip: Check region (current: ${regionLabel}) or simplify query.`;
+
+      alert(msg);
+      clearSearchMode();
       return;
     }
 
-    // Aktivieren + Focus
-    setSearchMode({
-      active: true,
-      query: raw,
-      results: limited,
-      message: '',
-      matchedCategories: catHits,
-    });
+    const headline = anchor
+      ? (lang === 'de'
+          ? `Treffer in der Nähe von "${pickName(anchor, lang)}": ${results.length}`
+          : `Results near "${pickName(anchor, lang)}": ${results.length}`)
+      : (lang === 'de' ? `Treffer: ${results.length}` : `Results: ${results.length}`);
 
-    enterSearchFocus(limited.map((x) => x.row));
+    enterSearchMode(results, headline);
+    fitToResults(results);
   }
 
   // ✅ Auto-Region anhand Geolocation + Regions-Bounds (wenn regions geladen)
@@ -1609,6 +1604,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   useEffect(() => {
     if (!booted || !mapObj.current) return;
+
+    // Wenn Search Mode aktiv ist und Region/Lang wechselt, resetten wir Search Mode sauber.
+    // (Optional: könnte man auch neu suchen – aber konservativ ist besser.)
+    if (searchMode) clearSearchMode();
+
     loadMarkers(lang);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booted, lang, selectedRegion, regions]);
@@ -1621,7 +1621,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         google_place_id,plus_code,
         name_de,name_en,name_hr,name_it,name_fr,
         description_de,description_en,description_hr,description_it,description_fr,active,
-        categories:category_id ( id, icon_svg, google_cat_id, name_de, name_en, name_it, name_fr, name_hr, group_key, visibility_tier )
+        categories:category_id ( icon_svg )
       `);
 
     const r = selectedRegion === 'all' ? null : regions.find((x) => x.slug === selectedRegion);
@@ -1923,9 +1923,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
       console.log('[w2h] dynamic total count:', dynCountTotal);
     }
 
-    // 🔹 Locations + Meta für Suche speichern
+    // 🔹 Locations für Suche speichern
     locationsRef.current = locList;
-    metaByLocRef.current = kvByLoc;
 
     // Alte Marker entfernen
     markers.current.forEach((m) => m.setMap(null));
@@ -1947,6 +1946,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       });
 
       marker._cat = String(row.category_id);
+      marker._locId = row.id;
       markerMapRef.current.set(row.id, marker);
 
       marker.addListener('click', () => {
@@ -2025,12 +2025,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     if (DEBUG_BOUNDING) createDebugOverlay(mapObj.current, locList);
 
-    // Wenn Search Focus aktiv war, neu anwenden (z.B. Region gewechselt)
-    if (searchMode.active && searchMode.results && searchMode.results.length) {
-      enterSearchFocus(searchMode.results.map((x) => x.row));
-    } else {
-      applyLayerVisibility();
-    }
+    // apply visibility (Search Mode overrides per marker)
+    applyLayerVisibility();
 
     if (DEBUG_LOG) {
       const some = locList[0];
@@ -2041,8 +2037,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function applyLayerVisibility() {
-    // Wenn Search Focus aktiv: nicht überschreiben
-    if (searchMode.active && prevVisibilityRef.current) return;
+    // Wenn Search Mode aktiv: nur Treffer sichtbar, LayerState ignorieren
+    if (searchMode) {
+      const visibleIds = new Set(searchResults.map((r) => r.id));
+      markers.current.forEach((m) => m.setVisible(visibleIds.has(m._locId)));
+      return;
+    }
 
     markers.current.forEach((m) => {
       const vis = layerState.current.get(m._cat);
@@ -2050,10 +2050,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
     });
   }
 
-  // ------------------------------
-  // ✅ UI: Search Results Panel
-  // ------------------------------
-  const resultPanelTitle = `${label('searchResults', lang)}${searchMode.active ? ` (${searchMode.results.length})` : ''}`;
+  // Wenn Search Mode oder Ergebnisse sich ändern -> Sichtbarkeit neu anwenden
+  useEffect(() => {
+    if (!booted) return;
+    applyLayerVisibility();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchMode, searchResults]);
 
   return (
     <div className="w2h-map-wrap">
@@ -2075,9 +2077,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
             const slug = e.target.value;
             setRegionMode('manual');
             setSelectedRegion(slug);
-
-            // Bei Regionwechsel: Search Focus aufheben (sauberer Erwartungshorizont)
-            if (searchMode.active) clearSearchMode();
 
             if (!mapObj.current || !window.google) return;
 
@@ -2117,10 +2116,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         </select>
         <button
           type="button"
-          onClick={() => {
-            if (searchMode.active) clearSearchMode();
-            setRegionMode('auto');
-          }}
+          onClick={() => setRegionMode('auto')}
           style={{
             width: '100%',
             fontSize: 11,
@@ -2135,7 +2131,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         </button>
       </div>
 
-      {/* Search Bar */}
       <div
         style={{
           position: 'absolute',
@@ -2158,10 +2153,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleSearch();
-            if (e.key === 'Escape') {
-              setSearchQuery('');
-              if (searchMode.active) clearSearchMode();
-            }
           }}
           style={{
             border: '1px solid #d1d5db',
@@ -2189,12 +2180,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
           Suchen
         </button>
 
-        {searchMode.active ? (
+        {searchMode ? (
           <button
             type="button"
             onClick={clearSearchMode}
             style={{
-              border: '1px solid #d1d5db',
+              border: '1px solid #e5e7eb',
               borderRadius: 9999,
               padding: '5px 10px',
               fontSize: 13,
@@ -2204,17 +2195,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
               cursor: 'pointer',
               whiteSpace: 'nowrap',
             }}
-            title={label('resetSearch', lang)}
+            title="Suche aufheben"
           >
-            {label('resetSearch', lang)}
+            Reset
           </button>
         ) : null}
       </div>
 
-      {/* Search Results Panel */}
-      {searchMode.active ? (
+      {/* Search Focus Mode - Result Panel */}
+      {searchMode ? (
         <div
-          className="w2h-search-panel"
           style={{
             position: 'absolute',
             top: 58,
@@ -2222,73 +2212,59 @@ export default function GoogleMapClient({ lang = 'de' }) {
             zIndex: 10,
             width: 360,
             maxWidth: '92vw',
-            maxHeight: '70vh',
-            overflow: 'auto',
             background: 'rgba(255,255,255,0.96)',
             borderRadius: 14,
-            padding: 12,
+            padding: 10,
             boxShadow: '0 10px 28px rgba(0,0,0,.18)',
-            border: '1px solid rgba(0,0,0,.06)',
+            border: '1px solid #e5e7eb',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>{resultPanelTitle}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{searchMode.query}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ fontWeight: 800, fontSize: 13 }}>{searchMessage || (lang === 'de' ? 'Treffer' : 'Results')}</div>
+            <button
+              type="button"
+              onClick={clearSearchMode}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                fontSize: 20,
+                lineHeight: 1,
+              }}
+              title="Suche schließen"
+            >
+              ×
+            </button>
           </div>
 
-          {searchMode.message ? (
-            <div
-              style={{
-                marginTop: 10,
-                padding: '10px 10px',
-                borderRadius: 10,
-                background: '#fff7ed',
-                border: '1px solid #fed7aa',
-                color: '#7c2d12',
-                fontSize: 12,
-                lineHeight: 1.35,
-              }}
-            >
-              {searchMode.message}
-              {searchMode.matchedCategories && searchMode.matchedCategories.length ? (
-                <div style={{ marginTop: 6, color: '#9a3412' }}>
-                  Hinweis: Aktiviere die Kategorie im Layer-Menü, um Ergebnisse zu sehen.
+          <div style={{ marginTop: 8, maxHeight: '52vh', overflow: 'auto', display: 'grid', gap: 8 }}>
+            {searchResults.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => openLocation(r, lang)}
+                style={{
+                  textAlign: 'left',
+                  padding: '8px 10px',
+                  borderRadius: 12,
+                  border: '1px solid #e5e7eb',
+                  background: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 2 }}>{pickName(r, lang)}</div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>
+                  #{r.id} · {r.lat?.toFixed?.(4)}, {r.lng?.toFixed?.(4)}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
+              </button>
+            ))}
+          </div>
 
-          {searchMode.results && searchMode.results.length ? (
-            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-              {searchMode.results.map(({ row, score }) => {
-                const catName = row.categories ? pickCategoryName(row.categories, lang) : '';
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => openResult(row)}
-                    style={{
-                      textAlign: 'left',
-                      border: '1px solid #e5e7eb',
-                      background: '#fff',
-                      borderRadius: 12,
-                      padding: '10px 10px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>{pickName(row, lang)}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af' }}>#{row.id}</div>
-                    </div>
-                    {catName ? <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{catName}</div> : null}
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                      {Number.isFinite(score) ? `Score: ${score}` : ''}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
+          <div style={{ marginTop: 10, fontSize: 11, color: '#6b7280' }}>
+            {lang === 'de'
+              ? 'Suchmodus aktiv: nur Treffer werden angezeigt. „Reset“ hebt die Selektion auf.'
+              : 'Search mode active: only results are shown. “Reset” clears the selection.'}
+          </div>
         </div>
       ) : null}
 
@@ -2300,16 +2276,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
           layerState.current = new Map(initialMap);
           applyLayerVisibility();
         }}
-        onToggle={(catKey, visible, meta) => {
-          // ✅ Gruppenlogik: wenn LayerPanel meta.affected_category_ids liefert
-          const affected = meta && Array.isArray(meta.affected_category_ids) ? meta.affected_category_ids : [catKey];
-
-          for (const k of affected) {
-            layerState.current.set(String(k), visible);
-          }
-
-          // Wenn Search Focus aktiv ist: nicht überschreiben (User will Result-Set sehen)
-          if (!searchMode.active) applyLayerVisibility();
+        onToggle={(catKey, visible) => {
+          layerState.current.set(catKey, visible);
+          applyLayerVisibility();
         }}
         onToggleAll={(visible) => {
           const updated = new Map();
@@ -2317,7 +2286,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             updated.set(key, visible);
           });
           layerState.current = updated;
-          if (!searchMode.active) applyLayerVisibility();
+          applyLayerVisibility();
         }}
       />
 
@@ -2351,12 +2320,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
             min-width: 170px;
             max-width: 230px;
             width: 60vw;
-          }
-          .w2h-search-panel {
-            top: 110px !important;
-            right: 10px !important;
-            width: min(92vw, 360px) !important;
-            max-height: 62vh !important;
           }
         }
       `}</style>
