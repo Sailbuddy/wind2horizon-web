@@ -177,6 +177,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return `https://${s}`;
   }
 
+  // ✅ SVG niemals roh ins InfoWindow injizieren (XSS-Schutz).
+  // Stattdessen: als data URL in <img> rendern.
+  function svgToImgTag(svgMarkup, size = 20) {
+    const rawSvg = svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
+    const url = svgToDataUrl(rawSvg);
+    return `<img src="${escapeHtml(url)}" alt="" width="${size}" height="${size}" style="display:block;" />`;
+  }
+
   // ---------------------------------------------
   // ✅ Regions Helpers (Supabase + fitBounds)
   // ---------------------------------------------
@@ -301,8 +309,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         } else if (j && typeof j === 'object') {
           const hit = j[String(val)];
           if (typeof hit === 'string') return applyDisplayFormat(def, val, escapeHtml(hit));
-          if (hit && typeof hit === 'object' && hit.label)
-            return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
+          if (hit && typeof hit === 'object' && hit.label) return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
         }
       } catch {
         // ignore
@@ -355,6 +362,414 @@ export default function GoogleMapClient({ lang = 'de' }) {
     (data || []).forEach((def) => {
       if (!def) return;
       const id = def.attribute_id; // ✅
+      const key = def.key;
+      if (id !== null && id !== undefined) byId.set(Number(id), def);
+      if (key) byKey.set(String(key), def);
+    });
+
+    attrSchemaRef.current = { byId, byKey, hasVisibility };
+
+    if (DEBUG_LOG) {
+      console.log('[w2h] attribute schema loaded', {
+        count: byId.size,
+        hasVisibility,
+        sample: data && data[0] ? data[0] : null,
+      });
+    }
+
+    return attrSchemaRef.current;
+  }
+
+  // ------------------------------
+  // ✅ Lightbox + WindModal
+  // ------------------------------
+  function Lightbox({ gallery: g, onClose }) {
+    if (!g) return null;
+
+    let items
+
+
+
+
+
+Du:
+der Code ist leider nicht vollständig angekommen.
+
+
+ChatGPT:
+jsx
+Code kopieren
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import LayerPanel from '@/components/LayerPanel';
+import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
+import { svgToDataUrl } from '@/lib/utils';
+
+// 🔧 Debug-Schalter
+const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
+const DEBUG_BOUNDING = false; // true = rote Bounding-Boxen über den Markern
+const DEBUG_LOG = true; // true = extra Console-Logs
+
+// 🔒 Sichtbarkeit dynamischer Attribute (falls Spalte vorhanden)
+// 0 = öffentlich, 1 = erweitert, 2+ = intern (Beispiel). Passe bei Bedarf an.
+const INFO_VISIBILITY_MAX = 1;
+
+// ✅ Smoke-Test: zeigt dynamische Werte auch ohne attribute_definitions (Fallback-Label)
+// Zusätzlich: übersteuert show_in_infowindow-Filter (zeigt auch wenn false)
+const DYNAMIC_SMOKE_TEST = true;
+
+// --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
+const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
+
+// 🔹 Map-Style: Google-POI-Icons & Texte ausblenden
+const GOOGLE_MAP_STYLE = [
+  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi', elementType: 'labels.text', stylers: [{ visibility: 'off' }] },
+];
+
+function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = size * 0.4;
+  const innerR = size * 0.24;
+  const arrowL = size * 0.085;
+  const arrowW = size * 0.06;
+
+  const normBool = (m) => {
+    const out = {};
+    DIRS.forEach((d) => {
+      out[d] = !!(m && m[d]);
+    });
+    return out;
+  };
+
+  const w = normBool(wind);
+  const s = normBool(swell);
+
+  const arrow = (deg, r) => {
+    const rad = ((deg - 90) * Math.PI) / 180; // 0° = Norden
+    const tipX = cx + Math.cos(rad) * (r - arrowL);
+    const tipY = cy + Math.sin(rad) * (r - arrowL);
+    const baseX = cx + Math.cos(rad) * r;
+    const baseY = cy + Math.sin(rad) * r;
+    const nx = Math.cos(rad + Math.PI / 2) * (arrowW / 2);
+    const ny = Math.sin(rad + Math.PI / 2) * (arrowW / 2);
+    return `${tipX},${tipY} ${baseX - nx},${baseY - ny} ${baseX + nx},${baseY + ny}`;
+  };
+
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label="Wind & Schwell">
+      <circle cx={cx} cy={cy} r={outerR} fill="none" stroke="#AFAFAF" strokeWidth={size * 0.03} />
+      <circle cx={cx} cy={cy} r={innerR} fill="none" stroke="#AFAFAF" strokeWidth={size * 0.025} />
+
+      {DIRS.map((d) => (
+        <polygon key={`w-${d}`} points={arrow(ANGLE[d], outerR)} fill={w[d] ? '#E53E3E' : '#C7C7C7'}>
+          <title>{`Gefahr bei WIND aus ${d}`}</title>
+        </polygon>
+      ))}
+
+      {DIRS.map((d) => (
+        <polygon key={`s-${d}`} points={arrow(ANGLE[d], innerR)} fill={s[d] ? '#2563EB' : '#C7C7C7'}>
+          <title>{`Gefahr bei SCHWELL aus ${d}`}</title>
+        </polygon>
+      ))}
+
+      {DIRS.map((d) => {
+        const r = outerR + size * 0.08;
+        const rad = ((ANGLE[d] - 90) * Math.PI) / 180;
+        const tx = cx + Math.cos(rad) * r;
+        const ty = cy + Math.sin(rad) * r;
+        return (
+          <text
+            key={`lbl-${d}`}
+            x={tx}
+            y={ty}
+            fontFamily="system-ui, sans-serif"
+            fontSize={size * 0.07}
+            fill="#111"
+            textAnchor="middle"
+            dominantBaseline="central"
+          >
+            {d}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+// 🔹 Fallback-HTML, falls das Infofenster nicht gerendert werden kann
+function buildErrorInfoContent(rowId) {
+  return `
+    <div class="w2h-iw">
+      <div class="iw-bd">
+        <strong>Fehler beim Anzeigen dieses Spots (#${rowId}).</strong><br/>
+        Die Daten sind vorhanden, aber das Infofenster konnte nicht gerendert werden.
+      </div>
+    </div>
+  `;
+}
+
+export default function GoogleMapClient({ lang = 'de' }) {
+  const mapRef = useRef(null);
+  const mapObj = useRef(null);
+  const markers = useRef([]);
+  const layerState = useRef(new Map());
+  const infoWin = useRef(null);
+  const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
+  const [booted, setBooted] = useState(false);
+
+  // 🔹 Marker-Map & Locations für Suche
+  const markerMapRef = useRef(new Map()); // location_id -> Marker
+  const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
+
+  // 🔹 Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
+  // { byId: Map<number, def>, byKey: Map<string, def>, hasVisibility: bool }
+  const attrSchemaRef = useRef(null);
+
+  // Galerie-Lightbox
+  const [gallery, setGallery] = useState(null);
+
+  // Winddaten-Modal (mit Daten)
+  const [windModal, setWindModal] = useState(null);
+
+  // Such-Query-State
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // ✅ Regions aus Supabase (fitBounds)
+  const [regions, setRegions] = useState([]); // rows aus public.regions
+  const [selectedRegion, setSelectedRegion] = useState('all'); // 'all' oder region.slug
+  const [regionMode, setRegionMode] = useState('auto'); // 'auto' | 'manual'
+
+  // ✅ Track, ob InfoWindow zuletzt durch Marker geöffnet wurde
+  const infoWinOpenedByMarkerRef = useRef(false);
+
+  // ✅ Helper: InfoWindow schließen
+  const closeInfoWindow = () => {
+    try {
+      if (infoWin.current) infoWin.current.close();
+    } catch {
+      // ignore
+    }
+  };
+
+  // ---------------------------------------------
+  // Helpers: Google Photo Proxy + HTML escaper
+  // ---------------------------------------------
+  const photoUrl = (ref, max = 800) => `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+
+  function escapeHtml(str = '') {
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function safeHref(raw = '') {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    // block "javascript:" etc.
+    if (s.includes(':')) return '';
+    return `https://${s}`;
+  }
+
+  // ✅ SVG niemals roh in HTML injizieren (XSS-Schutz).
+  // Stattdessen: Icon als data URL in <img> rendern.
+  function svgToImgTag(svgMarkup, size = 20) {
+    const rawSvg = svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
+    const url = svgToDataUrl(rawSvg);
+    return `<img src="${escapeHtml(url)}" alt="" width="${size}" height="${size}" style="display:block;" />`;
+  }
+
+  // ---------------------------------------------
+  // ✅ Regions Helpers (Supabase + fitBounds)
+  // ---------------------------------------------
+  function pickRegionName(r, langCode) {
+    return (
+      (langCode === 'de' && r.name_de) ||
+      (langCode === 'en' && r.name_en) ||
+      (langCode === 'it' && r.name_it) ||
+      (langCode === 'fr' && r.name_fr) ||
+      (langCode === 'hr' && r.name_hr) ||
+      r.name_de ||
+      r.name_en ||
+      r.slug
+    );
+  }
+
+  function boundsToLatLngBounds(r) {
+    const sw = new google.maps.LatLng(Number(r.bounds_south), Number(r.bounds_west));
+    const ne = new google.maps.LatLng(Number(r.bounds_north), Number(r.bounds_east));
+    return new google.maps.LatLngBounds(sw, ne);
+  }
+
+  function pointInRegion(lat, lng, r) {
+    const la = Number(lat);
+    const lo = Number(lng);
+    return (
+      la >= Number(r.bounds_south) &&
+      la <= Number(r.bounds_north) &&
+      lo >= Number(r.bounds_west) &&
+      lo <= Number(r.bounds_east)
+    );
+  }
+
+  function allLabel(langCode) {
+    return langCode === 'de'
+      ? 'Alle'
+      : langCode === 'it'
+        ? 'Tutte'
+        : langCode === 'fr'
+          ? 'Toutes'
+          : langCode === 'hr'
+            ? 'Sve'
+            : 'All';
+  }
+
+  function getAttrLabel(def, langCode) {
+    if (!def) return '';
+    const key = def.key || '';
+    const raw =
+      (langCode === 'de' && def.name_de) ||
+      (langCode === 'it' && def.name_it) ||
+      (langCode === 'fr' && def.name_fr) ||
+      (langCode === 'hr' && def.name_hr) ||
+      (langCode === 'en' && def.name_en) ||
+      def.name_de ||
+      def.name_en ||
+      key;
+    return String(raw || key || '');
+  }
+
+  function applyDisplayFormat(def, rawVal, renderedText) {
+    const fmt = (def && def.display_format ? String(def.display_format) : '').trim().toLowerCase();
+    if (!fmt) return renderedText;
+
+    try {
+      if (fmt === 'upper') return escapeHtml(String(rawVal).toUpperCase());
+      if (fmt === 'lower') return escapeHtml(String(rawVal).toLowerCase());
+
+      if (fmt === 'percent') {
+        const n = typeof rawVal === 'number' ? rawVal : Number(String(rawVal));
+        if (Number.isFinite(n)) return escapeHtml(`${n}%`);
+        return renderedText;
+      }
+
+      if (fmt === 'currency_eur') {
+        const n = typeof rawVal === 'number' ? rawVal : Number(String(rawVal));
+        if (Number.isFinite(n)) return escapeHtml(`${n.toFixed(2)} €`);
+        return renderedText;
+      }
+
+      if (fmt === 'stars') {
+        const n = typeof rawVal === 'number' ? rawVal : Number(String(rawVal));
+        if (!Number.isFinite(n)) return renderedText;
+        const rInt = Math.max(0, Math.min(5, Math.round(n)));
+        const stars = '★'.repeat(rInt) + '☆'.repeat(5 - rInt);
+        return escapeHtml(`${stars} ${n.toFixed(1)}`);
+      }
+
+      if (fmt === 'json_pretty') {
+        const v = typeof rawVal === 'object' ? rawVal : JSON.parse(String(rawVal));
+        const pretty = JSON.stringify(v, null, 2);
+        return `<pre style="white-space:pre-wrap;margin:0;">${escapeHtml(pretty)}</pre>`;
+      }
+    } catch {
+      // ignore
+    }
+
+    return renderedText;
+  }
+
+  function formatDynamicValue({ def, val, langCode }) {
+    const inputType = (def && def.input_type) || '';
+    if (val === null || val === undefined) return '';
+
+    const isObj = typeof val === 'object';
+    const asText = isObj ? JSON.stringify(val) : String(val);
+
+    // bool
+    if (inputType === 'bool' || typeof val === 'boolean') {
+      const b = val === true || val === 'true' || val === 1 || val === '1';
+      const out = b ? (langCode === 'de' ? 'Ja' : 'Yes') : langCode === 'de' ? 'Nein' : 'No';
+      return applyDisplayFormat(def, val, escapeHtml(out));
+    }
+
+    // url/link
+    if (inputType === 'url' || inputType === 'link') {
+      const href = safeHref(asText);
+      if (!href) return applyDisplayFormat(def, asText, escapeHtml(asText));
+      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(asText)}</a>`;
+    }
+
+    // options/select
+    if (inputType === 'option' || inputType === 'select') {
+      try {
+        const opts = def && def.options ? def.options : null;
+        const j = typeof opts === 'string' ? JSON.parse(opts) : opts;
+        if (Array.isArray(j)) {
+          const hit = j.find((o) => String(o.value) === String(val));
+          if (hit && hit.label) return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
+        } else if (j && typeof j === 'object') {
+          const hit = j[String(val)];
+          if (typeof hit === 'string') return applyDisplayFormat(def, val, escapeHtml(hit));
+          if (hit && typeof hit === 'object' && hit.label) return applyDisplayFormat(def, val, escapeHtml(String(hit.label)));
+        }
+      } catch {
+        // ignore
+      }
+      return applyDisplayFormat(def, val, escapeHtml(asText));
+    }
+
+    return applyDisplayFormat(def, val, escapeHtml(asText));
+  }
+
+  /**
+   * Lädt attribute_definitions in attrSchemaRef.
+   * Wichtig: Primärschlüssel/ID-Spalte heißt bei dir "attribute_id".
+   */
+  async function ensureAttributeSchema() {
+    if (attrSchemaRef.current) return attrSchemaRef.current;
+
+    const baseSelect =
+      'attribute_id,key,input_type,options,sort_order,is_active,multilingual,' +
+      'name_de,name_en,name_it,name_fr,name_hr,' +
+      'description_de,description_en,description_it,description_fr,description_hr,' +
+      'show_in_infowindow,infowindow_group,infowindow_order,display_format';
+    const selectWithVisibility = `${baseSelect},visibility_level`;
+
+    let data = null;
+    let hasVisibility = false;
+
+    {
+      const { data: d1, error: e1 } = await supabase.from('attribute_definitions').select(selectWithVisibility);
+      if (!e1) {
+        data = d1 || [];
+        hasVisibility = true;
+      } else {
+        const { data: d2, error: e2 } = await supabase.from('attribute_definitions').select(baseSelect);
+        if (e2) {
+          console.warn('[w2h] attribute_definitions load failed:', e2.message);
+          data = [];
+        } else {
+          data = d2 || [];
+        }
+        hasVisibility = false;
+      }
+    }
+
+    const byId = new Map();
+    const byKey = new Map();
+
+    (data || []).forEach((def) => {
+      if (!def) return;
+      const id = def.attribute_id;
       const key = def.key;
       if (id !== null && id !== undefined) byId.set(Number(id), def);
       if (key) byKey.set(String(key), def);
@@ -572,9 +987,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
               {windProfile ? (
                 <WindSwellRose size={260} wind={windProfile.wind || {}} swell={windProfile.swell || {}} />
               ) : (
-                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
-                  Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.
-                </p>
+                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.</p>
               )}
             </div>
 
@@ -593,11 +1006,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 {liveWindStation ? (
                   <>
                     <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
-                      Station:{' '}
-                      <strong>
-                        {liveWindStation}
-                        {liveWindStationName ? ` – ${liveWindStationName}` : ''}
-                      </strong>
+                      Station: <strong>{liveWindStation}{liveWindStationName ? ` – ${liveWindStationName}` : ''}</strong>
                     </p>
                     <iframe
                       src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(String(liveWindStation))}`}
@@ -607,17 +1016,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
                     />
                   </>
                 ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
-                    Für diesen Spot ist noch keine Live-Wind-Station verknüpft.
-                  </p>
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Für diesen Spot ist noch keine Live-Wind-Station verknüpft.</p>
                 )}
               </div>
             </div>
           </div>
 
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.
-          </p>
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.</p>
         </div>
       </div>
     );
@@ -695,56 +1100,27 @@ export default function GoogleMapClient({ lang = 'de' }) {
   };
 
   const DAY_ALIASES = new Map([
-    ['monday', 0],
-    ['mon', 0],
-    ['tuesday', 1],
-    ['tue', 1],
-    ['tues', 1],
-    ['wednesday', 2],
-    ['wed', 2],
-    ['thursday', 3],
-    ['thu', 3],
-    ['thur', 3],
-    ['thurs', 3],
-    ['friday', 4],
-    ['fri', 4],
-    ['saturday', 5],
-    ['sat', 5],
-    ['sunday', 6],
-    ['sun', 6],
-    ['montag', 0],
-    ['mo', 0],
-    ['dienstag', 1],
-    ['di', 1],
-    ['mittwoch', 2],
-    ['mi', 2],
-    ['donnerstag', 3],
-    ['do', 3],
-    ['freitag', 4],
-    ['fr', 4],
-    ['samstag', 5],
-    ['sa', 5],
-    ['sonntag', 6],
-    ['so', 6],
-    ['lunedì', 0],
-    ['lunedi', 0],
-    ['lun', 0],
-    ['martedì', 1],
-    ['martedi', 1],
-    ['mar', 1],
-    ['mercoledì', 2],
-    ['mercoledi', 2],
-    ['mer', 2],
-    ['giovedì', 3],
-    ['giovedi', 3],
-    ['gio', 3],
-    ['venerdì', 4],
-    ['venerdi', 4],
-    ['ven', 4],
-    ['sabato', 5],
-    ['sab', 5],
-    ['domenica', 6],
-    ['dom', 6],
+    ['monday', 0], ['mon', 0],
+    ['tuesday', 1], ['tue', 1], ['tues', 1],
+    ['wednesday', 2], ['wed', 2],
+    ['thursday', 3], ['thu', 3], ['thur', 3], ['thurs', 3],
+    ['friday', 4], ['fri', 4],
+    ['saturday', 5], ['sat', 5],
+    ['sunday', 6], ['sun', 6],
+    ['montag', 0], ['mo', 0],
+    ['dienstag', 1], ['di', 1],
+    ['mittwoch', 2], ['mi', 2],
+    ['donnerstag', 3], ['do', 3],
+    ['freitag', 4], ['fr', 4],
+    ['samstag', 5], ['sa', 5],
+    ['sonntag', 6], ['so', 6],
+    ['lunedì', 0], ['lunedi', 0], ['lun', 0],
+    ['martedì', 1], ['martedi', 1], ['mar', 1],
+    ['mercoledì', 2], ['mercoledi', 2], ['mer', 2],
+    ['giovedì', 3], ['giovedi', 3], ['gio', 3],
+    ['venerdì', 4], ['venerdi', 4], ['ven', 4],
+    ['sabato', 5], ['sab', 5],
+    ['domenica', 6], ['dom', 6],
     ['lundi', 0],
     ['mardi', 1],
     ['mercredi', 2],
@@ -752,22 +1128,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
     ['vendredi', 4],
     ['samedi', 5],
     ['dimanche', 6],
-    ['ponedjeljak', 0],
-    ['pon', 0],
-    ['utorak', 1],
-    ['uto', 1],
-    ['srijeda', 2],
-    ['sri', 2],
-    ['četvrtak', 3],
-    ['cetvrtak', 3],
-    ['čet', 3],
-    ['cet', 3],
-    ['petak', 4],
-    ['pet', 4],
-    ['subota', 5],
-    ['sub', 5],
-    ['nedjelja', 6],
-    ['ned', 6],
+    ['ponedjeljak', 0], ['pon', 0],
+    ['utorak', 1], ['uto', 1],
+    ['srijeda', 2], ['sri', 2],
+    ['četvrtak', 3], ['cetvrtak', 3], ['čet', 3], ['cet', 3],
+    ['petak', 4], ['pet', 4],
+    ['subota', 5], ['sub', 5],
+    ['nedjelja', 6], ['ned', 6],
   ]);
 
   function localizeHoursLine(line = '', langCode = 'de') {
@@ -1036,7 +1403,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const siteHref = website && website.startsWith('http') ? website : website ? `https://${website}` : '';
     const telHref = phone ? `tel:${String(phone).replace(/\s+/g, '')}` : '';
 
-    const svgMarkup = iconSvgRaw || defaultMarkerSvg;
+    // ✅ Icon safe render
+    const iconSvg = iconSvgRaw || defaultMarkerSvg;
+    const iconImg = svgToImgTag(iconSvg, 20);
 
     const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label('route', langCode)}</a>`;
     const btnSite = siteHref
@@ -1128,7 +1497,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return `
       <div class="w2h-iw">
         <div class="iw-hd">
-          <span class="iw-ic">${svgMarkup}</span>
+          <span class="iw-ic">${iconImg}</span>
           <div class="iw-title">
             ${title}
             <span class="iw-id">#${row.id}</span>
@@ -1244,7 +1613,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         infoWin.current = new google.maps.InfoWindow();
 
-        // ✅ NEU: Klick in die Karte schließt InfoWindow (aber nicht bei Klick auf UI-Overlays)
+        // ✅ Klick in die Karte schließt InfoWindow
         mapObj.current.addListener('click', () => {
           closeInfoWindow();
           infoWinOpenedByMarkerRef.current = false;
@@ -1371,7 +1740,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     (kvRows || []).forEach((r) => {
       const locId = r.location_id;
-      const attrId = Number(r.attribute_id); // ✅ hier ist es "attribute_id"
+      const attrId = Number(r.attribute_id);
       if (!Number.isFinite(attrId)) return;
 
       if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
@@ -1483,7 +1852,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         if (canon === 'description') {
           const v = toStrMaybe(val);
-          // prefer exact lang match
           if (!obj.description) obj.description = v;
           else if (lc && lc === langCode) obj.description = v;
           return;
@@ -1505,10 +1873,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       // 2) Dynamische Attribute
       let def = defById || null;
 
-      // Filter nur, wenn Def vorhanden
       if (def && def.is_active === false) return;
 
-      // ✅ Fix A: show_in_infowindow nur filtern, wenn Smoke-Test aus
+      // ✅ show_in_infowindow nur filtern, wenn Smoke-Test aus
       if (!DYNAMIC_SMOKE_TEST && def && def.show_in_infowindow === false) return;
 
       if (def && schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
@@ -1919,9 +2286,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
           align-items: center;
           margin-bottom: 6px;
         }
-        .gm-style .w2h-iw .iw-ic svg {
+        .gm-style .w2h-iw .iw-ic img {
           width: 20px;
           height: 20px;
+          display: block;
         }
         .gm-style .w2h-iw .iw-title {
           font-weight: 700;
