@@ -10,7 +10,7 @@ import { REGIONS, REGION_KEYS, findRegionForPoint } from '@/lib/regions';
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
 const DEBUG_BOUNDING = false; // true = rote Bounding-Boxen über den Markern
-const DEBUG_LOG = false; // true = extra Console-Logs
+const DEBUG_LOG = true; // true = extra Console-Logs
 
 // 🔒 Sichtbarkeit dynamischer Attribute (falls Spalte vorhanden)
 // 0 = öffentlich, 1 = erweitert, 2+ = intern (Beispiel). Passe bei Bedarf an.
