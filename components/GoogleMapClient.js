@@ -142,6 +142,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Winddaten-Modal (mit Daten)
   const [windModal, setWindModal] = useState(null);
 
+  // ✅ KI-Report Modal
+  // { locationId, title, loading, error, report, createdAt }
+  const [kiModal, setKiModal] = useState(null);
+
   // Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -171,6 +175,39 @@ export default function GoogleMapClient({ lang = 'de' }) {
       // ignore
     }
   };
+
+  // ---------------------------------------------
+  // Helpers: KI-Report API (GET cached / POST refresh)
+  // ---------------------------------------------
+  async function fetchKiReport({ locationId, langCode }) {
+    const res = await fetch(
+      `/api/ki-report?location_id=${encodeURIComponent(String(locationId))}&lang=${encodeURIComponent(langCode)}`,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      }
+    );
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `GET ki-report failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  async function refreshKiReport({ locationId, langCode }) {
+    const res = await fetch(`/api/ki-report/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ location_id: locationId, lang: langCode }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `POST ki-report/refresh failed (${res.status})`);
+    }
+    return res.json();
+  }
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -228,12 +265,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   function pointInRegion(lat, lng, r) {
     const la = Number(lat);
     const lo = Number(lng);
-    return (
-      la >= Number(r.bounds_south) &&
-      la <= Number(r.bounds_north) &&
-      lo >= Number(r.bounds_west) &&
-      lo <= Number(r.bounds_east)
-    );
+    return la >= Number(r.bounds_south) && la <= Number(r.bounds_north) && lo >= Number(r.bounds_west) && lo <= Number(r.bounds_east);
   }
 
   function allLabel(langCode) {
@@ -405,7 +437,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   // ------------------------------
-  // ✅ Lightbox + WindModal
+  // ✅ Lightbox + WindModal + KiReportModal
   // ------------------------------
   function Lightbox({ gallery: g, onClose }) {
     if (!g) return null;
@@ -650,6 +682,136 @@ export default function GoogleMapClient({ lang = 'de' }) {
     );
   }
 
+  function KiReportModal({ modal, onClose, onRefresh }) {
+    if (!modal) return null;
+
+    const created = modal.createdAt ? new Date(modal.createdAt).toLocaleString() : '';
+
+    return (
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,.65)',
+          zIndex: 10001,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <div
+          onClick={(ev) => ev.stopPropagation()}
+          style={{
+            background: '#fff',
+            borderRadius: 16,
+            maxWidth: 980,
+            width: '95vw',
+            maxHeight: '90vh',
+            overflow: 'auto',
+            padding: 18,
+            boxShadow: '0 10px 30px rgba(0,0,0,.25)',
+            display: 'grid',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18 }}>
+                🧠 {label('kiReport', lang)} · {modal.title}
+              </h2>
+              <div style={{ fontSize: 12, color: '#6b7280' }}>
+                Spot #{modal.locationId}
+                {created ? ` · ${label('createdAt', lang)}: ${created}` : ''}
+              </div>
+            </div>
+
+            <button
+              onClick={onClose}
+              style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              ×
+            </button>
+          </div>
+
+          {modal.loading ? (
+            <div style={{ fontSize: 14, color: '#374151' }}>{label('loadingReport', lang)}</div>
+          ) : modal.error ? (
+            <div
+              style={{
+                fontSize: 14,
+                color: '#b91c1c',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                padding: 10,
+                borderRadius: 12,
+              }}
+            >
+              {modal.error}
+            </div>
+          ) : modal.report ? (
+            <>
+              {/* MVP: Report als JSON anzeigen; später rendern wir schöne Sections */}
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  fontSize: 12,
+                  background: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 12,
+                  padding: 12,
+                }}
+              >
+                {JSON.stringify(modal.report, null, 2)}
+              </pre>
+            </>
+          ) : (
+            <div style={{ fontSize: 14, color: '#6b7280' }}>{label('noReport', lang)}</div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button
+              onClick={onRefresh}
+              disabled={modal.loading}
+              style={{
+                border: 'none',
+                borderRadius: 12,
+                padding: '10px 14px',
+                fontSize: 13,
+                fontWeight: 800,
+                background: '#0284c7',
+                color: '#fff',
+                cursor: 'pointer',
+                opacity: modal.loading ? 0.6 : 1,
+              }}
+            >
+              {label('refreshReport', lang)}
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                border: '1px solid #d1d5db',
+                borderRadius: 12,
+                padding: '10px 14px',
+                fontSize: 13,
+                fontWeight: 700,
+                background: '#fff',
+                cursor: 'pointer',
+              }}
+            >
+              {label('closeModal', lang)}
+            </button>
+          </div>
+
+          <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>
+            Hinweis: Aktuell wird der Report als JSON angezeigt (Debug/MVP). UI-Rendering der Abschnitte folgt.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   function loadGoogleMaps(language) {
     return new Promise((resolve, reject) => {
       if (window.google && window.google.maps) return resolve();
@@ -713,6 +875,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
       resetSearch: { de: 'Suche aufheben', en: 'Clear search', it: 'Annulla', hr: 'Poništi', fr: 'Réinitialiser' },
       disabledCat: { de: 'Kategorie ist deaktiviert', en: 'Category is disabled', it: 'Categoria disattivata', hr: 'Kategorija isključena', fr: 'Catégorie désactivée' },
       paywalledCat: { de: 'Kategorie ist in dieser Version nicht verfügbar', en: 'Not available in this plan', it: 'Non disponibile', hr: 'Nije dostupno', fr: 'Non disponible' },
+
+      // ✅ KI-Report UI
+      kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
+      refreshReport: { de: 'Aktualisieren', en: 'Refresh', it: 'Aggiorna', hr: 'Osvježi', fr: 'Actualiser' },
+      closeModal: { de: 'Schließen', en: 'Close', it: 'Chiudi', hr: 'Zatvori', fr: 'Fermer' },
+      createdAt: { de: 'erstellt', en: 'created', it: 'creato', hr: 'izrađeno', fr: 'créé' },
+      loadingReport: { de: 'Report wird geladen…', en: 'Loading report…', it: 'Caricamento…', hr: 'Učitavanje…', fr: 'Chargement…' },
+      noReport: { de: 'Kein Report vorhanden.', en: 'No report available.', it: 'Nessun report.', hr: 'Nema izvještaja.', fr: 'Aucun rapport.' },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
@@ -1087,6 +1257,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
 
+    // ✅ KI-Report Button
+    const btnKi = `<button id="kibtn-${row.id}" class="iw-btn iw-btn-ki">🧠 ${label('kiReport', langCode)}</button>`;
+
     // ✅ Dynamische Attribute: Gruppiert rendern (infowindow_group)
     let dynamicHtml = '';
     if (Array.isArray(kv.dynamic) && kv.dynamic.length) {
@@ -1149,7 +1322,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           ${dynamicHtml}
         </div>
         <div class="iw-actions">
-          ${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
+          ${btnKi}${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
         </div>
       </div>
     `;
@@ -1701,7 +1874,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (canon) {
         if (canon === 'photos') {
           const googleArr = normalizeGooglePhotos(
-            r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null,
+            r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null
           );
           if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
           return;
@@ -2004,6 +2177,50 @@ export default function GoogleMapClient({ lang = 'de' }) {
                   liveWindStation: kvNow.livewind_station || null,
                   liveWindStationName: kvNow.livewind_station_name || null,
                 });
+              });
+            }
+
+            // ✅ KI-Report Button
+            const kibtn = document.getElementById(`kibtn-${row.id}`);
+            if (kibtn) {
+              kibtn.addEventListener('click', async () => {
+                const titleNow = pickName(row, langCode);
+
+                // Modal sofort öffnen (Loading)
+                setKiModal({
+                  locationId: row.id,
+                  title: titleNow,
+                  loading: true,
+                  error: '',
+                  report: null,
+                  createdAt: null,
+                });
+
+                try {
+                  const data = await fetchKiReport({ locationId: row.id, langCode });
+                  const reportObj = data.report_json || data.report || data;
+                  const createdAt = data.created_at || reportObj?.created_at || null;
+
+                  setKiModal((prev) => ({
+                    ...(prev || {}),
+                    locationId: row.id,
+                    title: titleNow,
+                    loading: false,
+                    error: '',
+                    report: reportObj,
+                    createdAt,
+                  }));
+                } catch (e) {
+                  setKiModal((prev) => ({
+                    ...(prev || {}),
+                    locationId: row.id,
+                    title: titleNow,
+                    loading: false,
+                    error: e?.message || 'KI-Report konnte nicht geladen werden.',
+                    report: null,
+                    createdAt: null,
+                  }));
+                }
               });
             }
           } catch (errDom) {
@@ -2316,6 +2533,35 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
       <WindModal modal={windModal} onClose={() => setWindModal(null)} />
 
+      <KiReportModal
+        modal={kiModal}
+        onClose={() => setKiModal(null)}
+        onRefresh={async () => {
+          if (!kiModal?.locationId) return;
+
+          setKiModal((prev) => ({ ...(prev || {}), loading: true, error: '' }));
+          try {
+            const data = await refreshKiReport({ locationId: kiModal.locationId, langCode: lang });
+            const reportObj = data.report_json || data.report || data;
+            const createdAt = data.created_at || reportObj?.created_at || null;
+
+            setKiModal((prev) => ({
+              ...(prev || {}),
+              loading: false,
+              error: '',
+              report: reportObj,
+              createdAt,
+            }));
+          } catch (e) {
+            setKiModal((prev) => ({
+              ...(prev || {}),
+              loading: false,
+              error: e?.message || 'Aktualisieren fehlgeschlagen.',
+            }));
+          }
+        }}
+      />
+
       <style jsx>{`
         .w2h-map-wrap {
           position: relative;
@@ -2411,6 +2657,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }
         .gm-style .w2h-iw .iw-btn-wind {
           background: #0ea5e9;
+        }
+        .gm-style .w2h-iw .iw-btn-ki {
+          background: #111827;
+        }
+        .gm-style .w2h-iw .iw-btn-ki:hover {
+          filter: brightness(1.05);
         }
         .gm-style .w2h-iw .iw-rating {
           font-size: 13px;

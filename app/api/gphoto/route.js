@@ -1,14 +1,15 @@
 // app/api/gphoto/route.js
 import { NextResponse } from 'next/server';
 
-export const dynamic = 'force-dynamic';     // kein Static Rendering
-export const runtime = 'nodejs';            // Node-Runtime (nicht Edge)
+export const dynamic = 'force-dynamic'; // kein Static Rendering
+export const runtime = 'nodejs'; // Node-Runtime (nicht Edge)
 
 function pickKey() {
+  // ✅ Server-only Keys first (keine NEXT_PUBLIC Keys hier)
   return (
-    process.env.VITE_GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
     process.env.GOOGLE_MAPS_API_KEY ||
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    process.env.VITE_GOOGLE_MAPS_API_KEY ||
     ''
   );
 }
@@ -16,15 +17,10 @@ function pickKey() {
 export async function GET(req) {
   try {
     const url = new URL(req.url);
-    const ref =
-      url.searchParams.get('photoreference') ??
-      url.searchParams.get('photo_reference');
+    const ref = url.searchParams.get('photoreference') ?? url.searchParams.get('photo_reference');
 
     if (!ref) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing "photoreference".' },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: 'Missing "photoreference".' }, { status: 400 });
     }
 
     const diag = url.searchParams.get('diag');
@@ -36,33 +32,37 @@ export async function GET(req) {
 
     const key = pickKey();
     if (!key) {
-      return NextResponse.json(
-        { ok: false, error: 'Google API key missing on server.' },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: 'Google API key missing on server.' }, { status: 500 });
     }
 
     const qs = new URLSearchParams();
     qs.set(sizeKey, sizeVal);
+
+    // ✅ Google Places Photo API expects "photo_reference"
     qs.set('photo_reference', ref);
     qs.set('key', key);
 
-    const gUrl = `https://maps.googleapis.com/maps/api/place/photo?` + qs.toString();
+    const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
 
     if (diag) {
       return NextResponse.json({
         ok: true,
-        received: { photoreference: ref, maxwidth: mw || null, maxheight: mh || null },
+        received: {
+          photoreference: ref,
+          maxwidth: mw || null,
+          maxheight: mh || null,
+        },
         builtUrl: gUrl.replace(key, '***'),
         usedEnvVar:
-          (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
+          (process.env.GOOGLE_API_KEY && 'GOOGLE_API_KEY') ||
           (process.env.GOOGLE_MAPS_API_KEY && 'GOOGLE_MAPS_API_KEY') ||
-          (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ||
+          (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
           '(none)',
       });
     }
 
     const upstream = await fetch(gUrl, { redirect: 'follow' });
+
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
       return new NextResponse(text || `Upstream error ${upstream.status}`, {
@@ -72,17 +72,21 @@ export async function GET(req) {
     }
 
     const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+
+    // ✅ Better caching for CDN + browser without "immutable"
+    // - browser caches 1 day
+    // - CDN caches 1 day
+    // - allows serving stale while refreshing for 7 days
+    const cacheControl = 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
+
     return new NextResponse(upstream.body, {
       status: 200,
       headers: {
         'content-type': contentType,
-        'cache-control': 'public, max-age=86400, immutable',
+        'cache-control': cacheControl,
       },
     });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: `Proxy error: ${err?.message || 'unknown'}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: `Proxy error: ${err?.message || 'unknown'}` }, { status: 500 });
   }
 }

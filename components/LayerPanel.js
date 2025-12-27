@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { svgToDataUrl } from '@/lib/utils';
+import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 
 /**
  * LayerPanel (B2: Linked Toggles via group_key + visibility_tier prepared)
@@ -85,7 +87,7 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
           group_key,
           visibility_tier,
           locations!inner(id)
-        `,
+        `
         )
         .order('sort_index', { ascending: true })
         .order('id', { ascending: true });
@@ -192,6 +194,12 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
     });
   };
 
+  // ✅ SVG sicher rendern: nie raw HTML injizieren, sondern als data-url im <img>
+  function getSafeIconUrl(svgMarkup) {
+    const rawSvg = svgMarkup && String(svgMarkup).trim().startsWith('<') ? String(svgMarkup) : defaultMarkerSvg;
+    return svgToDataUrl(rawSvg);
+  }
+
   return (
     <>
       {/* Toggle-Button: Hover öffnet, Klick als Fallback (Touch/Mobile) */}
@@ -232,10 +240,12 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
           const gk = (c.group_key || '').trim();
           const groupSize = gk && groupIndex.has(gk) ? groupIndex.get(gk).length : 0;
 
+          const iconUrl = getSafeIconUrl(c.icon_svg);
+
           return (
             <label key={key} className="row">
               <input type="checkbox" checked={!!state.get(key)} onChange={(e) => handleToggleOne(key, e.target.checked)} />
-              <span className="icon" dangerouslySetInnerHTML={{ __html: c.icon_svg || '' }} />
+              <img className="iconImg" src={iconUrl} alt="" width={18} height={18} loading="lazy" decoding="async" />
               <span className="name">
                 {t(c)}
                 {groupSize > 1 ? <span className="hint"> · {groupSize}</span> : null}
@@ -306,11 +316,15 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
           border-top: 1px solid rgba(0, 0, 0, 0.08);
           margin: 4px 0 6px;
         }
-        .w2h-layer-panel .icon svg {
+
+        /* ✅ sichere Icon-Ausgabe */
+        .w2h-layer-panel .iconImg {
           width: 18px;
           height: 18px;
-          vertical-align: middle;
+          display: block;
+          flex: 0 0 auto;
         }
+
         .w2h-layer-panel .all-name {
           font-weight: 600;
         }
