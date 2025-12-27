@@ -43,6 +43,25 @@ function redactKey(k) {
   return `${k.slice(0, 3)}…${k.slice(-3)}`;
 }
 
+function asBool(v) {
+  if (typeof v === 'boolean') return v;
+  const s = safeStr(v).toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'y';
+}
+
+function parseHours(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function isFresh(updatedAt, ttlHours) {
+  if (!updatedAt) return false;
+  const t = new Date(updatedAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  const ageMs = Date.now() - t;
+  return ageMs >= 0 && ageMs <= ttlHours * 3600 * 1000;
+}
+
 // ----------------------------
 // Load data for a location report
 // ----------------------------
@@ -141,8 +160,6 @@ async function loadLocationBundle(supabase, locationId, lang) {
       byAttr.set(k, row);
       continue;
     }
-
-    // If existing is 'und' and current matches desired lang -> replace
     if (existing.language_code === 'und' && row.language_code === lang) {
       byAttr.set(k, row);
     }
@@ -151,7 +168,6 @@ async function loadLocationBundle(supabase, locationId, lang) {
   const attributes = Array.from(byAttr.values()).map((row) => {
     const ad = row.attribute_definitions || null;
 
-    // Choose a single "value" representation (structured > specific > fallback)
     let value = null;
     if (row.value_json !== null && row.value_json !== undefined) value = row.value_json;
     else if (row.value_text !== null && row.value_text !== undefined) value = row.value_text;
@@ -173,7 +189,6 @@ async function loadLocationBundle(supabase, locationId, lang) {
     };
   });
 
-  // Resolve human-facing location name/description
   const locName =
     safeStr(loc.display_name) ||
     (lang === 'de' && safeStr(loc.name_de)) ||
@@ -240,7 +255,6 @@ async function generateReportWithOpenAI({ apiKey, model, lang, bundle }) {
   const system = `
 You are a maritime & travel assistant for Wind2Horizon.
 Return ONLY valid JSON (no markdown, no commentary).
-The JSON must match the schema described by the user message.
 Language must be: ${lang}.
 `.trim();
 
@@ -291,7 +305,6 @@ ${JSON.stringify(bundle, null, 2)}
       body: JSON.stringify({
         model,
         temperature: 0.4,
-        // If your account/model supports JSON mode, this improves reliability:
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
@@ -303,7 +316,6 @@ ${JSON.stringify(bundle, null, 2)}
 
     const text = await res.text();
     if (!res.ok) {
-      // Return upstream payload for debugging (truncated)
       const snippet = text.slice(0, 2000);
       throw new Error(`OpenAI error ${res.status}: ${snippet}`);
     }
@@ -312,10 +324,7 @@ ${JSON.stringify(bundle, null, 2)}
     const content = json?.choices?.[0]?.message?.content;
     if (!content) throw new Error('OpenAI returned no message content');
 
-    // content should be JSON string
     const report = JSON.parse(content);
-
-    // Minimal hardening
     if (!report || typeof report !== 'object') throw new Error('Report is not an object');
     return report;
   } finally {
@@ -326,8 +335,6 @@ ${JSON.stringify(bundle, null, 2)}
 // ----------------------------
 // Route handlers
 // ----------------------------
-
-// Optional: GET zum Prüfen, ob Route erreichbar ist
 export async function GET(req) {
   const url = new URL(req.url);
   const diag = url.searchParams.get('diag') === '1';
@@ -342,6 +349,8 @@ export async function GET(req) {
           NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
           SUPABASE_SERVICE_ROLE_KEY: redactKey(process.env.SUPABASE_SERVICE_ROLE_KEY),
           OPENAI_API_KEY: redactKey(process.env.OPENAI_API_KEY),
+          OPENAI_MODEL: process.env.OPENAI_MODEL || null,
+          KI_REPORT_TTL_HOURS: process.env.KI_REPORT_TTL_HOURS || null,
         }
       : undefined,
   });
@@ -352,6 +361,10 @@ export async function POST(req) {
     const body = await req.json().catch(() => ({}));
     const location_id = Number(body.location_id);
     const lang = pickLang(body.lang || 'de');
+
+    // NEW: cache control
+    const force = asBool(body.force);
+    const ttlHours = parseHours(process.env.KI_REPORT_TTL_HOURS, 168); // default: 7 days
 
     if (!location_id || Number.isNaN(location_id)) {
       return NextResponse.json({ ok: false, error: 'location_id missing/invalid' }, { status: 400 });
@@ -364,6 +377,38 @@ export async function POST(req) {
 
     const supabase = getServiceSupabase();
 
+    // 0) If report exists and is fresh -> return cached (unless force=true)
+    const { data: existing, error: exErr } = await supabase
+      .from('ai_reports')
+      .select('id, location_id, lang, report_json, updated_at, created_at, source_tag')
+      .eq('location_id', location_id)
+      .eq('lang', lang)
+      .maybeSingle();
+
+    if (exErr) {
+      return NextResponse.json({ ok: false, error: `Supabase ai_reports error: ${exErr.message}` }, { status: 500 });
+    }
+
+    const fresh = existing && isFresh(existing.updated_at, ttlHours);
+    if (existing && fresh && !force) {
+      return NextResponse.json({
+        ok: true,
+        used_openai: false,
+        cache_hit: true,
+        stale: false,
+        ttl_hours: ttlHours,
+        location_id,
+        lang,
+        report: existing.report_json,
+        report_meta: {
+          id: existing.id,
+          updated_at: existing.updated_at,
+          created_at: existing.created_at,
+          source_tag: existing.source_tag || null,
+        },
+      });
+    }
+
     // 1) Load location bundle
     const bundle = await loadLocationBundle(supabase, location_id, lang);
     if (!bundle.found) {
@@ -374,10 +419,7 @@ export async function POST(req) {
     }
 
     // 2) Generate report via OpenAI
-    // Model choice: keep it configurable; fallback to a reasonable default.
-    const model =
-      process.env.OPENAI_MODEL ||
-      'gpt-4o-mini';
+    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
     const report_json = await generateReportWithOpenAI({
       apiKey: openaiKey,
@@ -390,7 +432,6 @@ export async function POST(req) {
       },
     });
 
-    // Ensure required identifiers
     report_json.lang = lang;
     report_json.location_id = location_id;
     report_json.updated_at = new Date().toISOString();
@@ -407,7 +448,7 @@ export async function POST(req) {
         },
         { onConflict: 'location_id,lang' }
       )
-      .select('id, location_id, lang, updated_at')
+      .select('id, location_id, lang, updated_at, created_at, source_tag')
       .single();
 
     if (error) {
@@ -416,10 +457,12 @@ export async function POST(req) {
 
     return NextResponse.json({
       ok: true,
-      saved: true,
-      generated: true,
+      used_openai: true,
+      cache_hit: false,
+      stale: existing ? !fresh : true,
+      ttl_hours: ttlHours,
+      forced: force,
       row: data,
-      // small preview to confirm content without dumping everything
       preview: {
         title: report_json?.title || null,
         summary: report_json?.summary ? String(report_json.summary).slice(0, 220) : null,
