@@ -9,10 +9,11 @@ export const runtime = 'nodejs';
 // Supabase (Service Role) client
 // ----------------------------
 function getServiceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  // Prefer server-only SUPABASE_URL if present, fallback to NEXT_PUBLIC_SUPABASE_URL
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY; // server-only
 
-  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
+  if (!url) throw new Error('Missing SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL');
   if (!key) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY (server env)');
 
   return createClient(url, key, { auth: { persistSession: false } });
@@ -27,9 +28,11 @@ function safeStr(v) {
 }
 
 function pickLang(lang) {
+  // Accept 'de-DE' etc. by slicing
   const l = safeStr(lang).toLowerCase();
+  const short = l.includes('-') ? l.split('-')[0] : l;
   const allowed = new Set(['de', 'en', 'it', 'fr', 'hr']);
-  return allowed.has(l) ? l : 'de';
+  return allowed.has(short) ? short : 'de';
 }
 
 function asNumberOrNull(v) {
@@ -62,11 +65,21 @@ function isFresh(updatedAt, ttlHours) {
   return ageMs >= 0 && ageMs <= ttlHours * 3600 * 1000;
 }
 
+function jsonNoStore(payload, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: {
+      'cache-control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      pragma: 'no-cache',
+      expires: '0',
+    },
+  });
+}
+
 // ----------------------------
 // Load data for a location report
 // ----------------------------
 async function loadLocationBundle(supabase, locationId, lang) {
-  // 1) Location + Category name (best-effort)
   const { data: loc, error: locErr } = await supabase
     .from('locations')
     .select(
@@ -98,7 +111,6 @@ async function loadLocationBundle(supabase, locationId, lang) {
   if (locErr) throw new Error(`Supabase locations error: ${locErr.message}`);
   if (!loc) return { found: false };
 
-  // 2) Attribute values for requested language (plus optional 'und' fallback)
   const { data: vals, error: valsErr } = await supabase
     .from('location_values')
     .select(
@@ -133,7 +145,6 @@ async function loadLocationBundle(supabase, locationId, lang) {
 
   if (valsErr) throw new Error(`Supabase location_values error: ${valsErr.message}`);
 
-  // Normalize attribute label
   const labelFor = (ad) => {
     if (!ad) return '';
     return (
@@ -149,7 +160,7 @@ async function loadLocationBundle(supabase, locationId, lang) {
     );
   };
 
-  // Prefer exact language over 'und' if both exist
+  // Prefer exact language over 'und'
   const byAttr = new Map();
   for (const row of vals || []) {
     const k = String(row.attribute_id ?? '');
@@ -326,6 +337,7 @@ ${JSON.stringify(bundle, null, 2)}
 
     const report = JSON.parse(content);
     if (!report || typeof report !== 'object') throw new Error('Report is not an object');
+
     return report;
   } finally {
     clearTimeout(t);
@@ -339,13 +351,14 @@ export async function GET(req) {
   const url = new URL(req.url);
   const diag = url.searchParams.get('diag') === '1';
 
-  return NextResponse.json({
+  return jsonNoStore({
     ok: true,
     endpoint: 'ki-report/refresh',
     method: 'GET',
     diag: !!diag,
     env: diag
       ? {
+          SUPABASE_URL: !!process.env.SUPABASE_URL,
           NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
           SUPABASE_SERVICE_ROLE_KEY: redactKey(process.env.SUPABASE_SERVICE_ROLE_KEY),
           OPENAI_API_KEY: redactKey(process.env.OPENAI_API_KEY),
@@ -362,63 +375,60 @@ export async function POST(req) {
     const location_id = Number(body.location_id);
     const lang = pickLang(body.lang || 'de');
 
-    // NEW: cache control
     const force = asBool(body.force);
-    const ttlHours = parseHours(process.env.KI_REPORT_TTL_HOURS, 168); // default: 7 days
+    const ttlHours = parseHours(process.env.KI_REPORT_TTL_HOURS, 168); // 7 days default
 
     if (!location_id || Number.isNaN(location_id)) {
-      return NextResponse.json({ ok: false, error: 'location_id missing/invalid' }, { status: 400 });
+      return jsonNoStore({ ok: false, error: 'location_id missing/invalid' }, 400);
     }
 
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
-      return NextResponse.json({ ok: false, error: 'Missing OPENAI_API_KEY (server env)' }, { status: 500 });
+      return jsonNoStore({ ok: false, error: 'Missing OPENAI_API_KEY (server env)' }, 500);
     }
 
     const supabase = getServiceSupabase();
 
-    // 0) If report exists and is fresh -> return cached (unless force=true)
+    // 0) Check existing report
     const { data: existing, error: exErr } = await supabase
       .from('ai_reports')
-      .select('id, location_id, lang, report_json, updated_at, created_at, source_tag')
+      .select('id, location_id, lang, report_json, created_at, updated_at, source_tag')
       .eq('location_id', location_id)
       .eq('lang', lang)
       .maybeSingle();
 
     if (exErr) {
-      return NextResponse.json({ ok: false, error: `Supabase ai_reports error: ${exErr.message}` }, { status: 500 });
+      return jsonNoStore({ ok: false, error: `Supabase ai_reports error: ${exErr.message}` }, 500);
     }
 
     const fresh = existing && isFresh(existing.updated_at, ttlHours);
+
+    // If fresh and not forced -> return cached (CONSISTENT SHAPE incl. report)
     if (existing && fresh && !force) {
-      return NextResponse.json({
+      return jsonNoStore({
         ok: true,
-        used_openai: false,
-        cache_hit: true,
-        stale: false,
-        ttl_hours: ttlHours,
         location_id,
         lang,
+        used_openai: false,
+        cache_hit: true,
+        ttl_hours: ttlHours,
         report: existing.report_json,
         report_meta: {
           id: existing.id,
-          updated_at: existing.updated_at,
           created_at: existing.created_at,
+          updated_at: existing.updated_at,
           source_tag: existing.source_tag || null,
         },
       });
     }
 
-    // 1) Load location bundle
+    // 1) Load bundle
     const bundle = await loadLocationBundle(supabase, location_id, lang);
     if (!bundle.found) {
-      return NextResponse.json(
-        { ok: false, error: `Location ${location_id} not found`, location_id, lang },
-        { status: 404 }
-      );
+      return jsonNoStore({ ok: false, error: `Location ${location_id} not found`, location_id, lang }, 404);
     }
 
-    // 2) Generate report via OpenAI
+    // 2) OpenAI generate
     const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
     const report_json = await generateReportWithOpenAI({
@@ -432,37 +442,41 @@ export async function POST(req) {
       },
     });
 
+    // enforce identifiers
     report_json.lang = lang;
     report_json.location_id = location_id;
     report_json.updated_at = new Date().toISOString();
 
-    // 3) Upsert into ai_reports
+    // 3) Upsert
     const { data, error } = await supabase
       .from('ai_reports')
       .upsert(
-        {
-          location_id,
-          lang,
-          report_json,
-          source_tag: 'openai',
-        },
+        { location_id, lang, report_json, source_tag: 'openai' },
         { onConflict: 'location_id,lang' }
       )
-      .select('id, location_id, lang, updated_at, created_at, source_tag')
+      .select('id, location_id, lang, created_at, updated_at, source_tag')
       .single();
 
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return jsonNoStore({ ok: false, error: error.message }, 500);
     }
 
-    return NextResponse.json({
+    // IMPORTANT: return report too (so UI can update without extra GET if it wants)
+    return jsonNoStore({
       ok: true,
+      location_id,
+      lang,
       used_openai: true,
       cache_hit: false,
-      stale: existing ? !fresh : true,
-      ttl_hours: ttlHours,
       forced: force,
-      row: data,
+      ttl_hours: ttlHours,
+      report: report_json,
+      report_meta: {
+        id: data.id,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        source_tag: data.source_tag || 'openai',
+      },
       preview: {
         title: report_json?.title || null,
         summary: report_json?.summary ? String(report_json.summary).slice(0, 220) : null,
@@ -470,9 +484,6 @@ export async function POST(req) {
       },
     });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err?.message || 'unknown error' },
-      { status: 500 }
-    );
+    return jsonNoStore({ ok: false, error: err?.message || 'unknown error' }, 500);
   }
 }
