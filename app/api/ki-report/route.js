@@ -5,62 +5,45 @@ import { createClient } from '@supabase/supabase-js';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// ----------------------------
-// Supabase (Service Role) client
-// ----------------------------
+// Optional, aber hilfreich in Next 14+ um Fetch-Caches auszubremsen:
+export const revalidate = 0;
+
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY; // server only
-
   if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
   if (!key) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY (server env)');
-
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// ----------------------------
-// Helpers
-// ----------------------------
 function safeStr(v) {
   if (v === null || v === undefined) return '';
   return String(v).trim();
 }
 
+/**
+ * Normalisiert "de", "DE", "de-DE", "de_AT" -> "de"
+ * und lässt nur unsere erlaubten Sprachen zu.
+ */
 function pickLang(lang) {
-  const l = safeStr(lang).toLowerCase();
+  const raw = safeStr(lang).toLowerCase();
+  const base = raw.split(/[-_]/)[0]; // "de-de" -> "de", "de_at" -> "de"
   const allowed = new Set(['de', 'en', 'it', 'fr', 'hr']);
-  return allowed.has(l) ? l : 'de';
-}
-
-function normLang(v) {
-  return safeStr(v).toLowerCase();
-}
-
-function supabaseUrlInfo() {
-  const raw = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  try {
-    const u = new URL(raw);
-    // typischer Host: <projectref>.supabase.co
-    const host = u.host || '';
-    const projectRef = host.split('.')[0] || null;
-    return { host, projectRef };
-  } catch {
-    return { host: null, projectRef: null };
-  }
+  return allowed.has(base) ? base : 'de';
 }
 
 function jsonNoStore(payload, init = {}) {
   const res = NextResponse.json(payload, init);
   res.headers.set('cache-control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.headers.set('pragma', 'no-cache');
+  res.headers.set('expires', '0');
   return res;
 }
 
-// ----------------------------
-// GET /api/ki-report?location_id=...&lang=...&diag=1
-// ----------------------------
 export async function GET(req) {
   try {
     const u = new URL(req.url);
+
     const diag = u.searchParams.get('diag') === '1';
 
     const locationIdRaw = u.searchParams.get('location_id');
@@ -68,7 +51,6 @@ export async function GET(req) {
 
     const locationId = Number(locationIdRaw || '0');
     const lang = pickLang(langRaw || 'de');
-    const want = normLang(lang);
 
     if (!Number.isFinite(locationId) || locationId <= 0) {
       return jsonNoStore(
@@ -79,47 +61,45 @@ export async function GET(req) {
 
     const supabase = supabaseAdmin();
 
-    // 1) Alle Reports für location_id laden (damit wir Diagnose + robustes Matching haben)
-    const { data: rows, error: rowsErr } = await supabase
+    // 1) Available languages (Debug + UI-Hilfe)
+    const { data: availRows, error: availErr } = await supabase
       .from('ai_reports')
-      .select('id, location_id, lang, report_json, created_at, updated_at, source_tag')
+      .select('lang, updated_at')
       .eq('location_id', locationId)
       .order('updated_at', { ascending: false });
 
-    if (rowsErr) {
-      return jsonNoStore({ ok: false, error: rowsErr.message }, { status: 500 });
+    if (availErr) {
+      return jsonNoStore({ ok: false, error: `ai_reports available error: ${availErr.message}` }, { status: 500 });
     }
 
-    const available_raw = (rows || []).map((r) => r.lang);
-    const available = Array.from(new Set((rows || []).map((r) => normLang(r.lang)).filter(Boolean)));
+    const available_raw = (availRows || []).map((r) => r.lang);
+    const available = available_raw.map((l) => pickLang(l)); // normalisiert für Anzeige
 
-    // Robust: match via normalisiertem Lang
-    const match = (rows || []).find((r) => normLang(r.lang) === want) || null;
+    // 2) Wanted language report
+    const { data, error } = await supabase
+      .from('ai_reports')
+      .select('id, location_id, lang, report_json, created_at, updated_at, source_tag')
+      .eq('location_id', locationId)
+      .eq('lang', lang)
+      .maybeSingle();
+
+    if (error) {
+      return jsonNoStore({ ok: false, error: error.message }, { status: 500 });
+    }
 
     const diagPayload = diag
       ? {
           route_hit: true,
-          parsed: { location_id: locationId, lang, want },
+          parsed: { location_id: locationId, lang },
           raw: { location_id: locationIdRaw, lang: langRaw },
           env: {
-            NEXT_PUBLIC_SUPABASE_URL_set: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-            SUPABASE_SERVICE_ROLE_KEY_set: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-          },
-          supabase: supabaseUrlInfo(), // host + projectRef (ohne secrets)
-          db: {
-            rows_count: (rows || []).length,
-            rows: (rows || []).map((r) => ({
-              id: r.id,
-              lang: r.lang,
-              lang_norm: normLang(r.lang),
-              updated_at: r.updated_at,
-              source_tag: r.source_tag || null,
-            })),
+            NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+            SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
           },
         }
       : undefined;
 
-    if (!match) {
+    if (!data) {
       return jsonNoStore(
         { ok: true, found: false, location_id: locationId, lang, available, available_raw, diag: diagPayload },
         { status: 200 }
@@ -130,14 +110,14 @@ export async function GET(req) {
       {
         ok: true,
         found: true,
-        location_id: match.location_id,
-        lang: normLang(match.lang),
+        location_id: data.location_id,
+        lang: data.lang,
         available,
         available_raw,
-        report: match.report_json,
-        created_at: match.created_at,
-        updated_at: match.updated_at,
-        source_tag: match.source_tag || null,
+        report: data.report_json,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        source_tag: data.source_tag || null,
         diag: diagPayload,
       },
       { status: 200 }
