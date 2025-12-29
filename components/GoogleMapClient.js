@@ -1078,12 +1078,30 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   function pickFirstThumb(photos) {
     if (!Array.isArray(photos) || !photos.length) return null;
-    const user = photos.find((p) => p.thumb || p.public_url || p.url);
-    if (user) return user.thumb || user.public_url || user.url;
-    const g = photos.find((p) => p.photo_reference || p.photoreference);
-    if (g) return photoUrl(g.photo_reference || g.photoreference, 400);
+
+    // 1) User-Fotos (verschiedene Feldnamen tolerieren)
+    const user = photos.find((p) => p && (p.thumb || p.public_url || p.url || p.image_url));
+    if (user) return user.thumb || user.public_url || user.url || user.image_url;
+
+    // 2) Google-Fotos (verschiedene Feldnamen tolerieren)
+    const g = photos.find(
+      (p) =>
+        p &&
+        (p.photo_reference ||
+          p.photoreference ||
+          p.photoRef ||
+          p.photo_ref ||
+          (p.ref && typeof p.ref === 'string'))
+    );
+
+    const ref =
+      (g && (g.photo_reference || g.photoreference || g.photoRef || g.photo_ref || g.ref)) || null;
+
+    if (ref) return photoUrl(ref, 600);
+
     return null;
-  }
+   }
+
 
   // ✅ InfoWindow HTML: eigener Datenblock immer sichtbar; KI-Report ausschließlich per Klick (Modal).
   function buildInfoContent(row, kvRaw, iconSvgRaw, langCode) {
