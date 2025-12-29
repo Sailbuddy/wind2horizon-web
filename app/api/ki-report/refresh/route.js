@@ -32,6 +32,10 @@ function safeStr(v) {
   return String(v).trim();
 }
 
+/**
+ * Normalisiert "de", "DE", "de-DE", "de_AT" -> "de"
+ * und lässt nur unsere erlaubten Sprachen zu.
+ */
 function pickLang(lang) {
   const raw = safeStr(lang).toLowerCase();
   const base = raw.split(/[-_]/)[0];
@@ -354,12 +358,32 @@ function normalizeSnapshot(bundle, lang) {
 }
 
 // ----------------------------
+// Data-Block aus Snapshot (für UI: immer anzeigen)
+// ----------------------------
+function buildDataBlock(snapshot) {
+  const loc = snapshot?.location || {};
+  return {
+    category_name: safeStr(loc.category_name) || null,
+    address: safeStr(loc.address) || null,
+    phone: safeStr(loc.phone) || null,
+    website: safeStr(loc.website) || null,
+    rating: Number.isFinite(Number(loc.rating)) ? Number(loc.rating) : null,
+    price_level: loc.price_level ?? null,
+    plus_code: safeStr(loc.plus_code) || null,
+    google_place_id: safeStr(loc.google_place_id) || null,
+    lat: Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null,
+    lng: Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null,
+  };
+}
+
+// ----------------------------
 // Quality Gate (minimal, aber wirksam)
 // ----------------------------
 function qualityCheck({ reportText, modules, snapshot }) {
   const problems = [];
   const t = safeStr(reportText);
 
+  // Optional: bei sehr "kleinen" Markern kann es kürzer sein – wir behalten aber die Schwelle
   if (t.length < 500) problems.push('report_too_short');
   if (t.length > 2500) problems.push('report_too_long');
 
@@ -389,7 +413,8 @@ function qualityCheck({ reportText, modules, snapshot }) {
 }
 
 // ----------------------------
-// OpenAI call (Chat Completions) → JSON only
+// OpenAI call (Chat Completions) → ONLY {title, report_text, modules, marker_type_guess}
+// - WICHTIG: "data" kommt NICHT von OpenAI, sondern ausschließlich aus DB Snapshot.
 // ----------------------------
 async function generateReportWithOpenAI({ apiKey, model, lang, snapshot }) {
   const endpoint = 'https://api.openai.com/v1/chat/completions';
@@ -404,8 +429,7 @@ Output language MUST be: ${lang}
 
 Return JSON with this schema:
 {
-  "lang": "${lang}",
-  "location_id": <number>,
+  "title": "<string>",
   "marker_type_guess": "<string|null>",
   "modules": {
     "short_profile": "<1-2 sentences>",
@@ -419,10 +443,7 @@ Return JSON with this schema:
       "infrastructure_logistics": "<string|null>"
     }
   },
-  "report_text": "<single cohesive text, ~1-2 minutes reading, calm factual tone, no lists unless unavoidable>",
-  "meta": {
-    "prompt_version": "${PROMPT_VERSION}"
-  }
+  "report_text": "<single cohesive text, ~1-2 minutes reading, calm factual tone, no lists unless unavoidable>"
 }
 
 Rules:
@@ -468,7 +489,17 @@ ${JSON.stringify(snapshot, null, 2)}
     const out = JSON.parse(content);
     if (!out || typeof out !== 'object') throw new Error('Report JSON is not an object');
 
-    return out;
+    const title = safeStr(out.title);
+    const report_text = safeStr(out.report_text);
+
+    if (!report_text) throw new Error('OpenAI output missing report_text');
+
+    return {
+      title: title || null,
+      marker_type_guess: out.marker_type_guess ?? null,
+      modules: out.modules || null,
+      report_text,
+    };
   } finally {
     clearTimeout(t);
   }
@@ -527,7 +558,7 @@ export async function POST(req) {
 
     const fresh = existing && isFresh(existing.updated_at, ttlHours);
 
-    // Cache-hit
+    // Cache-hit (WICHTIG: report zurückgeben)
     if (existing && fresh && !force) {
       return jsonNoStore({
         ok: true,
@@ -551,7 +582,7 @@ export async function POST(req) {
       return jsonNoStore({ ok: false, error: 'Missing OPENAI_API_KEY (server env)' }, { status: 500 });
     }
 
-    // 1) Load DB bundle
+    // 1) Load DB bundle (DB-first)
     const bundle = await loadLocationBundle(supabase, location_id, lang);
     if (!bundle.found) {
       return jsonNoStore({ ok: false, error: `Location ${location_id} not found`, location_id, lang }, { status: 404 });
@@ -560,7 +591,7 @@ export async function POST(req) {
     // 2) Normalize snapshot (DB-first truth)
     const snapshot = normalizeSnapshot(bundle, lang);
 
-    // 3) Generate with OpenAI (but UI will only see stored JSON)
+    // 3) Generate with OpenAI
     const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
     const out = await generateReportWithOpenAI({
       apiKey: openaiKey,
@@ -569,30 +600,42 @@ export async function POST(req) {
       snapshot,
     });
 
-    // 4) Enforce our final stored format (beides: modules + report_text + meta snapshot)
+    // 4) Enforce our final stored format:
+    // - data: ALWAYS from DB snapshot
+    // - report_text/modules/title: from OpenAI
+    const dataBlock = buildDataBlock(snapshot);
+
+    const modules = out.modules || {};
     const report_json = {
       lang,
       location_id,
+      title: safeStr(out.title) || safeStr(snapshot?.location?.name) || `Location #${location_id}`,
       marker_type_guess: out.marker_type_guess ?? null,
+
+      // DB-first deterministic block (UI soll diesen Teil bevorzugt mögen)
+      data: dataBlock,
+
+      // OpenAI meaning layer
       modules: {
-        short_profile: safeStr(out?.modules?.short_profile),
-        role_significance: safeStr(out?.modules?.role_significance),
-        atmosphere_character: safeStr(out?.modules?.atmosphere_character),
-        personal_recommendation: safeStr(out?.modules?.personal_recommendation),
+        short_profile: safeStr(modules?.short_profile),
+        role_significance: safeStr(modules?.role_significance),
+        atmosphere_character: safeStr(modules?.atmosphere_character),
+        personal_recommendation: safeStr(modules?.personal_recommendation),
         optional: {
-          visual_spatial_impression: safeStr(out?.modules?.optional?.visual_spatial_impression) || null,
-          condensed_history_context: safeStr(out?.modules?.optional?.condensed_history_context) || null,
-          activities_if_real: safeStr(out?.modules?.optional?.activities_if_real) || null,
-          infrastructure_logistics: safeStr(out?.modules?.optional?.infrastructure_logistics) || null,
+          visual_spatial_impression: safeStr(modules?.optional?.visual_spatial_impression) || null,
+          condensed_history_context: safeStr(modules?.optional?.condensed_history_context) || null,
+          activities_if_real: safeStr(modules?.optional?.activities_if_real) || null,
+          infrastructure_logistics: safeStr(modules?.optional?.infrastructure_logistics) || null,
         },
       },
       report_text: safeStr(out.report_text),
+
       meta: {
         prompt_version: PROMPT_VERSION,
         model,
         generated_at: new Date().toISOString(),
         source_tag: 'openai',
-        source_snapshot: snapshot, // DB-first input snapshot for audit/debug
+        source_snapshot: snapshot, // Audit/Debug: genau das DB-Input-Snapshot
       },
     };
 
@@ -649,6 +692,7 @@ export async function POST(req) {
       },
       warnings: problems.filter((p) => !critical.includes(p)),
       preview: {
+        title: report_json.title?.slice(0, 120) || null,
         short_profile: report_json.modules.short_profile?.slice(0, 220) || null,
         report_text: report_json.report_text?.slice(0, 220) || null,
       },
