@@ -630,6 +630,107 @@ export default function GoogleMapClient({ lang = 'de' }) {
       </div>
     );
   }
+  
+  function renderKiReportPretty(report, langCode) {
+  if (!report || typeof report !== 'object') return null;
+
+  const title = report.title || '';
+  const summary = report.summary || '';
+  const highlights = Array.isArray(report.highlights) ? report.highlights : [];
+  const attrs = Array.isArray(report.attributes) ? report.attributes : [];
+  const pi = report.practical_info && typeof report.practical_info === 'object' ? report.practical_info : {};
+
+  const rows = [];
+
+  if (pi.address) rows.push({ k: langCode === 'de' ? 'Adresse' : 'Address', v: String(pi.address) });
+  if (pi.phone) rows.push({ k: langCode === 'de' ? 'Telefon' : 'Phone', v: String(pi.phone) });
+  if (pi.website) rows.push({ k: 'Website', v: String(pi.website) });
+  if (pi.rating !== undefined && pi.rating !== null) rows.push({ k: 'Rating', v: String(pi.rating) });
+  if (pi.price_level !== undefined && pi.price_level !== null) rows.push({ k: langCode === 'de' ? 'Preisniveau' : 'Price level', v: String(pi.price_level) });
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {title ? <div style={{ fontSize: 13, fontWeight: 800 }}>{title}</div> : null}
+
+      {summary ? (
+        <div
+          style={{
+            background: '#f8fafc',
+            border: '1px solid #e5e7eb',
+            borderRadius: 12,
+            padding: 12,
+            fontSize: 13,
+            lineHeight: 1.45,
+            color: '#111827',
+          }}
+        >
+          {summary}
+        </div>
+      ) : null}
+
+      {highlights.length ? (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: '#111827' }}>
+            {langCode === 'de' ? 'Highlights' : 'Highlights'}
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+            {highlights.map((h, i) => (
+              <li key={`${h}-${i}`}>{String(h)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {rows.length ? (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
+            {langCode === 'de' ? 'Praktische Infos' : 'Practical info'}
+          </div>
+
+          <div style={{ display: 'grid', gap: 8 }}>
+            {rows.map((r) => {
+              const isUrl = r.k === 'Website' && String(r.v).startsWith('http');
+              return (
+                <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'start' }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{r.k}</div>
+                  <div style={{ fontSize: 13, color: '#374151', wordBreak: 'break-word' }}>
+                    {isUrl ? (
+                      <a href={r.v} target="_blank" rel="noopener" style={{ color: '#1f6aa2', textDecoration: 'underline' }}>
+                        {r.v}
+                      </a>
+                    ) : (
+                      r.v
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {attrs.length ? (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
+            {langCode === 'de' ? 'Attribute' : 'Attributes'}
+          </div>
+
+          <div style={{ display: 'grid', gap: 10 }}>
+            {attrs.map((a, idx) => (
+              <div key={`${a.label || 'attr'}-${idx}`} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', paddingTop: idx ? 10 : 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>{a.label || ''}</div>
+                <div style={{ fontSize: 13, color: '#374151', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                  {typeof a.value === 'object' ? JSON.stringify(a.value, null, 2) : String(a.value ?? '')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 
   function KiReportModal({ modal, onClose, onRefresh }) {
     if (!modal) return null;
