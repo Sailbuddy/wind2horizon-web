@@ -2105,6 +2105,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
           const v = chosen !== null && chosen !== undefined ? chosen : entry.any;
           if (v === null || v === undefined || v === '') continue;
 
+          const kLower = String(k || '').toLowerCase();
+          if (kLower.includes('wind_profile') || kLower.includes('wind_swell') || kLower.includes('wind_hint') || kLower.includes('livewind_station')) {
+            continue;
+          }
+
           const labelTxt = def ? getAttrLabel(def, langCode) : DYNAMIC_SMOKE_TEST ? `Attr ${attrId}` : '';
           const htmlValue = formatDynamicValue({ def: def || {}, val: v, langCode });
           if (!labelTxt || !htmlValue) continue;
