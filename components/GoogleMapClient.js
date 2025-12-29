@@ -631,6 +631,106 @@ export default function GoogleMapClient({ lang = 'de' }) {
     );
   }
 
+  // ✅ KI-Report: Pretty Renderer (statt JSON-only)
+  function renderKiReportPretty(report, langCode) {
+    if (!report || typeof report !== 'object') return null;
+
+    const title = report.title || '';
+    const summary = report.summary || '';
+    const highlights = Array.isArray(report.highlights) ? report.highlights : [];
+    const attrs = Array.isArray(report.attributes) ? report.attributes : [];
+    const pi = report.practical_info && typeof report.practical_info === 'object' ? report.practical_info : {};
+
+    const rows = [];
+    if (pi.address) rows.push({ k: langCode === 'de' ? 'Adresse' : 'Address', v: String(pi.address) });
+    if (pi.phone) rows.push({ k: langCode === 'de' ? 'Telefon' : 'Phone', v: String(pi.phone) });
+    if (pi.website) rows.push({ k: 'Website', v: String(pi.website) });
+    if (pi.rating !== undefined && pi.rating !== null) rows.push({ k: 'Rating', v: String(pi.rating) });
+    if (pi.price_level !== undefined && pi.price_level !== null) rows.push({ k: langCode === 'de' ? 'Preisniveau' : 'Price level', v: String(pi.price_level) });
+
+    return (
+      <div style={{ display: 'grid', gap: 12 }}>
+        {title ? <div style={{ fontSize: 13, fontWeight: 800 }}>{title}</div> : null}
+
+        {summary ? (
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #e5e7eb',
+              borderRadius: 12,
+              padding: 12,
+              fontSize: 13,
+              lineHeight: 1.45,
+              color: '#111827',
+            }}
+          >
+            {summary}
+          </div>
+        ) : null}
+
+        {highlights.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: '#111827' }}>
+              {langCode === 'de' ? 'Highlights' : 'Highlights'}
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+              {highlights.map((h, i) => (
+                <li key={`${h}-${i}`}>{String(h)}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {rows.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
+              {langCode === 'de' ? 'Praktische Infos' : 'Practical info'}
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {rows.map((r) => {
+                const isUrl = r.k === 'Website' && String(r.v).startsWith('http');
+                return (
+                  <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'start' }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{r.k}</div>
+                    <div style={{ fontSize: 13, color: '#374151', wordBreak: 'break-word' }}>
+                      {isUrl ? (
+                        <a href={r.v} target="_blank" rel="noopener" style={{ color: '#1f6aa2', textDecoration: 'underline' }}>
+                          {r.v}
+                        </a>
+                      ) : (
+                        r.v
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {attrs.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
+              {langCode === 'de' ? 'Attribute' : 'Attributes'}
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              {attrs.map((a, idx) => (
+                <div key={`${a.label || 'attr'}-${idx}`} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', paddingTop: idx ? 10 : 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>{a.label || ''}</div>
+                  <div style={{ fontSize: 13, color: '#374151', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                    {typeof a.value === 'object' ? JSON.stringify(a.value, null, 2) : String(a.value ?? '')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   function KiReportModal({ modal, onClose, onRefresh }) {
     if (!modal) return null;
 
@@ -687,9 +787,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
               {modal.error}
             </div>
           ) : modal.report ? (
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-              {JSON.stringify(modal.report, null, 2)}
-            </pre>
+            <div>
+              {renderKiReportPretty(modal.report, lang)}
+              <details style={{ marginTop: 10 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: '#64748b' }}>Debug: JSON anzeigen</summary>
+                <pre
+                  style={{
+                    marginTop: 8,
+                    whiteSpace: 'pre-wrap',
+                    fontSize: 12,
+                    background: '#f9fafb',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 12,
+                    padding: 12,
+                  }}
+                >
+                  {JSON.stringify(modal.report, null, 2)}
+                </pre>
+              </details>
+            </div>
           ) : (
             <div style={{ fontSize: 14, color: '#6b7280' }}>{label('noReport', lang)}</div>
           )}
@@ -727,10 +843,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
               {label('closeModal', lang)}
             </button>
           </div>
-
-          <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>
-            Hinweis: Aktuell wird der Report als JSON angezeigt (Debug/MVP). UI-Rendering der Abschnitte folgt.
-          </p>
         </div>
       </div>
     );
@@ -911,7 +1023,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     livewind_station: 'livewind_station',
   };
 
-  // ---- Canonical duplicate handling (Fix B) -------------------------
+  // ---- Canonical duplicate handling -------------------------
   const LANG_PREF = (langCode) => [langCode, 'de', 'en', 'it', 'fr', 'hr', ''];
 
   function toStrMaybe(v) {
@@ -929,12 +1041,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (v === null || v === undefined) return false;
     if (canon === 'rating' || canon === 'rating_total' || canon === 'price') {
       const n = typeof v === 'number' ? v : Number(String(v));
-      return Number.isFinite(n) && n !== 0; // 0 ist oft "leer"
+      return Number.isFinite(n) && n !== 0;
     }
     const s = String(v).trim();
     if (!s) return false;
 
-    // AI-Ausreden/Fehlermeldungen in value_text bei website/phone etc. nicht bevorzugen
     const badSnippets = [
       'entschuldigung',
       'ich kann',
@@ -1076,12 +1187,30 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
   }
 
+  // ✅ FIX: robustes Thumb-Picking (User/Google + toleranter Shape)
   function pickFirstThumb(photos) {
     if (!Array.isArray(photos) || !photos.length) return null;
-    const user = photos.find((p) => p.thumb || p.public_url || p.url);
-    if (user) return user.thumb || user.public_url || user.url;
-    const g = photos.find((p) => p.photo_reference || p.photoreference);
-    if (g) return photoUrl(g.photo_reference || g.photoreference, 400);
+
+    // 1) User-Fotos (verschiedene Feldnamen tolerieren)
+    const user = photos.find((p) => p && (p.thumb || p.public_url || p.url || p.image_url));
+    if (user) return user.thumb || user.public_url || user.url || user.image_url;
+
+    // 2) Google-Fotos (verschiedene Feldnamen tolerieren)
+    const g = photos.find(
+      (p) =>
+        p &&
+        (p.photo_reference ||
+          p.photoreference ||
+          p.photoRef ||
+          p.photo_ref ||
+          (p.ref && typeof p.ref === 'string'))
+    );
+
+    const ref =
+      (g && (g.photo_reference || g.photoreference || g.photoRef || g.photo_ref || g.ref)) || null;
+
+    if (ref) return photoUrl(ref, 600);
+
     return null;
   }
 
@@ -1169,8 +1298,21 @@ export default function GoogleMapClient({ lang = 'de' }) {
       openingHtml += `<ul class="iw-hours">${hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('')}</ul>`;
     }
 
-    const thumbHtml = firstThumb
-      ? `<img src="${firstThumb}" alt="" loading="lazy" style="width:100%;border-radius:10px;margin:6px 0 10px 0;" />`
+    // ✅ FIX: Thumb/Foto-Block robust (zeigt auch Fallback-Hinweis wenn Fotos existieren)
+    const thumbHtml = photos.length
+      ? `
+        <div style="margin:6px 0 10px 0;">
+          ${
+            firstThumb
+              ? `<img src="${escapeHtml(firstThumb)}" alt="" loading="lazy" decoding="async"
+                   style="width:100%;height:auto;display:block;border-radius:10px;border:1px solid #eee;background:#fafafa;" />`
+              : `<div style="width:100%;border-radius:10px;border:1px dashed #cbd5e1;background:#f8fafc;
+                   padding:10px;font-size:12px;color:#64748b;">
+                   Fotos vorhanden (${photos.length}), Vorschau konnte nicht geladen werden.
+                 </div>`
+          }
+        </div>
+      `
       : '';
 
     const btnPhotos = photos.length
@@ -1231,7 +1373,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (blocks) dynamicHtml = `<div class="iw-dyn">${blocks}</div>`;
     }
 
-    // ✅ Datenblock immer sichtbar (optische Kapselung, keine Funktionseinschränkung)
+    // ✅ Datenblock immer sichtbar
     const dataBlock = `
       <div class="iw-block iw-block-data">
         <div class="iw-block-hd">${escapeHtml(label('dataBlock', langCode))}</div>
@@ -1248,6 +1390,33 @@ export default function GoogleMapClient({ lang = 'de' }) {
     `;
 
     return `
+      <style>
+        .w2h-iw{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:340px}
+        .iw-hd{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+        .iw-ic{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center}
+        .iw-title{font-weight:900;font-size:14px;line-height:1.2;color:#111}
+        .iw-id{margin-left:8px;font-weight:700;font-size:11px;color:#64748b}
+        .iw-bd{display:grid;gap:10px}
+        .iw-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+        .iw-btn{border:0;border-radius:9999px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer;background:#111;color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+        .iw-btn:disabled{opacity:.6;cursor:not-allowed}
+        .iw-btn-wind{background:#0f766e}
+        .iw-btn-ki{background:#7c3aed}
+        .iw-block{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px}
+        .iw-block-hd{font-weight:900;font-size:12px;color:#111827;margin-bottom:6px}
+        .iw-row{font-size:12px;color:#374151;margin:4px 0}
+        .iw-desc{white-space:pre-wrap}
+        .iw-hours{margin:6px 0 0 0;padding-left:18px;font-size:12px;color:#4b5563}
+        .iw-rating{font-size:12px;color:#111827;font-weight:800}
+        .iw-price{font-size:12px;color:#111827;font-weight:800}
+        .iw-dyn{margin-top:8px;display:grid;gap:10px}
+        .iw-dyn-block{border-top:1px solid #f1f5f9;padding-top:8px}
+        .iw-dyn-group{font-size:12px;font-weight:900;color:#0f172a;margin-bottom:4px}
+        .iw-dyn-row{display:grid;grid-template-columns:140px 1fr;gap:10px;align-items:start}
+        .iw-dyn-k{font-weight:800;color:#111827}
+        .iw-dyn-v{color:#374151;word-break:break-word}
+      </style>
+
       <div class="w2h-iw">
         <div class="iw-hd">
           <span class="iw-ic">${iconImg}</span>
@@ -1275,7 +1444,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const s = String(input || '')
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, ''); // diacritics
+      .replace(/[\u0300-\u036f]/g, '');
     return s.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
@@ -1295,7 +1464,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   // ✅ Kategorie-Index aus geladenen Locations (inkl. group_key / visibility_tier)
   const categoryIndex = useMemo(() => {
-    const idx = new Map(); // catId -> {id, group_key, visibility_tier, namesNorm:Set, displayName}
+    const idx = new Map();
     const locs = locationsRef.current || [];
     for (const row of locs) {
       const c = row.categories;
@@ -1327,22 +1496,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, selectedRegion, regions, booted]);
 
-  function buildSearchHaystack(row, meta, langCode) {
+  function buildSearchHaystack(row, meta) {
     const parts = [];
-
-    // names
     parts.push(row.display_name, row.name_de, row.name_en, row.name_it, row.name_fr, row.name_hr);
-
-    // descriptions
     parts.push(row.description_de, row.description_en, row.description_it, row.description_fr, row.description_hr);
-
-    // ids / plus codes
     parts.push(row.google_place_id, row.plus_code);
-
-    // ✅ locations table: address/phone/website
     parts.push(row.address, row.phone, row.website);
 
-    // category names + google type
     if (row.categories) {
       parts.push(
         pickCategoryName(row.categories, 'de'),
@@ -1354,7 +1514,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (row.categories.google_cat_id) parts.push(String(row.categories.google_cat_id));
     }
 
-    // meta address / website / phone (optional but helpful)
     if (meta && typeof meta === 'object') {
       if (meta.address) parts.push(meta.address);
       if (meta.addressByLang && typeof meta.addressByLang === 'object') Object.values(meta.addressByLang).forEach((v) => parts.push(v));
@@ -1368,20 +1527,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function scoreMatch({ hay, tokens, nameHay }) {
-    // All tokens must match (AND). Score rewards tighter matches.
     let score = 0;
 
     for (const t of tokens) {
       if (!t) continue;
-
-      // exact word bonus
       const wordRe = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
       if (wordRe.test(hay)) score += 30;
       else if (hay.includes(t)) score += 15;
-      else return -1; // AND requirement: token missing
+      else return -1;
     }
 
-    // prefer name/title matches
     if (nameHay) {
       for (const t of tokens) {
         if (!t) continue;
@@ -1394,7 +1549,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return score;
   }
 
-  // ✅ Kategorie-Erkennung aus Query (z.B. "Porec Restaurant")
   function detectCategoriesFromQuery(qNorm) {
     const hits = [];
     if (!qNorm) return hits;
@@ -1407,7 +1561,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }
       }
     }
-    // dedupe
     const seen = new Set();
     return hits.filter((h) => {
       const k = `${h.id}`;
@@ -1418,7 +1571,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function getGroupMembers(catHitIds) {
-    // Wenn Kategorie in einer Gruppe ist -> alle IDs mit gleichem group_key zurückgeben
     const groups = new Set();
     for (const id of catHitIds) {
       const rec = categoryIndex.get(String(id));
@@ -1441,28 +1593,23 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function isLayerEnabled(catId) {
-    // layerState ist Map<string,bool> (catId als string)
     const v = layerState.current.get(String(catId));
     return v ?? true;
   }
 
-  // ✅ Search Focus: Marker Visibility Override
   function enterSearchFocus(resultRows) {
     if (!mapObj.current) return;
 
-    // Save current marker visibility
     const prev = new Map();
     for (const m of markers.current) prev.set(m, m.getVisible());
     prevVisibilityRef.current = prev;
 
-    // Hide all, then show only results
     for (const m of markers.current) m.setVisible(false);
     for (const row of resultRows) {
       const marker = markerMapRef.current.get(row.id);
       if (marker) marker.setVisible(true);
     }
 
-    // fitBounds
     try {
       const b = new google.maps.LatLngBounds();
       resultRows.forEach((r) => b.extend(new google.maps.LatLng(r.lat, r.lng)));
@@ -1473,7 +1620,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function exitSearchFocus() {
-    // Restore marker visibility using normal layer logic
     prevVisibilityRef.current = null;
     applyLayerVisibility();
   }
@@ -1504,12 +1650,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const tokens = qNorm.split(' ').filter((t) => t.length >= 2);
     if (!tokens.length) return;
 
-    // Kategorie-Hits + Gruppen-Erweiterung
     const catHits = detectCategoriesFromQuery(` ${qNorm} `);
     const catIds = catHits.map((h) => h.id);
     const groupExpandedCatIds = catIds.length ? getGroupMembers(catIds) : [];
 
-    // Tier-Block (Paywall)
     const tierBlocked = groupExpandedCatIds.filter((id) => !isCategoryAllowedByTier(id));
     if (catIds.length && tierBlocked.length) {
       setSearchMode({
@@ -1523,7 +1667,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return;
     }
 
-    // Layer-Block (Deaktiviert)
     if (catIds.length) {
       const enabledAny = groupExpandedCatIds.some((id) => isLayerEnabled(id));
       if (!enabledAny) {
@@ -1542,7 +1685,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const results = [];
     for (const row of locationsRef.current) {
       const meta = metaByLocRef.current.get(row.id) || {};
-      const hay = buildSearchHaystack(row, meta, lang);
+      const hay = buildSearchHaystack(row, meta);
       if (!hay) continue;
 
       if (catIds.length) {
@@ -1649,7 +1792,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         infoWin.current = new google.maps.InfoWindow();
 
-        // ✅ Klick in die Karte schließt InfoWindow
         mapObj.current.addListener('click', () => {
           closeInfoWindow();
           infoWinOpenedByMarkerRef.current = false;
@@ -1788,7 +1930,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       const canon = FIELD_MAP_BY_ID[attrId] || (key && FIELD_MAP_BY_KEY[key]);
 
-      // 1) Canonical Fields (mit Fix B)
+      // 1) Canonical Fields
       if (canon) {
         if (canon === 'photos') {
           const googleArr = normalizeGooglePhotos(r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null);
@@ -1845,7 +1987,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
           return;
         }
 
-        // Value pick
         let val = null;
         if (r2.value_json !== null && r2.value_json !== undefined && r2.value_json !== '') val = r2.value_json;
         else if (r2.value_text !== null && r2.value_text !== undefined && r2.value_text !== '') val = r2.value_text;
@@ -1855,7 +1996,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         if (val === null || val === undefined || val === '') return;
 
-        // Canon per-type handling
         if (canon === 'opening_hours') {
           obj.hoursByLang = obj.hoursByLang || {};
           let arr = null;
@@ -1910,7 +2050,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
       }
 
-      // Value-Pick
       let val = null;
       if (r2.value_json !== null && r2.value_json !== undefined && r2.value_json !== '') val = r2.value_json;
       else if (r2.value_text !== null && r2.value_text !== undefined && r2.value_text !== '') val = r2.value_text;
@@ -1945,6 +2084,17 @@ export default function GoogleMapClient({ lang = 'de' }) {
         for (const [k, entry] of obj._dyn.entries()) {
           const def = entry.def || null;
           const attrId = entry.attrId ?? null;
+
+          // optional: Wind-spezifische Dinge nicht doppelt als Dyn zeigen (sauberer Datenblock)
+          const kLower = String(k || '').toLowerCase();
+          if (
+            kLower.includes('wind_profile') ||
+            kLower.includes('wind_swell') ||
+            kLower.includes('wind_hint') ||
+            kLower.includes('livewind_station')
+          ) {
+            continue;
+          }
 
           let chosen = null;
           for (const L of pref) {
@@ -2093,13 +2243,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
               });
             }
 
-            // ✅ KI-Report Button (Lazy: Modal + Fetch nur nach Klick)
             const kibtn = document.getElementById(`kibtn-${row.id}`);
             if (kibtn) {
               kibtn.addEventListener('click', async () => {
                 const titleNow = pickName(row, langCode);
 
-                // Modal sofort öffnen (Loading)
                 setKiModal({
                   locationId: row.id,
                   title: titleNow,
@@ -2147,7 +2295,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     if (DEBUG_BOUNDING) createDebugOverlay(mapObj.current, locList);
 
-    // Wenn Search Focus aktiv war, neu anwenden (z.B. Region gewechselt)
     if (searchMode.active && searchMode.results && searchMode.results.length) enterSearchFocus(searchMode.results.map((x) => x.row));
     else applyLayerVisibility();
 
@@ -2158,7 +2305,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function applyLayerVisibility() {
-    // Wenn Search Focus aktiv: nicht überschreiben
     if (searchMode.active && prevVisibilityRef.current) return;
 
     markers.current.forEach((m) => {
@@ -2167,9 +2313,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     });
   }
 
-  // ------------------------------
-  // ✅ UI: Search Results Panel
-  // ------------------------------
   const resultPanelTitle = `${label('searchResults', lang)}${searchMode.active ? ` (${searchMode.results.length})` : ''}`;
 
   return (
@@ -2193,7 +2336,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
             setRegionMode('manual');
             setSelectedRegion(slug);
 
-            // Bei Regionwechsel: Search Focus aufheben
             if (searchMode.active) clearSearchMode();
 
             if (!mapObj.current || !window.google) return;
@@ -2414,12 +2556,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
           applyLayerVisibility();
         }}
         onToggle={(catKey, visible, meta) => {
-          // ✅ Gruppenlogik: wenn LayerPanel meta.affected_category_ids liefert
           const affected = meta && Array.isArray(meta.affected_category_ids) ? meta.affected_category_ids : [catKey];
-
           for (const k of affected) layerState.current.set(String(k), visible);
-
-          // Wenn Search Focus aktiv ist: nicht überschreiben
           if (!searchMode.active) applyLayerVisibility();
         }}
         onToggleAll={(visible) => {
@@ -2445,7 +2583,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             try {
               const data = await refreshKiReport({ locationId: kiModal.locationId, langCode: lang });
               const reportObj = data.report_json || data.report || data;
-              const createdAt = data.created_at || reportObj?.created_at || null;
+              const createdAt = data.created_at || reportObj?.created_at || new Date().toISOString();
 
               setKiModal((prev) => ({
                 ...(prev || {}),
@@ -2464,184 +2602,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
           }}
         />
       ) : null}
-
-      <style jsx>{`
-        .w2h-map-wrap {
-          position: relative;
-          height: 100vh;
-          width: 100%;
-        }
-        .w2h-map {
-          height: 100%;
-          width: 100%;
-        }
-        .w2h-region-panel {
-          position: absolute;
-          top: 64px;
-          left: 50%;
-          transform: translateX(-50%);
-          min-width: 210px;
-          max-width: 320px;
-        }
-        @media (max-width: 640px) {
-          .w2h-region-panel {
-            top: 80px;
-            right: 10px;
-            left: auto;
-            transform: none;
-            min-width: 170px;
-            max-width: 230px;
-            width: 60vw;
-          }
-          .w2h-search-panel {
-            top: 110px !important;
-            right: 10px !important;
-            width: min(92vw, 360px) !important;
-            max-height: 62vh !important;
-          }
-        }
-      `}</style>
-
-      <style jsx global>{`
-        .gm-style .w2h-iw {
-          max-width: 340px;
-          font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          color: #1a1a1a;
-        }
-        .gm-style .w2h-iw .iw-hd {
-          display: grid;
-          grid-template-columns: 22px 1fr;
-          gap: 8px;
-          align-items: center;
-          margin-bottom: 6px;
-        }
-        .gm-style .w2h-iw .iw-ic img {
-          width: 20px;
-          height: 20px;
-          display: block;
-        }
-        .gm-style .w2h-iw .iw-title {
-          font-weight: 700;
-          font-size: 14px;
-        }
-        .gm-style .w2h-iw .iw-id {
-          font-weight: 400;
-          font-size: 11px;
-          color: #9ca3af;
-          margin-left: 4px;
-        }
-        .gm-style .w2h-iw .iw-row {
-          margin: 6px 0;
-        }
-        .gm-style .w2h-iw .iw-desc {
-          color: #444;
-          white-space: normal;
-        }
-        .gm-style .w2h-iw .iw-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-top: 10px;
-        }
-        .gm-style .w2h-iw .iw-btn {
-          display: inline-block;
-          padding: 6px 10px;
-          border-radius: 8px;
-          background: #1f6aa2;
-          color: #fff;
-          text-decoration: none;
-          font-weight: 600;
-          font-size: 12px;
-          cursor: pointer;
-          border: none;
-        }
-        .gm-style .w2h-iw .iw-btn:hover {
-          filter: brightness(0.95);
-        }
-        .gm-style .w2h-iw .iw-btn-wind {
-          background: #0ea5e9;
-        }
-        .gm-style .w2h-iw .iw-btn-ki {
-          background: #111827;
-        }
-        .gm-style .w2h-iw .iw-btn-ki:hover {
-          filter: brightness(1.05);
-        }
-        .gm-style .w2h-iw .iw-rating {
-          font-size: 13px;
-          color: #f39c12;
-        }
-        .gm-style .w2h-iw .iw-price {
-          font-size: 13px;
-          color: #27ae60;
-        }
-        .gm-style .w2h-iw .iw-open {
-          font-size: 13px;
-        }
-        .gm-style .w2h-iw .iw-hours {
-          padding-left: 16px;
-          margin: 4px 0;
-        }
-
-        /* ✅ Datenblock (immer sichtbar) */
-        .gm-style .w2h-iw .iw-block {
-          border: 1px solid #eef2f7;
-          background: #ffffff;
-          border-radius: 12px;
-          padding: 10px;
-        }
-        .gm-style .w2h-iw .iw-block-hd {
-          font-weight: 900;
-          font-size: 12px;
-          letter-spacing: 0.2px;
-          color: #111;
-          margin-bottom: 6px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .gm-style .w2h-iw .iw-block-bd {
-          display: block;
-        }
-
-        /* ✅ Dynamische Attribute */
-        .gm-style .w2h-iw .iw-dyn {
-          margin-top: 8px;
-          padding-top: 8px;
-          border-top: 1px solid #eee;
-          display: grid;
-          gap: 10px;
-        }
-        .gm-style .w2h-iw .iw-dyn-block {
-          display: grid;
-          gap: 6px;
-        }
-        .gm-style .w2h-iw .iw-dyn-group {
-          font-weight: 800;
-          font-size: 12px;
-          letter-spacing: 0.2px;
-          color: #111;
-          margin-top: 2px;
-        }
-        .gm-style .w2h-iw .iw-dyn-row {
-          display: grid;
-          grid-template-columns: 1fr 1.2fr;
-          gap: 10px;
-          align-items: start;
-        }
-        .gm-style .w2h-iw .iw-dyn-k {
-          font-weight: 600;
-          color: #111;
-        }
-        .gm-style .w2h-iw .iw-dyn-v {
-          color: #374151;
-          word-break: break-word;
-        }
-        .gm-style .w2h-iw .iw-dyn-v a {
-          color: #1f6aa2;
-          text-decoration: underline;
-        }
-      `}</style>
     </div>
   );
 }
