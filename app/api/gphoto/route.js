@@ -6,10 +6,12 @@ export const runtime = 'nodejs'; // Node-Runtime (nicht Edge)
 
 function pickKey() {
   // ✅ Server-only Keys first (keine NEXT_PUBLIC Keys hier)
+  // Hinweis: Für serverseitige Requests sollte der Key KEINE HTTP-Referrer-Restriction haben.
   return (
     process.env.GOOGLE_API_KEY ||
     process.env.GOOGLE_MAPS_API_KEY ||
     process.env.VITE_GOOGLE_MAPS_API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || // Fallback (nicht ideal, aber hilft beim Debug)
     ''
   );
 }
@@ -38,8 +40,9 @@ export async function GET(req) {
     const qs = new URLSearchParams();
     qs.set(sizeKey, sizeVal);
 
-    // ✅ Google Places Photo API expects "photo_reference"
-    qs.set('photo_reference', ref);
+    // ✅ WICHTIG: Places Photo API erwartet den Query-Param "photoreference" (ohne underscore).
+    // "photo_reference" führt typischerweise zu 400.
+    qs.set('photoreference', ref);
     qs.set('key', key);
 
     const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
@@ -57,6 +60,7 @@ export async function GET(req) {
           (process.env.GOOGLE_API_KEY && 'GOOGLE_API_KEY') ||
           (process.env.GOOGLE_MAPS_API_KEY && 'GOOGLE_MAPS_API_KEY') ||
           (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
+          (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ||
           '(none)',
       });
     }
