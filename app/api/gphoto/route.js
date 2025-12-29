@@ -19,7 +19,7 @@ function pickKey() {
 export async function GET(req) {
   try {
     const url = new URL(req.url);
-    const ref = url.searchParams.get('photoreference') ?? url.searchParams.get('photo_reference');
+    const ref = url.searchParams.get('photo_reference') ?? url.searchParams.get('photo_reference');
 
     if (!ref) {
       return NextResponse.json({ ok: false, error: 'Missing "photoreference".' }, { status: 400 });
