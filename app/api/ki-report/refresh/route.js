@@ -4,7 +4,6 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const revalidate = 0;
 
 // ----------------------------
 // Supabase (Service Role) client
@@ -12,8 +11,10 @@ export const revalidate = 0;
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY; // server-only
+
   if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
   if (!key) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY (server env)');
+
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
@@ -23,7 +24,6 @@ function getServiceSupabase() {
 function jsonNoStore(payload, init = {}) {
   const res = NextResponse.json(payload, init);
   res.headers.set('cache-control', 'no-store, no-cache, must-revalidate, max-age=0');
-  res.headers.set('pragma', 'no-cache');
   return res;
 }
 
@@ -32,15 +32,21 @@ function safeStr(v) {
   return String(v).trim();
 }
 
-/**
- * Normalisiert "de", "DE", "de-DE", "de_AT" -> "de"
- * und lässt nur unsere erlaubten Sprachen zu.
- */
 function pickLang(lang) {
-  const raw = safeStr(lang).toLowerCase();
-  const base = raw.split(/[-_]/)[0];
+  const l = safeStr(lang).toLowerCase();
   const allowed = new Set(['de', 'en', 'it', 'fr', 'hr']);
-  return allowed.has(base) ? base : 'de';
+  return allowed.has(l) ? l : 'de';
+}
+
+function asNumberOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function redactKey(k) {
+  if (!k) return '';
+  if (k.length <= 8) return '***';
+  return `${k.slice(0, 3)}…${k.slice(-3)}`;
 }
 
 function asBool(v) {
@@ -62,79 +68,13 @@ function isFresh(updatedAt, ttlHours) {
   return ageMs >= 0 && ageMs <= ttlHours * 3600 * 1000;
 }
 
-function redactKey(k) {
-  if (!k) return '';
-  if (k.length <= 8) return '***';
-  return `${k.slice(0, 3)}…${k.slice(-3)}`;
-}
-
-// ----------------------------
-// Wind2Horizon KI-Report System Instruction (dein Framework)
-// ----------------------------
-const PROMPT_VERSION = 'ki-report-v1';
-
-const W2H_SYSTEM_INSTRUCTION = `
-SYSTEM ROLE
-You are an experienced, calm, and factual location analyst writing contextual KI-Reports for the Wind2Horizon map system.
-
-Your task is not to promote, list attractions, or reproduce encyclopedic knowledge.
-Your task is to explain what a place is, what role it plays, and how it should be understood.
-
-You write for users who value clarity, realism, and correct expectations.
-
-CORE PRINCIPLES (MANDATORY)
-- Context over completeness: Prioritize meaning and role over lists or details.
-- Expectation accuracy: Never promise experiences the place cannot realistically deliver.
-- Marker-specific writing: Each report must be clearly identifiable as belonging to this exact marker. If it could apply to multiple nearby places, it is invalid.
-- Reduction is allowed and encouraged: Small/functional markers must remain concise.
-
-DATA SOURCE RULES
-- Structured facts come only from the provided marker data.
-- Wikipedia and general knowledge may be used only as background knowledge.
-- Wikipedia content must never be summarized, paraphrased, or recognizable in structure.
-- No citations, no references to Wikipedia or external sources.
-
-REQUIRED REPORT STRUCTURE
-(Headings may be adapted or omitted if inappropriate)
-1. Short Profile (mandatory): 1–2 sentences: What is this place? Why relevant?
-2. Role / Significance (mandatory): Explain role in region; destination/transition/reference/contrast.
-3. Atmosphere / Character (mandatory): Qualitative description, no marketing.
-4. Personal Recommendation (mandatory, short): One concrete, realistic suggestion or limitation.
-
-OPTIONAL MODULES (include only if meaningful)
-- Visual appearance / spatial impression
-- Condensed historical or cultural context
-- Activities (only if genuinely available)
-- Infrastructure / harbor / logistics (functional tone only)
-
-MARKER TYPE AWARENESS
-Adapt tone and depth based on marker type (city/island/hotel/harbor/lighthouse/fixpoint/warning).
-Hotel reports must describe this exact hotel, not the general area.
-
-LANGUAGE & STYLE CONSTRAINTS
-Calm, precise, non-emotional, non-promotional.
-No “must-see”, “perfect”, “unique experience”.
-No bullet lists unless unavoidable.
-Readable in ~1–2 minutes.
-
-STRICT NO-GO RULES
-Invalid if generic/interchangeable, reads like a travel guide, lists facts without interpretation,
-recreates Wikipedia tone/structure, or invents details not implied by data or common knowledge.
-
-FINAL INTENT
-You are not writing information. You are providing orientation and meaning.
-Wind2Horizon does not explain everything — it explains why something matters.
-`.trim();
-
 // ----------------------------
 // Load data for a location report
-// (dein bestehendes loadLocationBundle – leicht erweitert für Language-Fallback)
 // ----------------------------
 async function loadLocationBundle(supabase, locationId, lang) {
   const { data: loc, error: locErr } = await supabase
     .from('locations')
-    .select(
-      `
+    .select(`
       id,
       lat, lng,
       category_id,
@@ -154,21 +94,16 @@ async function loadLocationBundle(supabase, locationId, lang) {
         google_cat_id,
         name_de, name_en, name_it, name_fr, name_hr
       )
-    `
-    )
+    `)
     .eq('id', locationId)
     .maybeSingle();
 
   if (locErr) throw new Error(`Supabase locations error: ${locErr.message}`);
   if (!loc) return { found: false };
 
-  // Für KI-Report: etwas mehr Kontext zulassen (lang + de + en + und)
-  const wantedLangs = Array.from(new Set([lang, 'de', 'en', 'und']));
-
   const { data: vals, error: valsErr } = await supabase
     .from('location_values')
-    .select(
-      `
+    .select(`
       location_id,
       attribute_id,
       language_code,
@@ -191,10 +126,9 @@ async function loadLocationBundle(supabase, locationId, lang) {
         infowindow_order,
         display_format
       )
-    `
-    )
+    `)
     .eq('location_id', locationId)
-    .in('language_code', wantedLangs)
+    .in('language_code', [lang, 'und'])
     .order('attribute_id', { ascending: true });
 
   if (valsErr) throw new Error(`Supabase location_values error: ${valsErr.message}`);
@@ -214,22 +148,15 @@ async function loadLocationBundle(supabase, locationId, lang) {
     );
   };
 
-  // pro attribute_id: prefer requested lang, dann de, en, und
-  const prefOrder = new Map(wantedLangs.map((l, idx) => [l, idx]));
-  function rankLang(lc) {
-    const k = safeStr(lc).toLowerCase();
-    return prefOrder.has(k) ? prefOrder.get(k) : 999;
-  }
-
+  // Prefer exact language over 'und'
   const byAttr = new Map();
   for (const row of vals || []) {
     const k = String(row.attribute_id ?? '');
     if (!k) continue;
+
     const existing = byAttr.get(k);
     if (!existing) byAttr.set(k, row);
-    else {
-      if (rankLang(row.language_code) < rankLang(existing.language_code)) byAttr.set(k, row);
-    }
+    else if (existing.language_code === 'und' && row.language_code === lang) byAttr.set(k, row);
   }
 
   const attributes = Array.from(byAttr.values()).map((row) => {
@@ -249,7 +176,7 @@ async function loadLocationBundle(supabase, locationId, lang) {
       language_code: row.language_code,
       input_type: ad?.input_type || null,
       display_format: ad?.display_format || null,
-      show_in_infowindow: ad?.show_in_infowindow ?? null,
+      show_in_infowindow: !!ad?.show_in_infowindow,
       infowindow_group: ad?.infowindow_group || null,
       infowindow_order: ad?.infowindow_order ?? null,
       value,
@@ -296,9 +223,9 @@ async function loadLocationBundle(supabase, locationId, lang) {
       id: loc.id,
       name: locName,
       description: locDesc,
-      lat: Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null,
-      lng: Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null,
-      active: loc.active !== false,
+      lat: asNumberOrNull(loc.lat),
+      lng: asNumberOrNull(loc.lng),
+      active: !!loc.active,
       category_id: loc.category_id ?? null,
       category_name: catName || null,
       google_place_id: safeStr(loc.google_place_id) || null,
@@ -306,7 +233,7 @@ async function loadLocationBundle(supabase, locationId, lang) {
       address: safeStr(loc.address) || null,
       phone: safeStr(loc.phone) || null,
       website: safeStr(loc.website) || null,
-      rating: Number.isFinite(Number(loc.rating)) ? Number(loc.rating) : null,
+      rating: asNumberOrNull(loc.rating),
       price_level: loc.price_level ?? null,
     },
     attributes,
@@ -314,147 +241,49 @@ async function loadLocationBundle(supabase, locationId, lang) {
 }
 
 // ----------------------------
-// Snapshot normalisieren (DB-first Input → kontrolliertes Format)
+// OpenAI call (no SDK dependency)
 // ----------------------------
-function normalizeSnapshot(bundle, lang) {
-  const loc = bundle.location || {};
-  const attrs = Array.isArray(bundle.attributes) ? bundle.attributes : [];
-
-  const normAttrs = attrs
-    .filter((a) => a && a.value !== null && a.value !== undefined && safeStr(a.label || a.key || '') !== '')
-    .slice(0, 40) // hartes Limit, damit Prompt nicht explodiert
-    .map((a) => ({
-      attribute_id: a.attribute_id ?? null,
-      key: a.key ?? null,
-      label: safeStr(a.label) || null,
-      group: a.infowindow_group || null,
-      order: a.infowindow_order ?? null,
-      input_type: a.input_type || null,
-      language_code: a.language_code || null,
-      value: a.value,
-    }));
-
-  return {
-    lang,
-    location: {
-      id: loc.id ?? null,
-      name: loc.name ?? null,
-      description: loc.description ?? null,
-      category_id: loc.category_id ?? null,
-      category_name: loc.category_name ?? null,
-      lat: loc.lat ?? null,
-      lng: loc.lng ?? null,
-      plus_code: loc.plus_code ?? null,
-      google_place_id: loc.google_place_id ?? null,
-      address: loc.address ?? null,
-      phone: loc.phone ?? null,
-      website: loc.website ?? null,
-      rating: loc.rating ?? null,
-      price_level: loc.price_level ?? null,
-      active: loc.active ?? null,
-    },
-    attributes: normAttrs,
-  };
-}
-
-// ----------------------------
-// Data-Block aus Snapshot (für UI: immer anzeigen)
-// ----------------------------
-function buildDataBlock(snapshot) {
-  const loc = snapshot?.location || {};
-  return {
-    category_name: safeStr(loc.category_name) || null,
-    address: safeStr(loc.address) || null,
-    phone: safeStr(loc.phone) || null,
-    website: safeStr(loc.website) || null,
-    rating: Number.isFinite(Number(loc.rating)) ? Number(loc.rating) : null,
-    price_level: loc.price_level ?? null,
-    plus_code: safeStr(loc.plus_code) || null,
-    google_place_id: safeStr(loc.google_place_id) || null,
-    lat: Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null,
-    lng: Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null,
-  };
-}
-
-// ----------------------------
-// Quality Gate (minimal, aber wirksam)
-// ----------------------------
-function qualityCheck({ reportText, modules, snapshot }) {
-  const problems = [];
-  const t = safeStr(reportText);
-
-  // Optional: bei sehr "kleinen" Markern kann es kürzer sein – wir behalten aber die Schwelle
-  if (t.length < 500) problems.push('report_too_short');
-  if (t.length > 2500) problems.push('report_too_long');
-
-  // must include something marker-specific (name or id)
-  const name = safeStr(snapshot?.location?.name);
-  const id = snapshot?.location?.id;
-  if (name && !t.toLowerCase().includes(name.toLowerCase())) {
-    // nicht hart failen, aber als Warnung
-    problems.push('missing_location_name_in_text');
-  }
-  if (!name && id && !t.includes(String(id))) {
-    problems.push('missing_location_identifier_in_text');
-  }
-
-  // werbliche/Standardphrasen (kleiner Filter)
-  const banned = ['must-see', 'perfect', 'unique experience', 'einzigartiges erlebnis', 'muss man gesehen haben'];
-  const low = t.toLowerCase();
-  if (banned.some((b) => low.includes(b))) problems.push('contains_promotional_phrasing');
-
-  // Module Pflichtfelder vorhanden?
-  const must = ['short_profile', 'role_significance', 'atmosphere_character', 'personal_recommendation'];
-  for (const k of must) {
-    if (!safeStr(modules?.[k])) problems.push(`missing_module_${k}`);
-  }
-
-  return problems;
-}
-
-// ----------------------------
-// OpenAI call (Chat Completions) → ONLY {title, report_text, modules, marker_type_guess}
-// - WICHTIG: "data" kommt NICHT von OpenAI, sondern ausschließlich aus DB Snapshot.
-// ----------------------------
-async function generateReportWithOpenAI({ apiKey, model, lang, snapshot }) {
+async function generateReportWithOpenAI({ apiKey, model, lang, bundle }) {
   const endpoint = 'https://api.openai.com/v1/chat/completions';
 
-  const system = W2H_SYSTEM_INSTRUCTION;
+  const system = `
+You are a maritime & travel assistant for Wind2Horizon.
+Return ONLY valid JSON (no markdown, no commentary).
+Language must be: ${lang}.
+`.trim();
 
   const user = `
-Create a Wind2Horizon "KI-Report" for exactly this marker.
-
-Return ONLY valid JSON (no markdown, no commentary).
-Output language MUST be: ${lang}
+Create a concise "KI-Report" for a map location.
 
 Return JSON with this schema:
 {
+  "lang": "<${lang}>",
+  "location_id": <number>,
   "title": "<string>",
-  "marker_type_guess": "<string|null>",
-  "modules": {
-    "short_profile": "<1-2 sentences>",
-    "role_significance": "<short paragraph>",
-    "atmosphere_character": "<short paragraph>",
-    "personal_recommendation": "<1 short paragraph or 1-2 sentences>",
-    "optional": {
-      "visual_spatial_impression": "<string|null>",
-      "condensed_history_context": "<string|null>",
-      "activities_if_real": "<string|null>",
-      "infrastructure_logistics": "<string|null>"
-    }
+  "summary": "<string: 2-5 sentences>",
+  "highlights": ["<bullet>", "... up to 6"],
+  "practical_info": {
+    "address": "<string|null>",
+    "phone": "<string|null>",
+    "website": "<string|null>",
+    "rating": <number|null>,
+    "price_level": <number|null>
   },
-  "report_text": "<single cohesive text, ~1-2 minutes reading, calm factual tone, no lists unless unavoidable>"
+  "attributes": [
+    { "label": "<string>", "value": <string|number|boolean|object|null> }
+  ],
+  "safety_notes": ["<bullet>", "... up to 5"],
+  "updated_at": "<ISO timestamp>"
 }
 
 Rules:
-- Use ONLY the provided marker data as factual basis. Do NOT invent details.
-- General knowledge may inform interpretation, but do not reference sources and do not mimic Wikipedia.
-- No marketing language. No travel-guide tone. No generic filler.
-- The report must be clearly identifiable as this exact marker; avoid text that could fit multiple nearby places.
-- Modules are required (except optional.*), but may be concise for functional markers.
+- Use provided location data; do NOT invent unknown details.
+- If something is missing, set it to null or omit bullet items.
+- For "attributes": include ONLY attributes where value is not null/empty; keep it short (max 15).
+- "safety_notes": only if relevant; otherwise empty array.
 
-Marker data (DB snapshot):
-${JSON.stringify(snapshot, null, 2)}
+Input data:
+${JSON.stringify(bundle, null, 2)}
 `.trim();
 
   const controller = new AbortController();
@@ -469,7 +298,7 @@ ${JSON.stringify(snapshot, null, 2)}
       },
       body: JSON.stringify({
         model,
-        temperature: 0.35,
+        temperature: 0.4,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
@@ -486,27 +315,16 @@ ${JSON.stringify(snapshot, null, 2)}
     const content = json?.choices?.[0]?.message?.content;
     if (!content) throw new Error('OpenAI returned no message content');
 
-    const out = JSON.parse(content);
-    if (!out || typeof out !== 'object') throw new Error('Report JSON is not an object');
-
-    const title = safeStr(out.title);
-    const report_text = safeStr(out.report_text);
-
-    if (!report_text) throw new Error('OpenAI output missing report_text');
-
-    return {
-      title: title || null,
-      marker_type_guess: out.marker_type_guess ?? null,
-      modules: out.modules || null,
-      report_text,
-    };
+    const report = JSON.parse(content);
+    if (!report || typeof report !== 'object') throw new Error('Report is not an object');
+    return report;
   } finally {
     clearTimeout(t);
   }
 }
 
 // ----------------------------
-// Handlers
+// Route handlers
 // ----------------------------
 export async function GET(req) {
   const url = new URL(req.url);
@@ -515,8 +333,8 @@ export async function GET(req) {
   return jsonNoStore({
     ok: true,
     endpoint: 'ki-report/refresh',
-    method: 'POST',
-    prompt_version: PROMPT_VERSION,
+    method: 'GET',
+    diag: !!diag,
     env: diag
       ? {
           NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -542,9 +360,14 @@ export async function POST(req) {
       return jsonNoStore({ ok: false, error: 'location_id missing/invalid' }, { status: 400 });
     }
 
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return jsonNoStore({ ok: false, error: 'Missing OPENAI_API_KEY (server env)' }, { status: 500 });
+    }
+
     const supabase = getServiceSupabase();
 
-    // 0) existing?
+    // 0) Existing?
     const { data: existing, error: exErr } = await supabase
       .from('ai_reports')
       .select('id, location_id, lang, report_json, updated_at, created_at, source_tag')
@@ -557,14 +380,15 @@ export async function POST(req) {
     }
 
     const fresh = existing && isFresh(existing.updated_at, ttlHours);
-
-    // Cache-hit (WICHTIG: report zurückgeben)
     if (existing && fresh && !force) {
+      // IMPORTANT: return the cached report so UI can render it immediately
       return jsonNoStore({
         ok: true,
         used_openai: false,
         cache_hit: true,
+        stale: false,
         ttl_hours: ttlHours,
+        forced: false,
         location_id,
         lang,
         report: existing.report_json,
@@ -577,94 +401,32 @@ export async function POST(req) {
       });
     }
 
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
-      return jsonNoStore({ ok: false, error: 'Missing OPENAI_API_KEY (server env)' }, { status: 500 });
-    }
-
-    // 1) Load DB bundle (DB-first)
+    // 1) Load bundle
     const bundle = await loadLocationBundle(supabase, location_id, lang);
     if (!bundle.found) {
       return jsonNoStore({ ok: false, error: `Location ${location_id} not found`, location_id, lang }, { status: 404 });
     }
 
-    // 2) Normalize snapshot (DB-first truth)
-    const snapshot = normalizeSnapshot(bundle, lang);
-
-    // 3) Generate with OpenAI
+    // 2) OpenAI generate
     const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-    const out = await generateReportWithOpenAI({
+
+    const report_json = await generateReportWithOpenAI({
       apiKey: openaiKey,
       model,
       lang,
-      snapshot,
+      bundle: {
+        lang,
+        location: bundle.location,
+        attributes: bundle.attributes,
+      },
     });
 
-    // 4) Enforce our final stored format:
-    // - data: ALWAYS from DB snapshot
-    // - report_text/modules/title: from OpenAI
-    const dataBlock = buildDataBlock(snapshot);
+    report_json.lang = lang;
+    report_json.location_id = location_id;
+    report_json.updated_at = new Date().toISOString();
 
-    const modules = out.modules || {};
-    const report_json = {
-      lang,
-      location_id,
-      title: safeStr(out.title) || safeStr(snapshot?.location?.name) || `Location #${location_id}`,
-      marker_type_guess: out.marker_type_guess ?? null,
-
-      // DB-first deterministic block (UI soll diesen Teil bevorzugt mögen)
-      data: dataBlock,
-
-      // OpenAI meaning layer
-      modules: {
-        short_profile: safeStr(modules?.short_profile),
-        role_significance: safeStr(modules?.role_significance),
-        atmosphere_character: safeStr(modules?.atmosphere_character),
-        personal_recommendation: safeStr(modules?.personal_recommendation),
-        optional: {
-          visual_spatial_impression: safeStr(modules?.optional?.visual_spatial_impression) || null,
-          condensed_history_context: safeStr(modules?.optional?.condensed_history_context) || null,
-          activities_if_real: safeStr(modules?.optional?.activities_if_real) || null,
-          infrastructure_logistics: safeStr(modules?.optional?.infrastructure_logistics) || null,
-        },
-      },
-      report_text: safeStr(out.report_text),
-
-      meta: {
-        prompt_version: PROMPT_VERSION,
-        model,
-        generated_at: new Date().toISOString(),
-        source_tag: 'openai',
-        source_snapshot: snapshot, // Audit/Debug: genau das DB-Input-Snapshot
-      },
-    };
-
-    // 5) Quality gate
-    const problems = qualityCheck({
-      reportText: report_json.report_text,
-      modules: report_json.modules,
-      snapshot,
-    });
-
-    // Hard fail only on critical issues
-    const critical = problems.filter((p) => p.startsWith('missing_module_') || p === 'report_too_short');
-    if (critical.length) {
-      return jsonNoStore(
-        {
-          ok: false,
-          error: 'quality_check_failed',
-          critical,
-          problems,
-          location_id,
-          lang,
-          preview: report_json.report_text ? report_json.report_text.slice(0, 240) : null,
-        },
-        { status: 422 }
-      );
-    }
-
-    // 6) Upsert stored report
-    const { data: row, error } = await supabase
+    // 3) Upsert
+    const { data, error } = await supabase
       .from('ai_reports')
       .upsert(
         { location_id, lang, report_json, source_tag: 'openai' },
@@ -673,29 +435,20 @@ export async function POST(req) {
       .select('id, location_id, lang, updated_at, created_at, source_tag')
       .single();
 
-    if (error) return jsonNoStore({ ok: false, error: error.message }, { status: 500 });
+    if (error) {
+      return jsonNoStore({ ok: false, error: error.message }, { status: 500 });
+    }
 
+    // IMPORTANT: return the new report so UI can update immediately
     return jsonNoStore({
       ok: true,
       used_openai: true,
       cache_hit: false,
-      forced: force,
+      stale: existing ? !fresh : true,
       ttl_hours: ttlHours,
-      location_id,
-      lang,
+      forced: force,
+      row: data,
       report: report_json,
-      report_meta: {
-        id: row.id,
-        updated_at: row.updated_at,
-        created_at: row.created_at,
-        source_tag: row.source_tag || 'openai',
-      },
-      warnings: problems.filter((p) => !critical.includes(p)),
-      preview: {
-        title: report_json.title?.slice(0, 120) || null,
-        short_profile: report_json.modules.short_profile?.slice(0, 220) || null,
-        report_text: report_json.report_text?.slice(0, 220) || null,
-      },
     });
   } catch (err) {
     return jsonNoStore({ ok: false, error: err?.message || 'unknown error' }, { status: 500 });
