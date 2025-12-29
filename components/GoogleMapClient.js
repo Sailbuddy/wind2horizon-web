@@ -1187,9 +1187,22 @@ export default function GoogleMapClient({ lang = 'de' }) {
       openingHtml += `<ul class="iw-hours">${hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('')}</ul>`;
     }
 
-    const thumbHtml = firstThumb
-      ? `<img src="${firstThumb}" alt="" loading="lazy" style="width:100%;border-radius:10px;margin:6px 0 10px 0;" />`
+    const thumbHtml = photos.length
+      ? `
+        <div style="margin:6px 0 10px 0;">
+          ${
+            firstThumb
+              ? `<img src="${escapeHtml(firstThumb)}" alt="" loading="lazy" decoding="async"
+                  style="width:100%;height:auto;display:block;border-radius:10px;border:1px solid #eee;background:#fafafa;" />`
+              : `<div style="width:100%;border-radius:10px;border:1px dashed #cbd5e1;background:#f8fafc;
+                   padding:10px;font-size:12px;color:#64748b;">
+                   Fotos vorhanden (${photos.length}), Vorschau konnte nicht geladen werden.
+                 </div>`
+          }
+        </div>
+      `
       : '';
+
 
     const btnPhotos = photos.length
       ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${photos.length})</button>`
