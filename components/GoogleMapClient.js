@@ -142,7 +142,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // Winddaten-Modal (mit Daten)
   const [windModal, setWindModal] = useState(null);
 
-  // ✅ KI-Report Modal
+  // ✅ KI-Report Modal (wird erst bei Klick gerendert = Lazy-Render)
   // { locationId, title, loading, error, report, createdAt }
   const [kiModal, setKiModal] = useState(null);
 
@@ -178,16 +178,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   // ---------------------------------------------
   // Helpers: KI-Report API (GET cached / POST refresh)
+  // Lazy: Requests werden ausschließlich per Klick ausgelöst.
   // ---------------------------------------------
   async function fetchKiReport({ locationId, langCode }) {
     const res = await fetch(
       `/api/ki-report?location_id=${encodeURIComponent(String(locationId))}&lang=${encodeURIComponent(langCode)}`,
-      {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      }
+      { method: 'GET', headers: { Accept: 'application/json' } }
     );
-
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
       throw new Error(txt || `GET ki-report failed (${res.status})`);
@@ -201,7 +198,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ location_id: locationId, lang: langCode }),
     });
-
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
       throw new Error(txt || `POST ki-report/refresh failed (${res.status})`);
@@ -482,39 +478,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
             padding: 16,
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              marginBottom: 12,
-            }}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
               {g.title} – {items.length} Fotos
             </h3>
-            <button
-              onClick={onClose}
-              style={{
-                fontSize: 24,
-                lineHeight: 1,
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
+            <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
               ×
             </button>
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 12,
-            }}
-          >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
             {items
               .map((p, idx) => {
                 const isGoogle = !!(p.photo_reference || p.photoreference);
@@ -545,21 +518,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
                         overflow: 'hidden',
                       }}
                     >
-                      <img
-                        src={src}
-                        alt={p.caption || ''}
-                        loading="lazy"
-                        decoding="async"
-                        style={{ width: '100%', height: 'auto', display: 'block' }}
-                      />
+                      <img src={src} alt={p.caption || ''} loading="lazy" decoding="async" style={{ width: '100%', height: 'auto', display: 'block' }} />
                     </div>
 
                     {isGoogle ? (
                       Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
-                        <figcaption
-                          style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}
-                          dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }}
-                        />
+                        <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }} dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }} />
                       ) : null
                     ) : p.caption || p.author ? (
                       <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
@@ -615,16 +579,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>💨 Winddaten · {modal.title} (#{modal.id})</h2>
-            <button
-              onClick={onClose}
-              style={{
-                fontSize: 24,
-                lineHeight: 1,
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
+            <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
               ×
             </button>
           </div>
@@ -635,9 +590,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
               {windProfile ? (
                 <WindSwellRose size={260} wind={windProfile.wind || {}} swell={windProfile.swell || {}} />
               ) : (
-                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
-                  Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.
-                </p>
+                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.</p>
               )}
             </div>
 
@@ -666,17 +619,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
                     />
                   </>
                 ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>
-                    Für diesen Spot ist noch keine Live-Wind-Station verknüpft.
-                  </p>
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Für diesen Spot ist noch keine Live-Wind-Station verknüpft.</p>
                 )}
               </div>
             </div>
           </div>
 
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.
-          </p>
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.</p>
         </div>
       </div>
     );
@@ -726,10 +675,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
               </div>
             </div>
 
-            <button
-              onClick={onClose}
-              style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}
-            >
+            <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
               ×
             </button>
           </div>
@@ -737,35 +683,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
           {modal.loading ? (
             <div style={{ fontSize: 14, color: '#374151' }}>{label('loadingReport', lang)}</div>
           ) : modal.error ? (
-            <div
-              style={{
-                fontSize: 14,
-                color: '#b91c1c',
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                padding: 10,
-                borderRadius: 12,
-              }}
-            >
+            <div style={{ fontSize: 14, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: 10, borderRadius: 12 }}>
               {modal.error}
             </div>
           ) : modal.report ? (
-            <>
-              {/* MVP: Report als JSON anzeigen; später rendern wir schöne Sections */}
-              <pre
-                style={{
-                  margin: 0,
-                  whiteSpace: 'pre-wrap',
-                  fontSize: 12,
-                  background: '#f9fafb',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: 12,
-                  padding: 12,
-                }}
-              >
-                {JSON.stringify(modal.report, null, 2)}
-              </pre>
-            </>
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+              {JSON.stringify(modal.report, null, 2)}
+            </pre>
           ) : (
             <div style={{ fontSize: 14, color: '#6b7280' }}>{label('noReport', lang)}</div>
           )}
@@ -883,6 +807,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       createdAt: { de: 'erstellt', en: 'created', it: 'creato', hr: 'izrađeno', fr: 'créé' },
       loadingReport: { de: 'Report wird geladen…', en: 'Loading report…', it: 'Caricamento…', hr: 'Učitavanje…', fr: 'Chargement…' },
       noReport: { de: 'Kein Report vorhanden.', en: 'No report available.', it: 'Nessun report.', hr: 'Nema izvještaja.', fr: 'Aucun rapport.' },
+
+      // ✅ Datenblock (immer sichtbar)
+      dataBlock: { de: 'Daten', en: 'Data', it: 'Dati', hr: 'Podaci', fr: 'Données' },
     };
     return (L[key] && (L[key][langCode] || L[key].en)) || key;
   }
@@ -1158,6 +1085,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     return null;
   }
 
+  // ✅ InfoWindow HTML: eigener Datenblock immer sichtbar; KI-Report ausschließlich per Klick (Modal).
   function buildInfoContent(row, kvRaw, iconSvgRaw, langCode) {
     const kv = kvRaw && typeof kvRaw === 'object' ? kvRaw : {};
     const title = escapeHtml(pickName(row, langCode));
@@ -1174,7 +1102,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }
     }
 
-    // ✅ WICHTIG: Fallback auf locations.address (damit "Porec" & InfoWindow robust funktionieren)
+    // ✅ WICHTIG: Fallback auf locations.address
     const addressRaw = addrSel || kv.address || row.address || '';
     const address = escapeHtml(addressRaw);
 
@@ -1257,7 +1185,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
 
-    // ✅ KI-Report Button
+    // ✅ KI-Report Button (nur nach Klick; kein Preload)
     const btnKi = `<button id="kibtn-${row.id}" class="iw-btn iw-btn-ki">🧠 ${label('kiReport', langCode)}</button>`;
 
     // ✅ Dynamische Attribute: Gruppiert rendern (infowindow_group)
@@ -1303,6 +1231,22 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (blocks) dynamicHtml = `<div class="iw-dyn">${blocks}</div>`;
     }
 
+    // ✅ Datenblock immer sichtbar (optische Kapselung, keine Funktionseinschränkung)
+    const dataBlock = `
+      <div class="iw-block iw-block-data">
+        <div class="iw-block-hd">${escapeHtml(label('dataBlock', langCode))}</div>
+        <div class="iw-block-bd">
+          ${thumbHtml}
+          ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
+          ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
+          ${ratingHtml}
+          ${priceHtml}
+          ${openingHtml}
+          ${dynamicHtml}
+        </div>
+      </div>
+    `;
+
     return `
       <div class="w2h-iw">
         <div class="iw-hd">
@@ -1312,15 +1256,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
             <span class="iw-id">#${row.id}</span>
           </div>
         </div>
+
         <div class="iw-bd">
-          ${thumbHtml}
-          ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
-          ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
-          ${ratingHtml}
-          ${priceHtml}
-          ${openingHtml}
-          ${dynamicHtml}
+          ${dataBlock}
         </div>
+
         <div class="iw-actions">
           ${btnKi}${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
         </div>
@@ -1336,10 +1276,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, ''); // diacritics
-    return s
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return s.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   function pickCategoryName(cat, langCode) {
@@ -1402,7 +1339,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     // ids / plus codes
     parts.push(row.google_place_id, row.plus_code);
 
-    // ✅ locations table: address/phone/website (damit "Porec" etc. sicher matcht)
+    // ✅ locations table: address/phone/website
     parts.push(row.address, row.phone, row.website);
 
     // category names + google type
@@ -1420,9 +1357,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     // meta address / website / phone (optional but helpful)
     if (meta && typeof meta === 'object') {
       if (meta.address) parts.push(meta.address);
-      if (meta.addressByLang && typeof meta.addressByLang === 'object') {
-        Object.values(meta.addressByLang).forEach((v) => parts.push(v));
-      }
+      if (meta.addressByLang && typeof meta.addressByLang === 'object') Object.values(meta.addressByLang).forEach((v) => parts.push(v));
       if (meta.website) parts.push(meta.website);
       if (meta.phone) parts.push(meta.phone);
       if (meta.description) parts.push(meta.description);
@@ -1517,9 +1452,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     // Save current marker visibility
     const prev = new Map();
-    for (const m of markers.current) {
-      prev.set(m, m.getVisible());
-    }
+    for (const m of markers.current) prev.set(m, m.getVisible());
     prevVisibilityRef.current = prev;
 
     // Hide all, then show only results
@@ -1648,23 +1581,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
         active: true,
         query: raw,
         results: [],
-        message: catIds.length
-          ? `Keine Treffer. Tipp: Region prüfen (aktuell: ${regionLabel}) oder Query vereinfachen.`
-          : `Keine Treffer. Tipp: Region prüfen (aktuell: ${regionLabel}) oder Query vereinfachen.`,
+        message: `Keine Treffer. Tipp: Region prüfen (aktuell: ${regionLabel}) oder Query vereinfachen.`,
         matchedCategories: catHits,
       });
       exitSearchFocus();
       return;
     }
 
-    setSearchMode({
-      active: true,
-      query: raw,
-      results: limited,
-      message: '',
-      matchedCategories: catHits,
-    });
-
+    setSearchMode({ active: true, query: raw, results: limited, message: '', matchedCategories: catHits });
     enterSearchFocus(limited.map((x) => x.row));
   }
 
@@ -1677,12 +1601,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const onSuccess = (pos) => {
       const { latitude, longitude } = pos.coords;
-
       const hit = regions.find((r) => pointInRegion(latitude, longitude, r)) || null;
 
       if (hit) {
         setSelectedRegion(hit.slug);
-
         if (mapObj.current && window.google) {
           const b = boundsToLatLngBounds(hit);
           setTimeout(() => {
@@ -1783,7 +1705,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   async function loadMarkers(langCode) {
     const schema = await ensureAttributeSchema();
 
-    // ✅ WICHTIG: address/phone/website/rating/price_level aus locations laden (Suche & InfoWindow)
+    // ✅ WICHTIG: address/phone/website/rating/price_level aus locations laden
     let locQuery = supabase.from('locations').select(`
         id,lat,lng,category_id,display_name,
         google_place_id,plus_code,
@@ -1795,11 +1717,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     const r = selectedRegion === 'all' ? null : regions.find((x) => x.slug === selectedRegion);
     if (r) {
-      locQuery = locQuery
-        .gte('lat', r.bounds_south)
-        .lte('lat', r.bounds_north)
-        .gte('lng', r.bounds_west)
-        .lte('lng', r.bounds_east);
+      locQuery = locQuery.gte('lat', r.bounds_south).lte('lat', r.bounds_north).gte('lng', r.bounds_west).lte('lng', r.bounds_east);
     }
 
     const { data: locs, error: errLocs } = await locQuery;
@@ -1873,9 +1791,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       // 1) Canonical Fields (mit Fix B)
       if (canon) {
         if (canon === 'photos') {
-          const googleArr = normalizeGooglePhotos(
-            r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null
-          );
+          const googleArr = normalizeGooglePhotos(r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null);
           if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
           return;
         }
@@ -1894,9 +1810,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
         if (canon === 'wind_hint') {
           obj.wind_hint = obj.wind_hint || {};
           let text = '';
-          if (r2.value_text && String(r2.value_text).trim()) {
-            text = String(r2.value_text);
-          } else if (r2.value_json) {
+          if (r2.value_text && String(r2.value_text).trim()) text = String(r2.value_text);
+          else if (r2.value_json) {
             try {
               const j = typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json);
               if (typeof j === 'string') text = j;
@@ -2084,9 +1999,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       kvByLoc.set(loc.id, obj);
     }
 
-    if (DEBUG_LOG) {
-      console.log('[w2h] dynamic total count:', dynCountTotal);
-    }
+    if (DEBUG_LOG) console.log('[w2h] dynamic total count:', dynCountTotal);
 
     // 🔹 Locations + Meta für Suche speichern
     locationsRef.current = locList;
@@ -2180,7 +2093,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
               });
             }
 
-            // ✅ KI-Report Button
+            // ✅ KI-Report Button (Lazy: Modal + Fetch nur nach Klick)
             const kibtn = document.getElementById(`kibtn-${row.id}`);
             if (kibtn) {
               kibtn.addEventListener('click', async () => {
@@ -2235,17 +2148,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (DEBUG_BOUNDING) createDebugOverlay(mapObj.current, locList);
 
     // Wenn Search Focus aktiv war, neu anwenden (z.B. Region gewechselt)
-    if (searchMode.active && searchMode.results && searchMode.results.length) {
-      enterSearchFocus(searchMode.results.map((x) => x.row));
-    } else {
-      applyLayerVisibility();
-    }
+    if (searchMode.active && searchMode.results && searchMode.results.length) enterSearchFocus(searchMode.results.map((x) => x.row));
+    else applyLayerVisibility();
 
     if (DEBUG_LOG) {
       const some = locList[0];
-      if (some) {
-        console.log('[w2h] sample loc', some.id, 'dynamic:', (kvByLoc.get(some.id) || {}).dynamic);
-      }
+      if (some) console.log('[w2h] sample loc', some.id, 'dynamic:', (kvByLoc.get(some.id) || {}).dynamic);
     }
   }
 
@@ -2285,7 +2193,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             setRegionMode('manual');
             setSelectedRegion(slug);
 
-            // Bei Regionwechsel: Search Focus aufheben (sauberer Erwartungshorizont)
+            // Bei Regionwechsel: Search Focus aufheben
             if (searchMode.active) clearSearchMode();
 
             if (!mapObj.current || !window.google) return;
@@ -2460,9 +2368,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             >
               {searchMode.message}
               {searchMode.matchedCategories && searchMode.matchedCategories.length ? (
-                <div style={{ marginTop: 6, color: '#9a3412' }}>
-                  Hinweis: Aktiviere die Kategorie im Layer-Menü, um Ergebnisse zu sehen.
-                </div>
+                <div style={{ marginTop: 6, color: '#9a3412' }}>Hinweis: Aktiviere die Kategorie im Layer-Menü, um Ergebnisse zu sehen.</div>
               ) : null}
             </div>
           ) : null}
@@ -2490,9 +2396,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                       <div style={{ fontSize: 11, color: '#9ca3af' }}>#{row.id}</div>
                     </div>
                     {catName ? <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{catName}</div> : null}
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                      {Number.isFinite(score) ? `Score: ${score}` : ''}
-                    </div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{Number.isFinite(score) ? `Score: ${score}` : ''}</div>
                   </button>
                 );
               })}
@@ -2513,18 +2417,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
           // ✅ Gruppenlogik: wenn LayerPanel meta.affected_category_ids liefert
           const affected = meta && Array.isArray(meta.affected_category_ids) ? meta.affected_category_ids : [catKey];
 
-          for (const k of affected) {
-            layerState.current.set(String(k), visible);
-          }
+          for (const k of affected) layerState.current.set(String(k), visible);
 
-          // Wenn Search Focus aktiv ist: nicht überschreiben (User will Result-Set sehen)
+          // Wenn Search Focus aktiv ist: nicht überschreiben
           if (!searchMode.active) applyLayerVisibility();
         }}
         onToggleAll={(visible) => {
           const updated = new Map();
-          layerState.current.forEach((_v, key) => {
-            updated.set(key, visible);
-          });
+          layerState.current.forEach((_v, key) => updated.set(key, visible));
           layerState.current = updated;
           if (!searchMode.active) applyLayerVisibility();
         }}
@@ -2533,34 +2433,37 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
       <WindModal modal={windModal} onClose={() => setWindModal(null)} />
 
-      <KiReportModal
-        modal={kiModal}
-        onClose={() => setKiModal(null)}
-        onRefresh={async () => {
-          if (!kiModal?.locationId) return;
+      {/* ✅ Lazy-Render: KiReportModal existiert nur wenn wirklich geöffnet */}
+      {kiModal ? (
+        <KiReportModal
+          modal={kiModal}
+          onClose={() => setKiModal(null)}
+          onRefresh={async () => {
+            if (!kiModal?.locationId) return;
 
-          setKiModal((prev) => ({ ...(prev || {}), loading: true, error: '' }));
-          try {
-            const data = await refreshKiReport({ locationId: kiModal.locationId, langCode: lang });
-            const reportObj = data.report_json || data.report || data;
-            const createdAt = data.created_at || reportObj?.created_at || null;
+            setKiModal((prev) => ({ ...(prev || {}), loading: true, error: '' }));
+            try {
+              const data = await refreshKiReport({ locationId: kiModal.locationId, langCode: lang });
+              const reportObj = data.report_json || data.report || data;
+              const createdAt = data.created_at || reportObj?.created_at || null;
 
-            setKiModal((prev) => ({
-              ...(prev || {}),
-              loading: false,
-              error: '',
-              report: reportObj,
-              createdAt,
-            }));
-          } catch (e) {
-            setKiModal((prev) => ({
-              ...(prev || {}),
-              loading: false,
-              error: e?.message || 'Aktualisieren fehlgeschlagen.',
-            }));
-          }
-        }}
-      />
+              setKiModal((prev) => ({
+                ...(prev || {}),
+                loading: false,
+                error: '',
+                report: reportObj,
+                createdAt,
+              }));
+            } catch (e) {
+              setKiModal((prev) => ({
+                ...(prev || {}),
+                loading: false,
+                error: e?.message || 'Aktualisieren fehlgeschlagen.',
+              }));
+            }
+          }}
+        />
+      ) : null}
 
       <style jsx>{`
         .w2h-map-wrap {
@@ -2678,6 +2581,27 @@ export default function GoogleMapClient({ lang = 'de' }) {
         .gm-style .w2h-iw .iw-hours {
           padding-left: 16px;
           margin: 4px 0;
+        }
+
+        /* ✅ Datenblock (immer sichtbar) */
+        .gm-style .w2h-iw .iw-block {
+          border: 1px solid #eef2f7;
+          background: #ffffff;
+          border-radius: 12px;
+          padding: 10px;
+        }
+        .gm-style .w2h-iw .iw-block-hd {
+          font-weight: 900;
+          font-size: 12px;
+          letter-spacing: 0.2px;
+          color: #111;
+          margin-bottom: 6px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .gm-style .w2h-iw .iw-block-bd {
+          display: block;
         }
 
         /* ✅ Dynamische Attribute */
