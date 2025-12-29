@@ -788,9 +788,25 @@ export default function GoogleMapClient({ lang = 'de' }) {
               {modal.error}
             </div>
           ) : modal.report ? (
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-              {JSON.stringify(modal.report, null, 2)}
-            </pre>
+            <div>
+              {renderKiReportPretty(modal.report, lang)}
+              <details style={{ marginTop: 10 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: '#64748b' }}>Debug: JSON anzeigen</summary>
+                <pre
+                  style={{
+                    marginTop: 8,
+                    whiteSpace: 'pre-wrap',
+                    fontSize: 12,
+                    background: '#f9fafb',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 12,
+                    padding: 12,
+                  }}
+                >
+                  {JSON.stringify(modal.report, null, 2)}
+                </pre>
+              </details>
+            </div>
           ) : (
             <div style={{ fontSize: 14, color: '#6b7280' }}>{label('noReport', lang)}</div>
           )}
