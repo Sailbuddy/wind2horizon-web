@@ -208,7 +208,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
-  const photoUrl = (ref, max = 800) => `/api/gphoto?photoreference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+  const photoUrl = (ref, max = 800) => `/api/gphoto?photo_reference=${encodeURIComponent(ref)}&maxwidth=${max}`;
 
   function escapeHtml(str = '') {
     return String(str)
