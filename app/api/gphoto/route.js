@@ -4,13 +4,19 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+/**
+ * TEST: Key-Reihenfolge geändert
+ * Ziel: Prüfen, ob es sofort wieder funktioniert, wenn wir den Browser-Key (NEXT_PUBLIC_...)
+ * temporär bevorzugen. Wenn JA -> dein aktueller Server-Key ist falsch restricted / falsches Projekt / ohne Places Photo.
+ *
+ * WICHTIG: Nach dem Test wieder zurückdrehen (Server-Key-only).
+ */
 function pickKey() {
-  // Server-only Keys bevorzugen
   return (
-    process.env.GOOGLE_API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || // ✅ TEMP TEST: bevorzugt
     process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
     process.env.VITE_GOOGLE_MAPS_API_KEY ||
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || // Fallback (nur zur Fehlersuche)
     ''
   );
 }
@@ -19,7 +25,7 @@ export async function GET(req) {
   try {
     const url = new URL(req.url);
 
-    // akzeptiere beide Param-Namen (du nutzt im Client: photoreference)
+    // akzeptiere beide Param-Namen (Client nutzt: photoreference)
     let ref =
       url.searchParams.get('photoreference') ??
       url.searchParams.get('photo_reference');
@@ -31,8 +37,7 @@ export async function GET(req) {
       );
     }
 
-    // CRITICAL: URLSearchParams decodiert "+" zu " " (space)
-    // => reparieren, sonst Google 400
+    // CRITICAL: URLSearchParams decodiert "+" zu " " (space) -> reparieren
     ref = String(ref).replace(/ /g, '+');
 
     const diag = url.searchParams.get('diag');
@@ -59,7 +64,15 @@ export async function GET(req) {
 
     const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
 
+    // Diagnosemodus: zeigt dir, welchen Key (ENV) der Server wirklich genommen hat
     if (diag) {
+      const usedEnvVar =
+        (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ||
+        (process.env.GOOGLE_MAPS_API_KEY && 'GOOGLE_MAPS_API_KEY') ||
+        (process.env.GOOGLE_API_KEY && 'GOOGLE_API_KEY') ||
+        (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
+        '(none)';
+
       return NextResponse.json({
         ok: true,
         received: {
@@ -68,19 +81,13 @@ export async function GET(req) {
           maxheight: mh || null,
         },
         builtUrl: gUrl.replace(key, '***'),
-        usedEnvVar:
-          (process.env.GOOGLE_API_KEY && 'GOOGLE_API_KEY') ||
-          (process.env.GOOGLE_MAPS_API_KEY && 'GOOGLE_MAPS_API_KEY') ||
-          (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
-          (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ||
-          '(none)',
+        usedEnvVar,
       });
     }
 
     const upstream = await fetch(gUrl, {
       redirect: 'follow',
       headers: {
-        // optional, hilft manchmal bei Proxies/CDNs
         accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
       },
     });
