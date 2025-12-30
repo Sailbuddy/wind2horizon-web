@@ -4,54 +4,36 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Nur Domains zulassen, die du kontrollierst (verhindert Missbrauch)
-const ALLOWED_ORIGINS = new Set([
-  'https://map.wind2horizon.com',
-  'https://wind2horizon.com',
-  'https://www.wind2horizon.com',
-  'http://localhost:3000',
-]);
-
 function pickKey() {
   // Server-only Keys bevorzugen
   return (
     process.env.GOOGLE_API_KEY ||
     process.env.GOOGLE_MAPS_API_KEY ||
     process.env.VITE_GOOGLE_MAPS_API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || // Fallback (nur zur Fehlersuche)
     ''
   );
-}
-
-function pickSafeOrigin(req) {
-  // Origin bevorzugen, sonst Referer -> Origin extrahieren
-  const origin = req.headers.get('origin');
-  if (origin && ALLOWED_ORIGINS.has(origin)) return origin;
-
-  const referer = req.headers.get('referer');
-  if (referer) {
-    try {
-      const o = new URL(referer).origin;
-      if (ALLOWED_ORIGINS.has(o)) return o;
-    } catch (_) {}
-  }
-
-  // Fallback auf deine Map-Domain
-  return 'https://map.wind2horizon.com';
 }
 
 export async function GET(req) {
   try {
     const url = new URL(req.url);
 
-    // akzeptiere beide Parameternamen
-    const ref =
+    // akzeptiere beide Param-Namen (du nutzt im Client: photoreference)
+    let ref =
       url.searchParams.get('photoreference') ??
-      url.searchParams.get('photo_reference') ??
-      url.searchParams.get('photoreference'.toUpperCase());
+      url.searchParams.get('photo_reference');
 
     if (!ref) {
-      return NextResponse.json({ ok: false, error: 'Missing "photoreference".' }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: 'Missing "photoreference".' },
+        { status: 400 }
+      );
     }
+
+    // CRITICAL: URLSearchParams decodiert "+" zu " " (space)
+    // => reparieren, sonst Google 400
+    ref = String(ref).replace(/ /g, '+');
 
     const diag = url.searchParams.get('diag');
 
@@ -62,18 +44,20 @@ export async function GET(req) {
 
     const key = pickKey();
     if (!key) {
-      return NextResponse.json({ ok: false, error: 'Google API key missing on server.' }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: 'Google API key missing on server.' },
+        { status: 500 }
+      );
     }
 
     const qs = new URLSearchParams();
     qs.set(sizeKey, sizeVal);
-    qs.set('photo_reference', ref); // Google erwartet photo_reference
+
+    // Places Photo API: Parameter heißt "photoreference"
+    qs.set('photoreference', ref);
     qs.set('key', key);
 
     const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
-
-    // WICHTIG: Referrer/Origin mitgeben (falls Key darauf eingeschränkt ist)
-    const safeOrigin = pickSafeOrigin(req);
 
     if (diag) {
       return NextResponse.json({
@@ -83,12 +67,12 @@ export async function GET(req) {
           maxwidth: mw || null,
           maxheight: mh || null,
         },
-        safeOrigin,
         builtUrl: gUrl.replace(key, '***'),
         usedEnvVar:
           (process.env.GOOGLE_API_KEY && 'GOOGLE_API_KEY') ||
           (process.env.GOOGLE_MAPS_API_KEY && 'GOOGLE_MAPS_API_KEY') ||
           (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
+          (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ||
           '(none)',
       });
     }
@@ -96,16 +80,13 @@ export async function GET(req) {
     const upstream = await fetch(gUrl, {
       redirect: 'follow',
       headers: {
-        // Google Key-Restriktionen (HTTP referrer) können dadurch erfüllt werden
-        referer: safeOrigin + '/',
-        origin: safeOrigin,
+        // optional, hilft manchmal bei Proxies/CDNs
         accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
       },
     });
 
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
-      // Fehler als text/plain zurück – damit du es in DevTools direkt siehst
       return new NextResponse(text || `Upstream error ${upstream.status}`, {
         status: upstream.status,
         headers: { 'content-type': 'text/plain; charset=utf-8' },
@@ -113,7 +94,8 @@ export async function GET(req) {
     }
 
     const contentType = upstream.headers.get('content-type') || 'image/jpeg';
-    const cacheControl = 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
+    const cacheControl =
+      'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
 
     return new NextResponse(upstream.body, {
       status: 200,
@@ -123,6 +105,9 @@ export async function GET(req) {
       },
     });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: `Proxy error: ${err?.message || 'unknown'}` }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: `Proxy error: ${err?.message || 'unknown'}` },
+      { status: 500 }
+    );
   }
 }
