@@ -1,197 +1,155 @@
-// app/api/gphoto/route.js
 import { NextResponse } from 'next/server';
 
-export const runtime = 'nodejs';
+export const runtime = 'nodejs'; // wichtig für fetch/streaming stabil auf Vercel
 export const dynamic = 'force-dynamic';
 
-const VERSION = 'gphoto-2026-01-02-19-45';
-
-// WICHTIG:
-// - Nutze serverseitig KEINEN NEXT_PUBLIC Key.
-// - Auf Vercel als Secret setzen, z.B. GOOGLE_PLACES_SERVER_KEY oder GOOGLE_MAPS_SERVER_KEY.
 function getServerKey() {
   return (
     process.env.GOOGLE_PLACES_SERVER_KEY ||
     process.env.GOOGLE_MAPS_SERVER_KEY ||
     process.env.GOOGLE_API_KEY ||
-    process.env.SUPABASE_GOOGLE_KEY || // falls du sowas hast
     null
   );
 }
 
-// Extrahiert aus Googles HTML eine kompakte Fehlermeldung
-function extractGoogleHtmlMessage(html = '') {
-  const s = String(html || '');
-
-  // title
-  const t = s.match(/<title>(.*?)<\/title>/i)?.[1]?.trim() || '';
-
-  // häufig steht die Aussage in einem <p>...</p> weiter unten
-  const ps = [];
-  const pRe = /<p>(.*?)<\/p>/gi;
-  let m;
-  while ((m = pRe.exec(s)) !== null) {
-    const txt = m[1]
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (txt) ps.push(txt);
-    if (ps.length >= 3) break;
-  }
-
-  // manchmal findet man "REQUEST_DENIED" o.ä. im HTML
-  const hints = [];
-  ['REQUEST_DENIED', 'INVALID_REQUEST', 'OVER_QUERY_LIMIT', 'key', 'API', 'not authorized', 'billing'].forEach((k) => {
-    if (s.toLowerCase().includes(k.toLowerCase())) hints.push(k);
-  });
-
-  const msgParts = [];
-  if (t) msgParts.push(t);
-  if (ps.length) msgParts.push(...ps);
-  if (hints.length) msgParts.push(`Hints: ${[...new Set(hints)].join(', ')}`);
-
-  return msgParts.join(' | ').trim();
+function pickRef(url) {
+  return (
+    url.searchParams.get('photo_reference') ||
+    url.searchParams.get('photoreference') ||
+    url.searchParams.get('ref') ||
+    ''
+  );
 }
 
-async function fetchGooglePhoto({ key, ref, maxwidth, maxheight, paramName }) {
-  const u = new URL('https://maps.googleapis.com/maps/api/place/photo');
-  if (maxwidth) u.searchParams.set('maxwidth', String(maxwidth));
-  if (maxheight) u.searchParams.set('maxheight', String(maxheight));
-  u.searchParams.set(paramName, String(ref));
-  u.searchParams.set('key', key);
+function pickSize(url) {
+  const mw = url.searchParams.get('maxwidth');
+  const mh = url.searchParams.get('maxheight');
+  const maxwidth = mw ? Math.max(1, Math.min(2000, parseInt(mw, 10) || 0)) : 800;
+  const maxheight = mh ? Math.max(1, Math.min(2000, parseInt(mh, 10) || 0)) : null;
+  return { maxwidth, maxheight };
+}
 
-  // redirect: 'manual' ist hier entscheidend, weil Google häufig 302 zum Bild liefert.
-  const res = await fetch(u.toString(), {
-    method: 'GET',
-    redirect: 'manual',
-    // keine speziellen headers nötig
-  });
+async function safeText(res) {
+  try {
+    return await res.text();
+  } catch {
+    return '';
+  }
+}
 
-  return { res, url: u.toString(), paramName };
+// folgt Redirects bis zum finalen Bild (max 5 hops)
+async function fetchWithRedirects(url, opts, maxHops = 5) {
+  let current = url;
+  for (let i = 0; i < maxHops; i++) {
+    const res = await fetch(current, { ...opts, redirect: 'manual' });
+
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location');
+      if (!loc) return res;
+      current = loc.startsWith('http') ? loc : new URL(loc, current).toString();
+      continue;
+    }
+    return res;
+  }
+  return fetch(current, { ...opts, redirect: 'follow' });
 }
 
 export async function GET(req) {
+  const key = getServerKey();
+  const url = new URL(req.url);
+
+  const diag = url.searchParams.get('diag') === '1';
+  const ref = pickRef(url);
+  const { maxwidth, maxheight } = pickSize(url);
+
+  if (!key) {
+    return NextResponse.json(
+      {
+        ok: false,
+        version: 'gphoto-2026-01-02-19-45',
+        error: 'Missing server-side Google API key. Set GOOGLE_PLACES_SERVER_KEY (recommended) or GOOGLE_MAPS_SERVER_KEY in Vercel env.',
+      },
+      { status: 500 }
+    );
+  }
+
+  if (!ref || ref.length < 20) {
+    return NextResponse.json(
+      {
+        ok: false,
+        version: 'gphoto-2026-01-02-19-45',
+        error: 'Missing/invalid photo reference.',
+        received: { ref_len: ref ? ref.length : 0, maxwidth, maxheight },
+      },
+      { status: 400 }
+    );
+  }
+
+  const upstream = new URL('https://maps.googleapis.com/maps/api/place/photo');
+  if (maxheight) upstream.searchParams.set('maxheight', String(maxheight));
+  else upstream.searchParams.set('maxwidth', String(maxwidth));
+
+  // WICHTIG: Google erwartet "photoreference"
+  upstream.searchParams.set('photoreference', ref);
+  upstream.searchParams.set('key', key);
+
+  if (diag) {
+    return NextResponse.json(
+      {
+        ok: true,
+        version: 'gphoto-2026-01-02-19-45',
+        received: { ref_len: ref.length, maxwidth, maxheight },
+        upstream: { url: upstream.toString().replace(key, '***') },
+      },
+      { status: 200 }
+    );
+  }
+
   try {
-    const { searchParams } = new URL(req.url);
+    const res = await fetchWithRedirects(upstream.toString(), { method: 'GET' });
 
-    const ref =
-      searchParams.get('photo_reference') ||
-      searchParams.get('photoreference') ||
-      searchParams.get('photoRef') ||
-      searchParams.get('ref');
-
-    const maxwidth = Number(searchParams.get('maxwidth') || 600);
-    const maxheightRaw = searchParams.get('maxheight');
-    const maxheight = maxheightRaw ? Number(maxheightRaw) : null;
-
-    const diag = searchParams.get('diag') === '1';
-
-    if (!ref || String(ref).trim().length < 10) {
-      return NextResponse.json(
-        { ok: false, version: VERSION, error: 'Missing or invalid photo reference', received: { ref: ref || null } },
-        { status: 400 }
-      );
-    }
-
-    const key = getServerKey();
-    if (!key) {
-      return NextResponse.json(
-        {
-          ok: false,
-          version: VERSION,
-          error:
-            'Missing server-side Google API key. Set GOOGLE_PLACES_SERVER_KEY (recommended) or GOOGLE_MAPS_SERVER_KEY in Vercel env.',
-        },
-        { status: 500 }
-      );
-    }
-
-    // 1) First try with "photoreference" (historisch oft so genutzt)
-    let attempt = await fetchGooglePhoto({ key, ref, maxwidth, maxheight, paramName: 'photoreference' });
-
-    // 2) If upstream 4xx, retry with "photo_reference" (andere Doku/Stacks)
-    if (attempt.res.status >= 400 && attempt.res.status < 500) {
-      const retry = await fetchGooglePhoto({ key, ref, maxwidth, maxheight, paramName: 'photo_reference' });
-      // wenn Retry besser ist, nimm Retry, sonst lass ersten Versuch
-      if (retry.res.status < attempt.res.status) attempt = retry;
-      else if (retry.res.status >= 200 && retry.res.status < 400) attempt = retry;
-    }
-
-    const { res, url, paramName } = attempt;
-
-    // Diagnose-Mode: nur zeigen, was wir gebaut haben
-    if (diag) {
-      return NextResponse.json(
-        {
-          ok: true,
-          version: VERSION,
-          received: { ref_len: String(ref).length, maxwidth, maxheight },
-          upstream: { url, triedParam: paramName, status: res.status, contentType: res.headers.get('content-type') || null },
-        },
-        { status: 200 }
-      );
-    }
-
-    // Erfolgsfall: Google liefert oft Redirect auf das Bild
-    if ([301, 302, 303, 307, 308].includes(res.status)) {
-      const loc = res.headers.get('location');
-      if (!loc) {
-        // selten: redirect ohne Location
-        const body = await res.text().catch(() => '');
-        return NextResponse.json(
-          {
-            ok: false,
-            version: VERSION,
-            error: 'Upstream redirect without Location header',
-            upstream: { status: res.status, url, triedParam: paramName, contentType: res.headers.get('content-type') || null },
-            bodySnippet: String(body).slice(0, 2000),
-          },
-          { status: 502 }
-        );
-      }
-
-      // Browser lädt Bild direkt von Google (ohne Key), wir verraten keinen Key.
-      return NextResponse.redirect(loc, { status: 302 });
-    }
-
-    // Wenn Google direkt ein Bild liefert (200 image/*), einfach durchreichen
+    // Google liefert bei Erfolg oft 302 -> final image CDN
     const ct = res.headers.get('content-type') || '';
+
+    // Wenn es ein Bild ist, direkt durchreichen
     if (res.ok && ct.startsWith('image/')) {
-      const buf = await res.arrayBuffer();
+      const buf = Buffer.from(await res.arrayBuffer());
       return new NextResponse(buf, {
         status: 200,
         headers: {
-          'Content-Type': ct,
-          'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+          'content-type': ct,
+          // optionales Caching (du kannst das später hochdrehen)
+          'cache-control': 'public, max-age=86400, s-maxage=86400',
+          'x-w2h-gphoto-version': 'gphoto-2026-01-02-19-45',
         },
       });
     }
 
-    // Fehlerfall: HTML lesen (größerer Ausschnitt), Message extrahieren
-    const bodyText = await res.text().catch(() => '');
-    const bodyHead = String(bodyText).slice(0, 20000); // mehr Kontext
-    const msg = extractGoogleHtmlMessage(bodyHead);
+    // Fehler / kein Bild: Textsnippet zurückgeben, damit du REQUEST_DENIED etc. siehst
+    const body = await safeText(res);
+    const snippet = body ? body.slice(0, 600) : '';
 
     return NextResponse.json(
       {
         ok: false,
-        version: VERSION,
-        error: 'Google Place Photo upstream failed',
+        version: 'gphoto-2026-01-02-19-45',
         upstream: {
           status: res.status,
           contentType: ct || null,
-          triedParam: paramName,
-          url: url.replace(/key=([^&]+)/, 'key=***'),
-          message: msg || null,
-          bodySnippet: bodyHead.slice(0, 4000),
+          url: upstream.toString().replace(key, '***'),
+          bodySnippet: snippet,
         },
       },
       { status: 502 }
     );
   } catch (e) {
     return NextResponse.json(
-      { ok: false, version: VERSION, error: e?.message || 'Unknown error' },
-      { status: 500 }
+      {
+        ok: false,
+        version: 'gphoto-2026-01-02-19-45',
+        error: e?.message || 'Proxy failed',
+      },
+      { status: 502 }
     );
   }
 }
