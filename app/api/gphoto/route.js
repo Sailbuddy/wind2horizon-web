@@ -4,160 +4,124 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Priorität: echte Server-Keys zuerst. KEINE NEXT_PUBLIC Keys (nur optional für Debug).
-const KEY_CANDIDATES = [
-  { name: 'GOOGLE_API_KEY', value: process.env.GOOGLE_API_KEY },
-  { name: 'GOOGLE_MAPS_API_KEY', value: process.env.GOOGLE_MAPS_API_KEY },
-  { name: 'VITE_GOOGLE_MAPS_API_KEY', value: process.env.VITE_GOOGLE_MAPS_API_KEY },
-  // Notfall-Debug (normalerweise NICHT verwenden):
-  { name: 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY', value: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY },
-].filter((k) => k.value && String(k.value).trim());
+/**
+ * WICHTIG:
+ * - Proxy muss SERVER-Key verwenden (ohne NEXT_PUBLIC Restriktionen).
+ * - Für Google Places Photo API muss der Parameter "photo_reference" heißen.
+ */
 
-function pickKey(preferName) {
-  if (preferName) {
-    const hit = KEY_CANDIDATES.find((k) => k.name === preferName);
-    if (hit) return hit;
+function pickKey({ allowPublic = false } = {}) {
+  // Server-only Keys first
+  const serverKey =
+    process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GOOGLE_PLACES_API_KEY ||
+    '';
+
+  if (serverKey) return { key: serverKey, picked: serverKey === process.env.GOOGLE_MAPS_API_KEY ? 'GOOGLE_MAPS_API_KEY' :
+                                  serverKey === process.env.GOOGLE_API_KEY ? 'GOOGLE_API_KEY' :
+                                  serverKey === process.env.GOOGLE_PLACES_API_KEY ? 'GOOGLE_PLACES_API_KEY' : 'SERVER_KEY' };
+
+  // OPTIONAL: nur für Diagnose zulassen, nicht für Normalbetrieb
+  if (allowPublic && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) {
+    return { key: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY, picked: 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY' };
   }
-  return KEY_CANDIDATES[0] || { name: '(none)', value: '' };
-}
 
-async function probeGooglePhoto({ key, sizeKey, sizeVal, ref }) {
-  const qs = new URLSearchParams();
-  qs.set(sizeKey, sizeVal);
-
-  // CRITICAL: Google Places Photo endpoint expects "photoreference"
-  qs.set('photoreference', ref);
-  qs.set('key', key);
-
-  const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
-
-  // Wir fetchen nur den Status/Headers (kein Body), um Key/Restrictions zu testen.
-  const resp = await fetch(gUrl, { redirect: 'manual' });
-
-  // Google liefert bei Erfolg meist 302 Redirect zur Bild-URL (oder 200 bei direkter Ausgabe).
-  // Bei Fehler: 403/400 etc.
-  return {
-    status: resp.status,
-    location: resp.headers.get('location') || null,
-    contentType: resp.headers.get('content-type') || null,
-    cacheControl: resp.headers.get('cache-control') || null,
-    builtUrlMasked: gUrl.replace(key, '***'),
-  };
+  return { key: '', picked: '(none)' };
 }
 
 export async function GET(req) {
   try {
     const url = new URL(req.url);
 
-    // akzeptiere beide Param-Namen vom Client:
-    // - photoreference (dein Client)
-    // - photo_reference (falls irgendwo noch im Code)
+    // Eingabe: wir akzeptieren beides
     let ref =
       url.searchParams.get('photoreference') ??
+      url.searchParams.get('photo_reference') ??
+      url.searchParams.get('photo_reference'.toUpperCase()) ??
+      url.searchParams.get('photo_reference'.toLowerCase()) ??
       url.searchParams.get('photo_reference');
 
+    // (Optional) legacy alias
+    if (!ref) ref = url.searchParams.get('photo_reference');
+
     if (!ref) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing "photoreference" or "photo_reference".' },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: 'Missing "photoreference" (or "photo_reference").' }, { status: 400 });
     }
 
-    // URLSearchParams decodiert "+" zu Space, daher reparieren:
-    ref = String(ref).replace(/ /g, '+');
+    // Safety: manche Systeme wandeln "+" in " " um – das killt lange Tokens gelegentlich.
+    // encodeURIComponent sollte es verhindern, aber wir härten zusätzlich.
+    ref = String(ref).replace(/ /g, '+').trim();
 
-    const mw = Number(url.searchParams.get('maxwidth') || '0');
-    const mh = Number(url.searchParams.get('maxheight') || '0');
-    const sizeKey = mw > 0 ? 'maxwidth' : mh > 0 ? 'maxheight' : 'maxwidth';
-    const sizeVal = mw > 0 ? String(mw) : mh > 0 ? String(mh) : '800';
+    const mw = url.searchParams.get('maxwidth');
+    const mh = url.searchParams.get('maxheight');
 
-    // diag modes:
-    // diag=1 -> nur URL + welcher Key (ohne Google Call)
-    // diag=2 -> Key-Probe: testet alle Keys und zeigt Status (welcher 302/200 liefert)
+    // Google erwartet maxwidth ODER maxheight
+    const sizeKey = mw ? 'maxwidth' : 'maxheight';
+    const sizeValRaw = mw || mh || '800';
+    const sizeVal = String(Math.max(1, parseInt(sizeValRaw, 10) || 800));
+
+    // diag:
+    //  - diag=1: zeigt nur den effektiv verwendeten Key
+    //  - diag=2: testet zusätzlich einen öffentlichen Key (falls vorhanden), ohne ihn im Betrieb zu nutzen
     const diag = url.searchParams.get('diag');
+    const allowPublic = diag === '2';
 
-    const forcedKeyName = url.searchParams.get('keyname'); // optional: ?keyname=GOOGLE_API_KEY
-    const picked = pickKey(forcedKeyName);
+    const { key, picked } = pickKey({ allowPublic });
 
-    if (!picked.value) {
+    const availableKeys = [
+      process.env.GOOGLE_MAPS_API_KEY ? 'GOOGLE_MAPS_API_KEY' : null,
+      process.env.GOOGLE_API_KEY ? 'GOOGLE_API_KEY' : null,
+      process.env.GOOGLE_PLACES_API_KEY ? 'GOOGLE_PLACES_API_KEY' : null,
+      process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY' : null,
+    ].filter(Boolean);
+
+    if (!key) {
       return NextResponse.json(
-        { ok: false, error: 'Google API key missing on server.' },
+        { ok: false, error: 'Google API key missing on server.', availableKeys },
         { status: 500 }
       );
     }
 
-    // diag=1: nur Konstruktion anzeigen
-    if (diag === '1') {
-      const qs = new URLSearchParams();
-      qs.set(sizeKey, sizeVal);
-      qs.set('photoreference', ref);
-      qs.set('key', picked.value);
-      const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
-
-      return NextResponse.json({
-        ok: true,
-        received: { photoreference: ref, maxwidth: mw || null, maxheight: mh || null },
-        pickedKey: picked.name,
-        builtUrl: gUrl.replace(picked.value, '***'),
-        availableKeys: KEY_CANDIDATES.map((k) => k.name),
-      });
-    }
-
-    // diag=2: alle Keys testen (Status/Redirect prüfen)
-    if (diag === '2') {
-      const results = [];
-      for (const k of KEY_CANDIDATES) {
-        try {
-          const r = await probeGooglePhoto({
-            key: k.value,
-            sizeKey,
-            sizeVal,
-            ref,
-          });
-          results.push({ key: k.name, ...r });
-        } catch (e) {
-          results.push({ key: k.name, error: String(e?.message || e) });
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        received: { photoreference: ref, maxwidth: mw || null, maxheight: mh || null },
-        results,
-        hint:
-          'Success typically = status 302 (redirect) or 200. 403 = key restriction/billing/API not enabled for that key.',
-      });
-    }
-
-    // Normaler Betrieb: Bild streamen
     const qs = new URLSearchParams();
     qs.set(sizeKey, sizeVal);
-    qs.set('photoreference', ref);
-    qs.set('key', picked.value);
+
+    // KRITISCH: muss "photo_reference" heißen
+    qs.set('photo_reference', ref);
+    qs.set('key', key);
 
     const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
 
-    const upstream = await fetch(gUrl, {
-      redirect: 'follow',
-      headers: {
-        accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-      },
-    });
+    if (diag) {
+      return NextResponse.json({
+        ok: true,
+        received: {
+          photoreference: ref,
+          maxwidth: mw ? Number(mw) : null,
+          maxheight: mh ? Number(mh) : null,
+        },
+        pickedKey: picked,
+        builtUrl: gUrl.replace(key, '***'),
+        availableKeys,
+        hint: 'Success is typically a 302 redirect or a 200 image. 400=bad request, 403=restrictions/billing/api not enabled.',
+      });
+    }
+
+    const upstream = await fetch(gUrl, { redirect: 'follow' });
 
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
-      return new NextResponse(
-        text || `Upstream error ${upstream.status}`,
-        {
-          status: upstream.status,
-          headers: { 'content-type': 'text/plain; charset=utf-8' },
-        }
-      );
+      return new NextResponse(text || `Upstream error ${upstream.status}`, {
+        status: upstream.status,
+        headers: {
+          'content-type': upstream.headers.get('content-type') || 'text/plain; charset=utf-8',
+          'cache-control': 'no-store',
+        },
+      });
     }
 
     const contentType = upstream.headers.get('content-type') || 'image/jpeg';
-    const cacheControl =
-      'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
+    const cacheControl = 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
 
     return new NextResponse(upstream.body, {
       status: 200,
