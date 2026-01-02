@@ -1,109 +1,136 @@
 // app/api/gphoto/route.js
 import { NextResponse } from 'next/server';
 
+// Ensure this route always runs dynamically (no static caching assumptions)
 export const dynamic = 'force-dynamic';
+// Use Node.js runtime (safer for streaming binary)
 export const runtime = 'nodejs';
 
-const VERSION = 'gphoto-2026-01-02-19-45'; // <- beliebig, aber eindeutig
-
-function pickKey() {
+// Small helper: try multiple env var names (server-side only)
+function pickGoogleKey() {
   return (
     process.env.GOOGLE_MAPS_API_KEY ||
     process.env.GOOGLE_API_KEY ||
-    process.env.GOOGLE_PLACES_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY_SERVER ||
+    process.env.GMAPS_SERVER_KEY ||
     ''
   );
 }
 
-function maskKey(url, key) {
-  return key ? url.replaceAll(key, '***') : url;
+// Optional: allow only safe width/height ranges
+function clampInt(v, min, max, fallback) {
+  const n = Number.parseInt(String(v || ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
 }
 
 export async function GET(req) {
+  const version = 'gphoto-2026-01-02-19-45';
+
   try {
-    const url = new URL(req.url);
+    const inUrl = new URL(req.url);
 
+    // Accept both param spellings from your client
     const ref =
-      url.searchParams.get('photo_reference') ??
-      url.searchParams.get('photoreference');
+      inUrl.searchParams.get('photoreference') ??
+      inUrl.searchParams.get('photo_reference');
 
-    if (!ref) {
+    if (!ref || !String(ref).trim()) {
       return NextResponse.json(
-        { ok: false, error: 'Missing "photo_reference" (or "photoreference").', version: VERSION },
-        { status: 400, headers: { 'x-w2h-gphoto-version': VERSION } }
+        { ok: false, version, error: 'Missing "photoreference" or "photo_reference".' },
+        { status: 400 }
       );
     }
 
-    const mw = url.searchParams.get('maxwidth');
-    const mh = url.searchParams.get('maxheight');
+    // Accept maxwidth OR maxheight (Google requires one of them)
+    const mw = inUrl.searchParams.get('maxwidth');
+    const mh = inUrl.searchParams.get('maxheight');
 
-    const sizeKey = mw ? 'maxwidth' : (mh ? 'maxheight' : 'maxwidth');
-    const sizeVal = mw || mh || '800';
+    // Keep it reasonable; avoids accidental huge images/timeouts
+    const maxWidth = mw ? clampInt(mw, 50, 2000, 800) : null;
+    const maxHeight = !mw && mh ? clampInt(mh, 50, 2000, 800) : null;
 
-    const key = pickKey();
+    const key = pickGoogleKey();
     if (!key) {
       return NextResponse.json(
-        { ok: false, error: 'Google API key missing on server.', version: VERSION },
-        { status: 500, headers: { 'x-w2h-gphoto-version': VERSION } }
+        { ok: false, version, error: 'Google API key missing on server (env).' },
+        { status: 500 }
       );
     }
 
+    // Build upstream URL (IMPORTANT: parameter name is "photoreference")
     const qs = new URLSearchParams();
-    qs.set(sizeKey, String(sizeVal));
-    qs.set('photo_reference', ref); // <- MUSS so heißen
+    if (maxWidth) qs.set('maxwidth', String(maxWidth));
+    else qs.set('maxheight', String(maxHeight || 800));
+
+    // Critical: Google expects "photoreference" (Legacy endpoint)
+    qs.set('photoreference', String(ref));
     qs.set('key', key);
 
-    const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
+    const upstreamUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
 
-    // Immer diag erzwingbar machen:
-    const diag = url.searchParams.get('diag');
-    if (diag) {
-      return NextResponse.json(
-        {
-          ok: true,
-          version: VERSION,
-          received: { photo_reference: ref, maxwidth: mw || null, maxheight: mh || null },
-          builtUrl: maskKey(gUrl, key),
+    // Debug mode: ?diag=1 returns URL info without fetching the image
+    if (inUrl.searchParams.get('diag') === '1') {
+      return NextResponse.json({
+        ok: true,
+        version,
+        received: {
+          ref_len: String(ref).length,
+          maxwidth: maxWidth,
+          maxheight: maxHeight,
         },
-        { status: 200, headers: { 'x-w2h-gphoto-version': VERSION } }
-      );
+        upstream: {
+          url: upstreamUrl.replace(key, '***'),
+        },
+      });
     }
 
-    const upstream = await fetch(gUrl, { redirect: 'follow' });
+    // Fetch upstream; allow redirects (Google may redirect to image CDN)
+    const upstream = await fetch(upstreamUrl, { redirect: 'follow' });
 
-    // WICHTIG: Wenn Google statt Bild HTML liefert, geben wir JSON zurück
-    const ct = upstream.headers.get('content-type') || '';
-    if (!upstream.ok || ct.includes('text/html') || ct.includes('application/json') || ct.includes('text/plain')) {
-      const text = await upstream.text().catch(() => '');
+    // If upstream fails, bubble up a helpful JSON (your frontend sees 502 with details)
+    if (!upstream.ok) {
+      const contentType = upstream.headers.get('content-type') || '';
+      const text =
+        contentType.includes('text') || contentType.includes('json')
+          ? await upstream.text().catch(() => '')
+          : '';
+
       return NextResponse.json(
         {
           ok: false,
-          version: VERSION,
+          version,
           upstream: {
             status: upstream.status,
-            contentType: ct || null,
-            url: maskKey(gUrl, key),
-            bodySnippet: text.slice(0, 500),
+            contentType: contentType || null,
+            url: upstreamUrl.replace(key, '***'),
+            bodySnippet: text ? text.slice(0, 900) : null,
           },
         },
-        { status: 502, headers: { 'x-w2h-gphoto-version': VERSION, 'cache-control': 'no-store' } }
+        { status: 502 }
       );
     }
 
-    const cacheControl = 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
+    // Stream the image bytes back
+    const outType = upstream.headers.get('content-type') || 'image/jpeg';
+
+    // Caching: good for images; Vercel edge/cache will help
+    // If you want near-real-time changes, reduce s-maxage.
+    const cacheControl =
+      'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
 
     return new NextResponse(upstream.body, {
       status: 200,
       headers: {
-        'content-type': upstream.headers.get('content-type') || 'image/jpeg',
+        'content-type': outType,
         'cache-control': cacheControl,
-        'x-w2h-gphoto-version': VERSION,
+        'x-w2h-gphoto-version': version,
       },
     });
   } catch (err) {
     return NextResponse.json(
-      { ok: false, version: VERSION, error: `Proxy error: ${err?.message || 'unknown'}` },
-      { status: 500, headers: { 'x-w2h-gphoto-version': VERSION } }
+      { ok: false, version, error: `Proxy error: ${err?.message || 'unknown'}` },
+      { status: 500 }
     );
   }
 }
