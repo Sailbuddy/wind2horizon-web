@@ -1,13 +1,12 @@
 // app/api/gphoto/route.js
-import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const VERSION = 'gphoto-2026-01-02-21-40';
 
-function json(body, status = 200, extraHeaders = {}) {
-  return new NextResponse(JSON.stringify(body, null, 2), {
+function json(data, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(data, null, 2), {
     status,
     headers: {
       'content-type': 'application/json; charset=utf-8',
@@ -18,170 +17,194 @@ function json(body, status = 200, extraHeaders = {}) {
   });
 }
 
-function pickServerKey() {
-  const k1 = process.env.GOOGLE_PLACES_SERVER_KEY;
-  const k2 = process.env.GOOGLE_MAPS_SERVER_KEY;
-  return (k1 && String(k1).trim()) || (k2 && String(k2).trim()) || '';
-}
-
-function clampInt(v, def, min, max) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return def;
-  return Math.max(min, Math.min(max, Math.trunc(n)));
-}
-
-function stripHtml(html = '') {
-  return String(html || '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function extractGoogleError(html = '') {
-  const plain = stripHtml(html);
-  // keep it short but useful
-  return plain.slice(0, 260);
-}
-
-function pickRef(sp) {
+function pickKey() {
   return (
-    sp.get('photo_reference') ||
-    sp.get('photoreference') ||
-    sp.get('photoReference') ||
-    sp.get('photo_name') ||      // allow v1 style param name too
-    sp.get('name') ||
-    sp.get('ref') ||
-    ''
-  ).trim();
+    process.env.GOOGLE_PLACES_SERVER_KEY ||
+    process.env.GOOGLE_MAPS_SERVER_KEY ||
+    null
+  );
 }
 
-function isPlacesV1PhotoName(ref) {
-  // v1 photos look like: places/XXXX/photos/YYYY
-  return /^places\/[^/]+\/photos\/[^/]+$/i.test(ref);
+function toInt(value, fallback) {
+  const n = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+async function safeReadText(res, limit = 1200) {
+  try {
+    const t = await res.text();
+    return t.length > limit ? t.slice(0, limit) : t;
+  } catch {
+    return '';
+  }
 }
 
 export async function GET(req) {
-  try {
-    const url = new URL(req.url);
-    const sp = url.searchParams;
+  const { searchParams } = new URL(req.url);
 
-    const ref = pickRef(sp);
-    const maxwidth = clampInt(sp.get('maxwidth'), 800, 1, 2000);
-    const maxheightRaw = sp.get('maxheight');
-    const maxheight =
-      maxheightRaw !== null && String(maxheightRaw).trim() !== ''
-        ? clampInt(maxheightRaw, 800, 1, 2000)
-        : null;
+  const diag = searchParams.get('diag') === '1';
 
-    const diag = sp.get('diag') === '1';
+  // Accept both parameter names (legacy + your earlier naming)
+  const photoReference =
+    searchParams.get('photo_reference') || searchParams.get('photoReference');
+  const photoName =
+    searchParams.get('photo_name') || searchParams.get('photoName');
 
-    const serverKey = pickServerKey();
-    if (!serverKey) {
+  const maxwidth = toInt(searchParams.get('maxwidth'), 600);
+  const maxheightRaw = searchParams.get('maxheight');
+  const maxheight = maxheightRaw ? toInt(maxheightRaw, null) : null;
+
+  if (!photoReference && !photoName) {
+    return json(
+      {
+        ok: false,
+        version: VERSION,
+        error:
+          'Missing photo reference. Use ?photo_reference=... (legacy) or ?photo_name=places/.../photos/... (v1).',
+      },
+      400
+    );
+  }
+
+  const key = pickKey();
+  if (!key) {
+    return json(
+      {
+        ok: false,
+        version: VERSION,
+        error:
+          'Missing server-side Google API key. Set GOOGLE_PLACES_SERVER_KEY (recommended) or GOOGLE_MAPS_SERVER_KEY in Vercel env.',
+      },
+      500
+    );
+  }
+
+  let mode = '';
+  let upstreamUrl = '';
+
+  // --- Build upstream URL ---
+  if (photoName) {
+    // Places API (New): GET https://places.googleapis.com/v1/{photo_name}/media?maxWidthPx=...&key=...
+    // photo_name must remain a path (do NOT encode slashes)
+    // Basic validation to avoid path injection.
+    if (!/^places\/[^/]+\/photos\/[^/]+$/.test(photoName)) {
       return json(
         {
           ok: false,
           version: VERSION,
           error:
-            'Missing server-side Google API key. Set GOOGLE_PLACES_SERVER_KEY (recommended) or GOOGLE_MAPS_SERVER_KEY.',
-        },
-        500
-      );
-    }
-
-    if (!ref) {
-      return json(
-        {
-          ok: false,
-          version: VERSION,
-          error:
-            'Missing photo reference. Use ?photo_reference=... (legacy) or ?photo_name=places/.../photos/... (v1).',
+            'Invalid photo_name format. Expected: places/{placeId}/photos/{photoId}',
+          received: { photo_name_len: String(photoName).length },
         },
         400
       );
     }
 
-    // Decide endpoint
-    let upstreamUrl;
-    let mode;
+    mode = 'v1-media';
+    const qs = new URLSearchParams();
+    qs.set('key', key);
 
-    if (isPlacesV1PhotoName(ref)) {
-      // New Places API v1 media endpoint
-      mode = 'places-v1';
-      const u = new URL(`https://places.googleapis.com/v1/${ref}/media`);
-      // v1 uses maxWidthPx / maxHeightPx
-      if (maxwidth) u.searchParams.set('maxWidthPx', String(maxwidth));
-      if (maxheight !== null) u.searchParams.set('maxHeightPx', String(maxheight));
-      u.searchParams.set('key', serverKey);
-      upstreamUrl = u.toString();
-    } else {
-      // Legacy Place Photo endpoint
-      mode = 'legacy-photo';
-      const u = new URL('https://maps.googleapis.com/maps/api/place/photo');
-      u.searchParams.set('maxwidth', String(maxwidth));
-      if (maxheight !== null) u.searchParams.set('maxheight', String(maxheight));
-      u.searchParams.set('photoreference', ref);
-      u.searchParams.set('key', serverKey);
-      upstreamUrl = u.toString();
-    }
+    // Google uses maxWidthPx / maxHeightPx
+    if (maxheight) qs.set('maxHeightPx', String(maxheight));
+    else qs.set('maxWidthPx', String(maxwidth));
 
-    const resp = await fetch(upstreamUrl, {
-      method: 'GET',
+    upstreamUrl = `https://places.googleapis.com/v1/${photoName}/media?${qs.toString()}`;
+  } else {
+    // Legacy: https://maps.googleapis.com/maps/api/place/photo?maxwidth=...&photo_reference=...&key=...
+    mode = 'legacy-photo';
+
+    const qs = new URLSearchParams();
+    qs.set('key', key);
+    qs.set('photo_reference', photoReference); // ✅ correct param name
+    if (maxheight) qs.set('maxheight', String(maxheight));
+    else qs.set('maxwidth', String(maxwidth));
+
+    upstreamUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
+  }
+
+  // --- Fetch upstream ---
+  let upstreamRes;
+  try {
+    upstreamRes = await fetch(upstreamUrl, {
+      // fetch follows redirects by default in node, that's fine here
       redirect: 'follow',
       headers: {
-        'user-agent': 'wind2horizon-gphoto-proxy/1.0',
-        accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        // keep it simple; Google doesn't require special headers
+        'user-agent': 'wind2horizon-gphoto-proxy',
       },
-      cache: 'no-store',
     });
-
-    const contentType = resp.headers.get('content-type') || '';
-
-    // Success -> stream image
-    if (resp.ok && contentType.startsWith('image/')) {
-      const arr = await resp.arrayBuffer();
-      return new NextResponse(arr, {
-        status: 200,
-        headers: {
-          'content-type': contentType,
-          'cache-control': 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800',
-          'x-w2h-gphoto-version': VERSION,
-          'x-w2h-gphoto-mode': mode,
-        },
-      });
-    }
-
-    // Error -> JSON diagnostics (always), but keep concise unless diag=1
-    const bodyText = await resp.text().catch(() => '');
-    const upstreamSafe = upstreamUrl.replace(/key=[^&]+/i, 'key=***');
-    const googleMessage = extractGoogleError(bodyText);
-
-    const payload = {
-      ok: false,
-      version: VERSION,
-      mode,
-      received: { ref_len: ref.length, maxwidth, maxheight },
-      upstream: {
-        status: resp.status,
-        contentType,
-        url: upstreamSafe,
-        googleMessage,
-      },
-    };
-
-    if (diag) {
-      payload.upstream.bodySnippetHead = bodyText.slice(0, 2500);
-    }
-
-    // 502 signals "upstream failed" (fits proxy semantics)
-    return json(payload, 502);
-  } catch (err) {
+  } catch (e) {
     return json(
       {
         ok: false,
         version: VERSION,
-        error: err?.message || String(err),
+        mode,
+        error: 'Upstream fetch failed',
+        details: String(e?.message || e),
       },
-      500
+      502
     );
   }
+
+  const contentType = upstreamRes.headers.get('content-type') || '';
+  const status = upstreamRes.status;
+
+  // If diag requested, return structured info instead of binary
+  if (diag) {
+    const text = await safeReadText(upstreamRes);
+    return json(
+      {
+        ok: status >= 200 && status < 300,
+        version: VERSION,
+        mode,
+        received: {
+          ref_len: photoReference ? String(photoReference).length : null,
+          photo_name_len: photoName ? String(photoName).length : null,
+          maxwidth,
+          maxheight,
+        },
+        upstream: {
+          status,
+          contentType,
+          url: upstreamUrl.replace(key, '***'),
+          bodySnippetHead: text,
+        },
+      },
+      status >= 200 && status < 300 ? 200 : 502
+    );
+  }
+
+  // Non-diag: must return the image if successful
+  if (!upstreamRes.ok) {
+    const text = await safeReadText(upstreamRes);
+    return json(
+      {
+        ok: false,
+        version: VERSION,
+        mode,
+        received: {
+          ref_len: photoReference ? String(photoReference).length : null,
+          photo_name_len: photoName ? String(photoName).length : null,
+          maxwidth,
+          maxheight,
+        },
+        upstream: {
+          status,
+          contentType,
+          url: upstreamUrl.replace(key, '***'),
+          googleMessage: text.replace(/\s+/g, ' ').slice(0, 300),
+          bodySnippetHead: text,
+        },
+      },
+      502
+    );
+  }
+
+  // Stream binary through
+  const headers = new Headers();
+  headers.set('content-type', contentType || 'image/jpeg');
+  headers.set('cache-control', 'public, max-age=3600, s-maxage=3600'); // short cache; photo_reference can expire
+  headers.set('x-w2h-gphoto-version', VERSION);
+
+  return new Response(upstreamRes.body, { status: 200, headers });
 }
