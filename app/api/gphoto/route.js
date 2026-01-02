@@ -5,13 +5,25 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 function pickKey() {
-  // Server-only Keys first
+  // Server-only Keys first (keine NEXT_PUBLIC Keys bevorzugen)
   return (
     process.env.GOOGLE_MAPS_API_KEY ||
     process.env.GOOGLE_API_KEY ||
-    process.env.VITE_GOOGLE_MAPS_API_KEY ||
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || // nur fallback, eigentlich vermeiden
+    process.env.GOOGLE_PLACES_API_KEY ||
+    process.env.VITE_GOOGLE_MAPS_API_KEY || // nur falls du es wirklich serverseitig setzt
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || // letzter Notnagel, nicht empfohlen
     ''
+  );
+}
+
+function usedEnvVar() {
+  return (
+    (process.env.GOOGLE_MAPS_API_KEY && 'GOOGLE_MAPS_API_KEY') ||
+    (process.env.GOOGLE_API_KEY && 'GOOGLE_API_KEY') ||
+    (process.env.GOOGLE_PLACES_API_KEY && 'GOOGLE_PLACES_API_KEY') ||
+    (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
+    (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ||
+    '(none)'
   );
 }
 
@@ -19,15 +31,14 @@ export async function GET(req) {
   try {
     const url = new URL(req.url);
 
+    // akzeptiere beide Param-Namen eingehend
     const ref =
-      url.searchParams.get('photoreference') ??
       url.searchParams.get('photo_reference') ??
-      url.searchParams.get('photoReference') ??
-      null;
+      url.searchParams.get('photoreference');
 
     if (!ref) {
       return NextResponse.json(
-        { ok: false, error: 'Missing "photoreference" / "photo_reference".' },
+        { ok: false, error: 'Missing "photo_reference" (or "photoreference").' },
         { status: 400 }
       );
     }
@@ -37,9 +48,10 @@ export async function GET(req) {
     const mw = url.searchParams.get('maxwidth');
     const mh = url.searchParams.get('maxheight');
 
-    // Google expects either maxwidth or maxheight (at least one)
-    const sizeKey = mw ? 'maxwidth' : 'maxheight';
-    const sizeVal = mw || mh || '600';
+    // Google verlangt entweder maxwidth oder maxheight.
+    // Default, falls nichts gegeben:
+    const sizeKey = mw ? 'maxwidth' : (mh ? 'maxheight' : 'maxwidth');
+    const sizeVal = mw || mh || '800';
 
     const key = pickKey();
     if (!key) {
@@ -50,10 +62,10 @@ export async function GET(req) {
     }
 
     const qs = new URLSearchParams();
-    qs.set(sizeKey, sizeVal);
+    qs.set(sizeKey, String(sizeVal));
 
-    // ✅ IMPORTANT: classic endpoint expects "photoreference"
-    qs.set('photoreference', ref);
+    // WICHTIG: Google Places Photo API expects "photo_reference"
+    qs.set('photo_reference', ref);
     qs.set('key', key);
 
     const gUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
@@ -62,17 +74,12 @@ export async function GET(req) {
       return NextResponse.json({
         ok: true,
         received: {
-          photoreference: ref,
+          photo_reference: ref,
           maxwidth: mw || null,
           maxheight: mh || null,
         },
         builtUrl: gUrl.replace(key, '***'),
-        usedEnvVar:
-          (process.env.GOOGLE_MAPS_API_KEY && 'GOOGLE_MAPS_API_KEY') ||
-          (process.env.GOOGLE_API_KEY && 'GOOGLE_API_KEY') ||
-          (process.env.VITE_GOOGLE_MAPS_API_KEY && 'VITE_GOOGLE_MAPS_API_KEY') ||
-          (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ||
-          '(none)',
+        usedEnvVar: usedEnvVar(),
       });
     }
 
