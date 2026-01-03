@@ -2239,127 +2239,127 @@ google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
   try {
     const kvNow = kvByLoc.get(row.id) || meta;
 
+    // ---------------------------
+    // Fotos Button: User + Google (gemischt)
+    // ---------------------------
     const btn = document.getElementById(`phbtn-${row.id}`);
     if (btn) {
       btn.addEventListener('click', async () => {
-  try {
-    const titleNow = pickName(row, langCode);
+        try {
+          const titleNow = pickName(row, langCode);
 
-    const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-    const userPhotos = await hydrateUserPhotos(row.id, langCode);
+          const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+          const userPhotos = await hydrateUserPhotos(row.id, langCode);
 
-    // Dedupe (Google: photo_reference | User: url/public_url/thumb/image_url)
-    const seen = new Set();
-    const merged = [];
+          // Dedupe (Google: photo_reference | User: url/public_url/thumb/image_url)
+          const seen = new Set();
+          const merged = [];
 
-    const pushUnique = (p) => {
-      if (!p) return;
+          const pushUnique = (p) => {
+            if (!p) return;
 
-      const gRef = p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref;
-      if (gRef) {
-        const k = `g:${String(gRef)}`;
-        if (seen.has(k)) return;
-        seen.add(k);
-        merged.push(p);
-        return;
-      }
+            const gRef = p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref;
+            if (gRef) {
+              const k = `g:${String(gRef)}`;
+              if (seen.has(k)) return;
+              seen.add(k);
+              merged.push(p);
+              return;
+            }
 
-      const u = p.public_url || p.url || p.thumb || p.image_url;
-      if (u) {
-        const k = `u:${String(u)}`;
-        if (seen.has(k)) return;
-        seen.add(k);
-        merged.push(p);
-        return; // ✅ optional: Clean-up / Zukunftssicherheit
-      }
-    };
+            const u = p.public_url || p.url || p.thumb || p.image_url;
+            if (u) {
+              const k = `u:${String(u)}`;
+              if (seen.has(k)) return;
+              seen.add(k);
+              merged.push(p);
+            }
+          };
 
-    // Reihenfolge: User zuerst, dann Google
-    (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
-    googlePhotos.forEach(pushUnique);
+          // Reihenfolge: User zuerst, dann Google
+          (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
+          googlePhotos.forEach(pushUnique);
 
-    if (merged.length) {
-      setGallery({ title: titleNow, photos: merged, row });
+          if (merged.length) {
+            setGallery({ title: titleNow, photos: merged, row });
+          }
+        } catch (e) {
+          console.warn('[w2h] merge gallery failed', e);
+          const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+          if (googlePhotos.length) {
+            setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
+          }
+        }
+      });
     }
-  } catch (e) {
-    console.warn('[w2h] merge gallery failed', e);
-    const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-    if (googlePhotos.length) setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
-  }
-});
 
+    // ---------------------------
+    // Wind Button
+    // ---------------------------
+    const wbtn = document.getElementById(`windbtn-${row.id}`);
+    if (wbtn) {
+      wbtn.addEventListener('click', () => {
+        setWindModal({
+          id: row.id,
+          title: pickName(row, langCode),
+          windProfile: kvNow.wind_profile || null,
+          windHint: kvNow.wind_hint || {},
+          liveWindStation: kvNow.livewind_station || null,
+          liveWindStationName: kvNow.livewind_station_name || null,
+        });
+      });
     }
 
-    // ... hier bleiben dann windbtn/kibtn etc. wie gehabt ...
+    // ---------------------------
+    // KI-Report Button (Lazy Fetch)
+    // ---------------------------
+    const kibtn = document.getElementById(`kibtn-${row.id}`);
+    if (kibtn) {
+      kibtn.addEventListener('click', async () => {
+        const titleNow = pickName(row, langCode);
 
+        // Modal sofort öffnen (Loading)
+        setKiModal({
+          locationId: row.id,
+          title: titleNow,
+          loading: true,
+          error: '',
+          report: null,
+          createdAt: null,
+        });
+
+        try {
+          const data = await fetchKiReport({ locationId: row.id, langCode });
+          const reportObj = data.report_json || data.report || data;
+          const createdAt = data.created_at || reportObj?.created_at || null;
+
+          setKiModal((prev) => ({
+            ...(prev || {}),
+            locationId: row.id,
+            title: titleNow,
+            loading: false,
+            error: '',
+            report: reportObj,
+            createdAt,
+          }));
+        } catch (e) {
+          setKiModal((prev) => ({
+            ...(prev || {}),
+            locationId: row.id,
+            title: titleNow,
+            loading: false,
+            error: e?.message || 'KI-Report konnte nicht geladen werden.',
+            report: null,
+            createdAt: null,
+          }));
+        }
+      });
+    }
   } catch (errDom) {
     console.error('[w2h] domready handler failed for location', row.id, errDom);
   }
 });
 
-}
-
-            const wbtn = document.getElementById(`windbtn-${row.id}`);
-            if (wbtn) {
-              wbtn.addEventListener('click', () => {
-                setWindModal({
-                  id: row.id,
-                  title: pickName(row, langCode),
-                  windProfile: kvNow.wind_profile || null,
-                  windHint: kvNow.wind_hint || {},
-                  liveWindStation: kvNow.livewind_station || null,
-                  liveWindStationName: kvNow.livewind_station_name || null,
-                });
-              });
-            }
-
-            // ✅ KI-Report Button (Lazy: Modal + Fetch nur nach Klick)
-            const kibtn = document.getElementById(`kibtn-${row.id}`);
-            if (kibtn) {
-              kibtn.addEventListener('click', async () => {
-                const titleNow = pickName(row, langCode);
-
-                // Modal sofort öffnen (Loading)
-                setKiModal({
-                  locationId: row.id,
-                  title: titleNow,
-                  loading: true,
-                  error: '',
-                  report: null,
-                  createdAt: null,
-                });
-
-                try {
-                  const data = await fetchKiReport({ locationId: row.id, langCode });
-                  const reportObj = data.report_json || data.report || data;
-                  const createdAt = data.created_at || reportObj?.created_at || null;
-
-                  setKiModal((prev) => ({
-                    ...(prev || {}),
-                    locationId: row.id,
-                    title: titleNow,
-                    loading: false,
-                    error: '',
-                    report: reportObj,
-                    createdAt,
-                  }));
-                } catch (e) {
-                  setKiModal((prev) => ({
-                    ...(prev || {}),
-                    locationId: row.id,
-                    title: titleNow,
-                    loading: false,
-                    error: e?.message || 'KI-Report konnte nicht geladen werden.',
-                    report: null,
-                    createdAt: null,
-                  }));
-                }
-              });
-            }
-          } catch (errDom) {
-            console.error('[w2h] domready handler failed for location', row.id, errDom);
-          }
-        });
       });
 
       markers.current.push(marker);
