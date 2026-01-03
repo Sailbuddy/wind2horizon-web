@@ -2289,7 +2289,7 @@ google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
   }
 });
 
-    }
+
 
     // ... hier bleiben dann windbtn/kibtn etc. wie gehabt ...
 
