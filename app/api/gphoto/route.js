@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-const VERSION = "gphoto-2026-01-03-place-first-01";
+const VERSION = "gphoto-2026-01-03-photo-ref-02";
 const PHOTOS_ATTRIBUTE_ID = 17;
 const DEFAULT_MAX_PHOTOS = 10;
 
@@ -129,7 +129,12 @@ async function loadPhotosFromSupabase({ placeId }) {
   if (lvErr) return { ok: false, error: lvErr.message };
 
   const photos = Array.isArray(lv?.value_json) ? lv.value_json : null;
-  return { ok: true, location_id: loc.id, photos, updated_at: lv?.updated_at || null };
+  return {
+    ok: true,
+    location_id: loc.id,
+    photos,
+    updated_at: lv?.updated_at || null,
+  };
 }
 
 async function upsertPhotosToSupabase({ locationId, photos }) {
@@ -160,22 +165,20 @@ export async function GET(request) {
   const diag = sp.get("diag") === "1";
   const key = getGoogleKey();
 
+  // ✅ NEW: direct photo reference mode
+  const photo_reference = sp.get("photo_reference") || "";
   const place_id = sp.get("place_id") || "";
-  const index = clampInt(sp.get("index"), 0, 49, 0);
-  const maxwidth = sp.get("maxwidth") ? clampInt(sp.get("maxwidth"), 1, 4000, 600) : 600;
-  const maxheight = sp.get("maxheight") ? clampInt(sp.get("maxheight"), 1, 4000, null) : null;
-  const maxPhotos = sp.get("maxPhotos") ? clampInt(sp.get("maxPhotos"), 1, 50, DEFAULT_MAX_PHOTOS) : DEFAULT_MAX_PHOTOS;
 
-  if (!place_id) {
-    return NextResponse.json(
-      {
-        ok: false,
-        version: VERSION,
-        error: "Missing place_id. Use ?place_id=ChIJ...&index=0&maxwidth=600",
-      },
-      { status: 400, headers: { "x-w2h-gphoto-version": VERSION } }
-    );
-  }
+  const index = clampInt(sp.get("index"), 0, 49, 0);
+  const maxwidth = sp.get("maxwidth")
+    ? clampInt(sp.get("maxwidth"), 1, 4000, 600)
+    : 600;
+  const maxheight = sp.get("maxheight")
+    ? clampInt(sp.get("maxheight"), 1, 4000, null)
+    : null;
+  const maxPhotos = sp.get("maxPhotos")
+    ? clampInt(sp.get("maxPhotos"), 1, 50, DEFAULT_MAX_PHOTOS)
+    : DEFAULT_MAX_PHOTOS;
 
   if (!key) {
     return NextResponse.json(
@@ -189,13 +192,83 @@ export async function GET(request) {
     );
   }
 
+  // =========================================================
+  // ✅ MODE A) photo_reference direct fetch (no Supabase needed)
+  // =========================================================
+  if (photo_reference) {
+    const res = await fetchGooglePhoto({
+      photo_reference,
+      maxwidth,
+      maxheight,
+      key,
+    });
+
+    if (!res.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          version: VERSION,
+          mode: "photo_reference",
+          photo_reference,
+          upstream: {
+            status: res.status,
+            contentType: res.contentType,
+            url: res.url,
+            bodySnippetHead: res.bodySnippet?.slice(0, 250) || "",
+          },
+        },
+        { status: 502, headers: { "x-w2h-gphoto-version": VERSION } }
+      );
+    }
+
+    if (diag) {
+      return NextResponse.json(
+        {
+          ok: true,
+          version: VERSION,
+          mode: "photo_reference",
+          photo_reference,
+          upstream: {
+            status: res.status,
+            contentType: res.contentType,
+            url: res.url,
+          },
+        },
+        { status: 200, headers: { "x-w2h-gphoto-version": VERSION } }
+      );
+    }
+
+    return new NextResponse(res.arrayBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": res.contentType || "image/jpeg",
+        "Cache-Control": "public, max-age=86400",
+        "x-w2h-gphoto-version": VERSION,
+      },
+    });
+  }
+
+  // =========================================================
+  // MODE B) place_id snapshot DB-first + heal (existing logic)
+  // =========================================================
+  if (!place_id) {
+    return NextResponse.json(
+      {
+        ok: false,
+        version: VERSION,
+        error:
+          "Missing place_id or photo_reference. Use either ?photo_reference=... or ?place_id=ChIJ...&index=0&maxwidth=600",
+      },
+      { status: 400, headers: { "x-w2h-gphoto-version": VERSION } }
+    );
+  }
+
   // --- 1) DB-first: vorhandenen Photos-Snapshot nutzen ---
   const db = await loadPhotosFromSupabase({ placeId: place_id });
 
   let photos = db.ok ? db.photos : null;
   let locationId = db.ok ? db.location_id : null;
 
-  // Helper: gewählt anhand index
   const chooseRef = (arr) => {
     if (!Array.isArray(arr) || arr.length === 0) return null;
     const p = arr[Math.min(index, arr.length - 1)];
@@ -205,7 +278,12 @@ export async function GET(request) {
   // 1a) Wenn DB Photos hat -> direkt versuchen
   const dbRef = chooseRef(photos);
   if (dbRef) {
-    const res = await fetchGooglePhoto({ photo_reference: dbRef, maxwidth, maxheight, key });
+    const res = await fetchGooglePhoto({
+      photo_reference: dbRef,
+      maxwidth,
+      maxheight,
+      key,
+    });
 
     if (res.ok) {
       if (diag) {
@@ -258,7 +336,11 @@ export async function GET(request) {
   }
 
   // --- 2) Heal: Google photos neu holen -> DB upserten -> retry ---
-  const snap = await fetchPlacePhotosSnapshot({ placeId: place_id, key, maxPhotos });
+  const snap = await fetchPlacePhotosSnapshot({
+    placeId: place_id,
+    key,
+    maxPhotos,
+  });
 
   if (!snap.ok) {
     return NextResponse.json(
@@ -301,13 +383,17 @@ export async function GET(request) {
         version: VERSION,
         mode: "heal",
         place_id,
-        reason: "Location not found in Supabase (cannot store refreshed snapshot).",
+        reason:
+          "Location not found in Supabase (cannot store refreshed snapshot).",
       },
       { status: 404, headers: { "x-w2h-gphoto-version": VERSION } }
     );
   }
 
-  const store = await upsertPhotosToSupabase({ locationId, photos: snap.photos });
+  const store = await upsertPhotosToSupabase({
+    locationId,
+    photos: snap.photos,
+  });
 
   const chosenRef = chooseRef(snap.photos);
   const retry = await fetchGooglePhoto({

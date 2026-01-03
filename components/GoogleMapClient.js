@@ -124,6 +124,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const infoWin = useRef(null);
   const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
+  const [locVersion, setLocVersion] = useState(0);
 
   // 🔹 Marker-Map & Locations für Suche
   const markerMapRef = useRef(new Map()); // location_id -> Marker
@@ -208,7 +209,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
-  const photoUrl = (ref, max = 800) => `/api/gphoto?photo_reference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+  const photoUrl = (ref, max = 800, row) =>
+    `/api/gphoto?photo_reference=${encodeURIComponent(ref)}&maxwidth=${max}` +
+    (row?.google_place_id ? `&place_id=${encodeURIComponent(row.google_place_id)}` : '') +
+    (row?.id ? `&location_id=${encodeURIComponent(String(row.id))}` : '');
 
   function escapeHtml(str = '') {
     return String(str)
@@ -497,7 +501,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 if (isGoogle) {
                   const ref = p.photo_reference || p.photoreference;
                   const w = Math.min(1200, Number(p.width || 0) || 640);
-                  src = photoUrl(ref, w);
+                  src = photoUrl(ref, w, g.row);
                 } else if (isUser) {
                   src = p.thumb || p.public_url || p.url || '';
                 }
@@ -1193,31 +1197,32 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
   }
 
-  function pickFirstThumb(photos) {
-    if (!Array.isArray(photos) || !photos.length) return null;
+  function pickFirstThumb(photos, row) {
+  if (!Array.isArray(photos) || !photos.length) return null;
 
-    // 1) User-Fotos (verschiedene Feldnamen tolerieren)
-    const user = photos.find((p) => p && (p.thumb || p.public_url || p.url || p.image_url));
-    if (user) return user.thumb || user.public_url || user.url || user.image_url;
+  // 1) User-Fotos
+  const user = photos.find((p) => p && (p.thumb || p.public_url || p.url || p.image_url));
+  if (user) return user.thumb || user.public_url || user.url || user.image_url;
 
-    // 2) Google-Fotos (verschiedene Feldnamen tolerieren)
-    const g = photos.find(
-      (p) =>
-        p &&
-        (p.photo_reference ||
-          p.photoreference ||
-          p.photoRef ||
-          p.photo_ref ||
-          (p.ref && typeof p.ref === 'string'))
-    );
+  // 2) Google-Fotos
+  const g = photos.find(
+    (p) =>
+      p &&
+      (p.photo_reference ||
+        p.photoreference ||
+        p.photoRef ||
+        p.photo_ref ||
+        (p.ref && typeof p.ref === 'string'))
+  );
 
-    const ref =
-      (g && (g.photo_reference || g.photoreference || g.photoRef || g.photo_ref || g.ref)) || null;
+  const ref =
+    (g && (g.photo_reference || g.photoreference || g.photoRef || g.photo_ref || g.ref)) || null;
 
-    if (ref) return photoUrl(ref, 600);
+  if (ref) return photoUrl(ref, 600, row);
 
-    return null;
-   }
+  return null;
+  }
+
 
 
   // ✅ InfoWindow HTML: eigener Datenblock immer sichtbar; KI-Report ausschließlich per Klick (Modal).
@@ -1266,7 +1271,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
 
     const photos = Array.isArray(kv.photos) ? kv.photos : [];
-    const firstThumb = pickFirstThumb(photos);
+    const firstThumb = pickFirstThumb(photos, row);
 
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref = website && String(website).startsWith('http') ? website : website ? `https://${website}` : '';
@@ -1473,7 +1478,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
     return idx;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, selectedRegion, regions, booted]);
+  }, [lang, selectedRegion, regions, booted, locVersio]);
 
   function buildSearchHaystack(row, meta, langCode) {
     const parts = [];
@@ -1621,9 +1626,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function exitSearchFocus() {
-    // Restore marker visibility using normal layer logic
+    const prev = prevVisibilityRef.current;
+    if (prev) {
+      for (const m of markers.current) {
+        const v = prev.get(m);
+        if (v !== undefined) m.setVisible(v);
+      }
+    } else {
+      applyLayerVisibility();
+    }
     prevVisibilityRef.current = null;
-    applyLayerVisibility();
   }
 
   function clearSearchMode() {
@@ -2158,6 +2170,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     locationsRef.current = locList;
     metaByLocRef.current = kvByLoc;
 
+    setLocVersion((v) => v + 1);
+
     // Alte Marker entfernen
     markers.current.forEach((m) => m.setMap(null));
     markers.current = [];
@@ -2228,7 +2242,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             if (btn) {
               btn.addEventListener('click', () => {
                 const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-                if (photos.length) setGallery({ title: pickName(row, langCode), photos });
+                if (photos.length) setGallery({ title: pickName(row, langCode), photos, row  });
               });
             }
 
