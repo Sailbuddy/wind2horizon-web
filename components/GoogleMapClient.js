@@ -1478,7 +1478,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
     return idx;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, selectedRegion, regions, booted, locVersio]);
+  }, [lang, selectedRegion, regions, booted, locVersion]);
 
   function buildSearchHaystack(row, meta, langCode) {
     const parts = [];
