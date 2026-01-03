@@ -1,210 +1,371 @@
 // app/api/gphoto/route.js
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
 
-const VERSION = 'gphoto-2026-01-02-21-40';
+const VERSION = "gphoto-2026-01-03-place-first-01";
+const PHOTOS_ATTRIBUTE_ID = 17;
+const DEFAULT_MAX_PHOTOS = 10;
 
-function json(data, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-      'x-w2h-gphoto-version': VERSION,
-      ...extraHeaders,
-    },
-  });
-}
-
-function pickKey() {
+function getGoogleKey() {
   return (
     process.env.GOOGLE_PLACES_SERVER_KEY ||
     process.env.GOOGLE_MAPS_SERVER_KEY ||
-    null
+    process.env.GOOGLE_API_KEY ||
+    ""
   );
 }
 
-function toInt(value, fallback) {
-  const n = Number.parseInt(String(value ?? ''), 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+function getSupabaseClient() {
+  const url = process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
+  if (!url || !key) return null;
+
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
-async function safeReadText(res, limit = 1200) {
-  try {
-    const t = await res.text();
-    return t.length > limit ? t.slice(0, limit) : t;
-  } catch {
-    return '';
+function clampInt(v, min, max, fallback) {
+  const n = Number.parseInt(String(v ?? ""), 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function normalizePhotos(photosRaw, maxPhotos = DEFAULT_MAX_PHOTOS) {
+  const arr = Array.isArray(photosRaw) ? photosRaw : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const p of arr) {
+    const ref = p?.photo_reference;
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+
+    out.push({
+      photo_reference: ref,
+      width: p?.width ?? null,
+      height: p?.height ?? null,
+      html_attributions: Array.isArray(p?.html_attributions)
+        ? p.html_attributions
+        : [],
+    });
+
+    if (out.length >= maxPhotos) break;
   }
+  return out;
 }
 
-export async function GET(req) {
-  const { searchParams } = new URL(req.url);
+async function fetchGooglePhoto({ photo_reference, maxwidth, maxheight, key }) {
+  const params = new URLSearchParams();
+  if (maxwidth) params.set("maxwidth", String(maxwidth));
+  if (maxheight) params.set("maxheight", String(maxheight));
+  params.set("photoreference", photo_reference);
+  params.set("key", key);
 
-  const diag = searchParams.get('diag') === '1';
+  const url = `https://maps.googleapis.com/maps/api/place/photo?${params.toString()}`;
+  const res = await fetch(url, { redirect: "follow" });
 
-  // Accept both parameter names (legacy + your earlier naming)
-  const photoReference =
-    searchParams.get('photo_reference') || searchParams.get('photoReference');
-  const photoName =
-    searchParams.get('photo_name') || searchParams.get('photoName');
+  const contentType = res.headers.get("content-type") || "";
+  const status = res.status;
 
-  const maxwidth = toInt(searchParams.get('maxwidth'), 600);
-  const maxheightRaw = searchParams.get('maxheight');
-  const maxheight = maxheightRaw ? toInt(maxheightRaw, null) : null;
+  if (!res.ok) {
+    let bodySnippet = "";
+    try {
+      bodySnippet = (await res.text()).slice(0, 500);
+    } catch {}
+    return { ok: false, status, contentType, url, bodySnippet };
+  }
 
-  if (!photoReference && !photoName) {
-    return json(
+  const arrayBuffer = await res.arrayBuffer();
+  return { ok: true, status, contentType, url, arrayBuffer };
+}
+
+async function fetchPlacePhotosSnapshot({ placeId, key, maxPhotos }) {
+  const params = new URLSearchParams();
+  params.set("place_id", placeId);
+  params.set("fields", "photos");
+  params.set("key", key);
+
+  const url = `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if (data.status !== "OK") {
+    return {
+      ok: false,
+      status: data.status,
+      error_message: data.error_message || null,
+      url,
+    };
+  }
+
+  const photos = normalizePhotos(data.result?.photos, maxPhotos);
+  return { ok: true, photos, url };
+}
+
+async function loadPhotosFromSupabase({ placeId }) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { ok: false, error: "Missing Supabase env" };
+
+  const { data: loc, error: locErr } = await supabase
+    .from("locations")
+    .select("id")
+    .eq("google_place_id", placeId)
+    .maybeSingle();
+
+  if (locErr || !loc?.id) {
+    return { ok: false, error: `Location not found for placeId=${placeId}` };
+  }
+
+  const { data: lv, error: lvErr } = await supabase
+    .from("location_values")
+    .select("value_json, updated_at")
+    .eq("location_id", loc.id)
+    .eq("attribute_id", PHOTOS_ATTRIBUTE_ID)
+    .eq("language_code", "und")
+    .maybeSingle();
+
+  if (lvErr) return { ok: false, error: lvErr.message };
+
+  const photos = Array.isArray(lv?.value_json) ? lv.value_json : null;
+  return { ok: true, location_id: loc.id, photos, updated_at: lv?.updated_at || null };
+}
+
+async function upsertPhotosToSupabase({ locationId, photos }) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { ok: false, error: "Missing Supabase env" };
+
+  const payload = {
+    location_id: locationId,
+    attribute_id: PHOTOS_ATTRIBUTE_ID,
+    language_code: "und",
+    updated_at: new Date().toISOString(),
+    value_json: photos,
+    source_tag: "google",
+  };
+
+  const { error } = await supabase
+    .from("location_values")
+    .upsert(payload, { onConflict: "location_id,attribute_id,language_code" });
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export async function GET(request) {
+  const url = new URL(request.url);
+  const sp = url.searchParams;
+
+  const diag = sp.get("diag") === "1";
+  const key = getGoogleKey();
+
+  const place_id = sp.get("place_id") || "";
+  const index = clampInt(sp.get("index"), 0, 49, 0);
+  const maxwidth = sp.get("maxwidth") ? clampInt(sp.get("maxwidth"), 1, 4000, 600) : 600;
+  const maxheight = sp.get("maxheight") ? clampInt(sp.get("maxheight"), 1, 4000, null) : null;
+  const maxPhotos = sp.get("maxPhotos") ? clampInt(sp.get("maxPhotos"), 1, 50, DEFAULT_MAX_PHOTOS) : DEFAULT_MAX_PHOTOS;
+
+  if (!place_id) {
+    return NextResponse.json(
       {
         ok: false,
         version: VERSION,
-        error:
-          'Missing photo reference. Use ?photo_reference=... (legacy) or ?photo_name=places/.../photos/... (v1).',
+        error: "Missing place_id. Use ?place_id=ChIJ...&index=0&maxwidth=600",
       },
-      400
+      { status: 400, headers: { "x-w2h-gphoto-version": VERSION } }
     );
   }
 
-  const key = pickKey();
   if (!key) {
-    return json(
+    return NextResponse.json(
       {
         ok: false,
         version: VERSION,
         error:
-          'Missing server-side Google API key. Set GOOGLE_PLACES_SERVER_KEY (recommended) or GOOGLE_MAPS_SERVER_KEY in Vercel env.',
+          "Missing server-side Google API key. Set GOOGLE_PLACES_SERVER_KEY (recommended) or GOOGLE_MAPS_SERVER_KEY / GOOGLE_API_KEY.",
       },
-      500
+      { status: 500, headers: { "x-w2h-gphoto-version": VERSION } }
     );
   }
 
-  let mode = '';
-  let upstreamUrl = '';
+  // --- 1) DB-first: vorhandenen Photos-Snapshot nutzen ---
+  const db = await loadPhotosFromSupabase({ placeId: place_id });
 
-  // --- Build upstream URL ---
-  if (photoName) {
-    // Places API (New): GET https://places.googleapis.com/v1/{photo_name}/media?maxWidthPx=...&key=...
-    // photo_name must remain a path (do NOT encode slashes)
-    // Basic validation to avoid path injection.
-    if (!/^places\/[^/]+\/photos\/[^/]+$/.test(photoName)) {
-      return json(
+  let photos = db.ok ? db.photos : null;
+  let locationId = db.ok ? db.location_id : null;
+
+  // Helper: gewählt anhand index
+  const chooseRef = (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    const p = arr[Math.min(index, arr.length - 1)];
+    return p?.photo_reference || null;
+  };
+
+  // 1a) Wenn DB Photos hat -> direkt versuchen
+  const dbRef = chooseRef(photos);
+  if (dbRef) {
+    const res = await fetchGooglePhoto({ photo_reference: dbRef, maxwidth, maxheight, key });
+
+    if (res.ok) {
+      if (diag) {
+        return NextResponse.json(
+          {
+            ok: true,
+            version: VERSION,
+            mode: "db-first",
+            place_id,
+            used_reference: dbRef,
+            photos_count: photos.length,
+            db_updated_at: db.updated_at,
+            upstream: { status: res.status, contentType: res.contentType, url: res.url },
+          },
+          { status: 200, headers: { "x-w2h-gphoto-version": VERSION } }
+        );
+      }
+
+      return new NextResponse(res.arrayBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": res.contentType || "image/jpeg",
+          "Cache-Control": "public, max-age=86400",
+          "x-w2h-gphoto-version": VERSION,
+        },
+      });
+    }
+
+    // Nur bei 400 heilen (wie vereinbart)
+    if (res.status !== 400) {
+      return NextResponse.json(
         {
           ok: false,
           version: VERSION,
-          error:
-            'Invalid photo_name format. Expected: places/{placeId}/photos/{photoId}',
-          received: { photo_name_len: String(photoName).length },
+          mode: "db-first",
+          place_id,
+          used_reference: dbRef,
+          upstream: {
+            status: res.status,
+            contentType: res.contentType,
+            url: res.url,
+            bodySnippetHead: res.bodySnippet?.slice(0, 250) || "",
+          },
+          hint: "Upstream error is not 400. No heal performed.",
         },
-        400
+        { status: 502, headers: { "x-w2h-gphoto-version": VERSION } }
       );
     }
-
-    mode = 'v1-media';
-    const qs = new URLSearchParams();
-    qs.set('key', key);
-
-    // Google uses maxWidthPx / maxHeightPx
-    if (maxheight) qs.set('maxHeightPx', String(maxheight));
-    else qs.set('maxWidthPx', String(maxwidth));
-
-    upstreamUrl = `https://places.googleapis.com/v1/${photoName}/media?${qs.toString()}`;
-  } else {
-    // Legacy: https://maps.googleapis.com/maps/api/place/photo?maxwidth=...&photo_reference=...&key=...
-    mode = 'legacy-photo';
-
-    const qs = new URLSearchParams();
-    qs.set('key', key);
-    qs.set('photo_reference', photoReference); // ✅ correct param name
-    if (maxheight) qs.set('maxheight', String(maxheight));
-    else qs.set('maxwidth', String(maxwidth));
-
-    upstreamUrl = `https://maps.googleapis.com/maps/api/place/photo?${qs.toString()}`;
+    // -> fällt durch in Heal
   }
 
-  // --- Fetch upstream ---
-  let upstreamRes;
-  try {
-    upstreamRes = await fetch(upstreamUrl, {
-      // fetch follows redirects by default in node, that's fine here
-      redirect: 'follow',
-      headers: {
-        // keep it simple; Google doesn't require special headers
-        'user-agent': 'wind2horizon-gphoto-proxy',
-      },
-    });
-  } catch (e) {
-    return json(
+  // --- 2) Heal: Google photos neu holen -> DB upserten -> retry ---
+  const snap = await fetchPlacePhotosSnapshot({ placeId: place_id, key, maxPhotos });
+
+  if (!snap.ok) {
+    return NextResponse.json(
       {
         ok: false,
         version: VERSION,
-        mode,
-        error: 'Upstream fetch failed',
-        details: String(e?.message || e),
+        mode: "heal",
+        place_id,
+        reason: "Could not fetch photos via Places Details.",
+        details: snap,
       },
-      502
+      { status: 502, headers: { "x-w2h-gphoto-version": VERSION } }
     );
   }
 
-  const contentType = upstreamRes.headers.get('content-type') || '';
-  const status = upstreamRes.status;
+  if (!snap.photos || snap.photos.length === 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        version: VERSION,
+        mode: "heal",
+        place_id,
+        reason: "No photos returned by Places Details.",
+        details_url: snap.url,
+      },
+      { status: 404, headers: { "x-w2h-gphoto-version": VERSION } }
+    );
+  }
 
-  // If diag requested, return structured info instead of binary
+  // Wenn locationId noch nicht da (weil DB load failed), versuchen wir es jetzt zu holen
+  if (!locationId) {
+    const db2 = await loadPhotosFromSupabase({ placeId: place_id });
+    locationId = db2.ok ? db2.location_id : null;
+  }
+
+  if (!locationId) {
+    return NextResponse.json(
+      {
+        ok: false,
+        version: VERSION,
+        mode: "heal",
+        place_id,
+        reason: "Location not found in Supabase (cannot store refreshed snapshot).",
+      },
+      { status: 404, headers: { "x-w2h-gphoto-version": VERSION } }
+    );
+  }
+
+  const store = await upsertPhotosToSupabase({ locationId, photos: snap.photos });
+
+  const chosenRef = chooseRef(snap.photos);
+  const retry = await fetchGooglePhoto({
+    photo_reference: chosenRef,
+    maxwidth,
+    maxheight,
+    key,
+  });
+
+  if (!retry.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        version: VERSION,
+        mode: "heal",
+        place_id,
+        stored: store,
+        refreshed_count: snap.photos.length,
+        chosen_index: index,
+        chosen_reference: chosenRef,
+        retry_upstream: {
+          status: retry.status,
+          contentType: retry.contentType,
+          url: retry.url,
+          bodySnippetHead: retry.bodySnippet?.slice(0, 250) || "",
+        },
+      },
+      { status: 502, headers: { "x-w2h-gphoto-version": VERSION } }
+    );
+  }
+
   if (diag) {
-    const text = await safeReadText(upstreamRes);
-    return json(
+    return NextResponse.json(
       {
-        ok: status >= 200 && status < 300,
+        ok: true,
         version: VERSION,
-        mode,
-        received: {
-          ref_len: photoReference ? String(photoReference).length : null,
-          photo_name_len: photoName ? String(photoName).length : null,
-          maxwidth,
-          maxheight,
-        },
+        mode: "heal",
+        place_id,
+        stored: store,
+        refreshed_count: snap.photos.length,
+        chosen_reference: chosenRef,
         upstream: {
-          status,
-          contentType,
-          url: upstreamUrl.replace(key, '***'),
-          bodySnippetHead: text,
+          status: retry.status,
+          contentType: retry.contentType,
+          url: retry.url,
         },
       },
-      status >= 200 && status < 300 ? 200 : 502
+      { status: 200, headers: { "x-w2h-gphoto-version": VERSION } }
     );
   }
 
-  // Non-diag: must return the image if successful
-  if (!upstreamRes.ok) {
-    const text = await safeReadText(upstreamRes);
-    return json(
-      {
-        ok: false,
-        version: VERSION,
-        mode,
-        received: {
-          ref_len: photoReference ? String(photoReference).length : null,
-          photo_name_len: photoName ? String(photoName).length : null,
-          maxwidth,
-          maxheight,
-        },
-        upstream: {
-          status,
-          contentType,
-          url: upstreamUrl.replace(key, '***'),
-          googleMessage: text.replace(/\s+/g, ' ').slice(0, 300),
-          bodySnippetHead: text,
-        },
-      },
-      502
-    );
-  }
-
-  // Stream binary through
-  const headers = new Headers();
-  headers.set('content-type', contentType || 'image/jpeg');
-  headers.set('cache-control', 'public, max-age=3600, s-maxage=3600'); // short cache; photo_reference can expire
-  headers.set('x-w2h-gphoto-version', VERSION);
-
-  return new Response(upstreamRes.body, { status: 200, headers });
+  return new NextResponse(retry.arrayBuffer, {
+    status: 200,
+    headers: {
+      "Content-Type": retry.contentType || "image/jpeg",
+      "Cache-Control": "public, max-age=86400",
+      "x-w2h-gphoto-version": VERSION,
+      "x-w2h-gphoto-healed": "1",
+    },
+  });
 }

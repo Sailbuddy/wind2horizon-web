@@ -33,6 +33,17 @@ const GOOGLE_MAP_STYLE = [
   { featureType: 'poi', elementType: 'labels.text', stylers: [{ visibility: 'off' }] },
 ];
 
+// ✅ Kleine, robuste Placeholder-Grafik (für kaputte Images)
+const IMG_PLACEHOLDER_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+     <rect width="1200" height="800" fill="#f3f4f6"/>
+     <path d="M240 560l180-220 160 190 140-170 240 300H240z" fill="#d1d5db"/>
+     <circle cx="420" cy="300" r="55" fill="#d1d5db"/>
+     <text x="600" y="710" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+           font-size="34" fill="#6b7280">Bild nicht verfügbar</text>
+   </svg>`;
+const IMG_PLACEHOLDER_URL = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(IMG_PLACEHOLDER_SVG)}`;
+
 function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
   const cx = size / 2;
   const cy = size / 2;
@@ -120,7 +131,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const mapRef = useRef(null);
   const mapObj = useRef(null);
   const markers = useRef([]);
-  const layerState = useRef(new Map());
+  const layerState = useRef(new Map()); // category_id -> boolean
   const infoWin = useRef(null);
   const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
@@ -208,7 +219,45 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
   // ---------------------------------------------
-  const photoUrl = (ref, max = 800) => `/api/gphoto?photo_reference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+  // ✅ (1) photoUrl() sendet zusätzlich place_id + location_id mit (für on-demand refresh im /api/gphoto)
+  const photoUrl = (ref, max = 800, row = null) => {
+    let url = `/api/gphoto?photo_reference=${encodeURIComponent(ref)}&maxwidth=${max}`;
+    if (row?.google_place_id) url += `&place_id=${encodeURIComponent(row.google_place_id)}`;
+    if (row?.id !== undefined && row?.id !== null) url += `&location_id=${encodeURIComponent(String(row.id))}`;
+    return url;
+  };
+
+  // ✅ (2) Optional: onError UX (React Images) – step-down maxwidth, dann Placeholder
+  function handleImgError(e) {
+    try {
+      const img = e?.currentTarget;
+      if (!img) return;
+
+      const step = Number(img.dataset?.w2hStep || 0);
+      const src = String(img.getAttribute('src') || '');
+
+      // Nur für unsere gphoto URLs sinnvoll (enthält maxwidth=)
+      if (src.includes('/api/gphoto') && src.includes('maxwidth=')) {
+        if (step === 0) {
+          img.dataset.w2hStep = '1';
+          img.src = src.replace(/maxwidth=\d+/i, 'maxwidth=600');
+          return;
+        }
+        if (step === 1) {
+          img.dataset.w2hStep = '2';
+          img.src = src.replace(/maxwidth=\d+/i, 'maxwidth=400');
+          return;
+        }
+      }
+
+      // endgültig: Placeholder
+      img.onerror = null;
+      img.src = IMG_PLACEHOLDER_URL;
+      img.style.opacity = '0.75';
+    } catch {
+      // ignore
+    }
+  }
 
   function escapeHtml(str = '') {
     return String(str)
@@ -276,6 +325,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
             : 'All';
   }
 
+  // ---------------------------------------------
+  // ✅ Dynamic attributes: schema + formatting
+  // ---------------------------------------------
   function getAttrLabel(def, langCode) {
     if (!def) return '';
     const key = def.key || '';
@@ -376,7 +428,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   /**
    * Lädt attribute_definitions in attrSchemaRef.
-   * Wichtig: Primärschlüssel/ID-Spalte heißt bei dir "attribute_id".
+   * Primärschlüssel/ID-Spalte: "attribute_id".
    */
   async function ensureAttributeSchema() {
     if (attrSchemaRef.current) return attrSchemaRef.current;
@@ -497,7 +549,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                 if (isGoogle) {
                   const ref = p.photo_reference || p.photoreference;
                   const w = Math.min(1200, Number(p.width || 0) || 640);
-                  src = photoUrl(ref, w);
+                  src = photoUrl(ref, w, g.row || null); // ✅ place_id + location_id werden mitgeschickt
                 } else if (isUser) {
                   src = p.thumb || p.public_url || p.url || '';
                 }
@@ -518,7 +570,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
                         overflow: 'hidden',
                       }}
                     >
-                      <img src={src} alt={p.caption || ''} loading="lazy" decoding="async" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                      <img
+                        src={src}
+                        alt={p.caption || ''}
+                        loading="lazy"
+                        decoding="async"
+                        data-w2h-step="0"
+                        onError={handleImgError} // ✅ Optional UX
+                        style={{ width: '100%', height: 'auto', display: 'block' }}
+                      />
                     </div>
 
                     {isGoogle ? (
@@ -630,112 +690,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       </div>
     );
   }
-  
-  function renderKiReportPretty(report, langCode) {
-  if (!report || typeof report !== 'object') return null;
-
-  const title = report.title || '';
-  const summary = report.summary || '';
-  const highlights = Array.isArray(report.highlights) ? report.highlights : [];
-  const attrs = Array.isArray(report.attributes) ? report.attributes : [];
-  const pi = report.practical_info && typeof report.practical_info === 'object' ? report.practical_info : {};
-
-  const rows = [];
-
-  if (pi.address) rows.push({ k: langCode === 'de' ? 'Adresse' : 'Address', v: String(pi.address) });
-  if (pi.phone) rows.push({ k: langCode === 'de' ? 'Telefon' : 'Phone', v: String(pi.phone) });
-  if (pi.website) rows.push({ k: 'Website', v: String(pi.website) });
-  if (pi.rating !== undefined && pi.rating !== null) rows.push({ k: 'Rating', v: String(pi.rating) });
-  if (pi.price_level !== undefined && pi.price_level !== null) rows.push({ k: langCode === 'de' ? 'Preisniveau' : 'Price level', v: String(pi.price_level) });
-
-  return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      {title ? <div style={{ fontSize: 13, fontWeight: 800 }}>{title}</div> : null}
-
-      {summary ? (
-        <div
-          style={{
-            background: '#f8fafc',
-            border: '1px solid #e5e7eb',
-            borderRadius: 12,
-            padding: 12,
-            fontSize: 13,
-            lineHeight: 1.45,
-            color: '#111827',
-          }}
-        >
-          {summary}
-        </div>
-      ) : null}
-
-      {highlights.length ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: '#111827' }}>
-            {langCode === 'de' ? 'Highlights' : 'Highlights'}
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
-            {highlights.map((h, i) => (
-              <li key={`${h}-${i}`}>{String(h)}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {rows.length ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
-            {langCode === 'de' ? 'Praktische Infos' : 'Practical info'}
-          </div>
-
-          <div style={{ display: 'grid', gap: 8 }}>
-            {rows.map((r) => {
-              const isUrl = r.k === 'Website' && String(r.v).startsWith('http');
-              return (
-                <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'start' }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{r.k}</div>
-                  <div style={{ fontSize: 13, color: '#374151', wordBreak: 'break-word' }}>
-                    {isUrl ? (
-                      <a href={r.v} target="_blank" rel="noopener" style={{ color: '#1f6aa2', textDecoration: 'underline' }}>
-                        {r.v}
-                      </a>
-                    ) : (
-                      r.v
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      {attrs.length ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
-            {langCode === 'de' ? 'Attribute' : 'Attributes'}
-          </div>
-
-          <div style={{ display: 'grid', gap: 10 }}>
-            {attrs.map((a, idx) => (
-              <div key={`${a.label || 'attr'}-${idx}`} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', paddingTop: idx ? 10 : 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>{a.label || ''}</div>
-                <div style={{ fontSize: 13, color: '#374151', marginTop: 4, whiteSpace: 'pre-wrap' }}>
-                  {typeof a.value === 'object' ? JSON.stringify(a.value, null, 2) : String(a.value ?? '')}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 
   function KiReportModal({ modal, onClose, onRefresh }) {
     if (!modal) return null;
 
-    const created = modal.createdAt ? new Date(modal.createdAt).toLocaleString() : '';
+    const { loading, error, report, title } = modal;
 
     return (
       <div
@@ -758,2043 +717,944 @@ export default function GoogleMapClient({ lang = 'de' }) {
             maxWidth: 980,
             width: '95vw',
             maxHeight: '90vh',
-            overflow: 'auto',
             padding: 18,
             boxShadow: '0 10px 30px rgba(0,0,0,.25)',
-            display: 'grid',
-            gap: 12,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 18 }}>
-                🧠 {label('kiReport', lang)} · {modal.title}
-              </h2>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>
-                Spot #{modal.locationId}
-                {created ? ` · ${label('createdAt', lang)}: ${created}` : ''}
-              </div>
-            </div>
-
-            <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
-              ×
-            </button>
-          </div>
-
-          {modal.loading ? (
-            <div style={{ fontSize: 14, color: '#374151' }}>{label('loadingReport', lang)}</div>
-          ) : modal.error ? (
-            <div style={{ fontSize: 14, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: 10, borderRadius: 12 }}>
-              {modal.error}
-            </div>
-          ) : modal.report ? (
-            <div>
-              {renderKiReportPretty(modal.report, lang)}
-              <details style={{ marginTop: 10 }}>
-                <summary style={{ cursor: 'pointer', fontSize: 12, color: '#64748b' }}>Debug: JSON anzeigen</summary>
-                <pre
-                  style={{
-                    marginTop: 8,
-                    whiteSpace: 'pre-wrap',
-                    fontSize: 12,
-                    background: '#f9fafb',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 12,
-                    padding: 12,
-                  }}
-                >
-                  {JSON.stringify(modal.report, null, 2)}
-                </pre>
-              </details>
-            </div>
-          ) : (
-            <div style={{ fontSize: 14, color: '#6b7280' }}>{label('noReport', lang)}</div>
-          )}
-
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button
-              onClick={onRefresh}
-              disabled={modal.loading}
-              style={{
-                border: 'none',
-                borderRadius: 12,
-                padding: '10px 14px',
-                fontSize: 13,
-                fontWeight: 800,
-                background: '#0284c7',
-                color: '#fff',
-                cursor: 'pointer',
-                opacity: modal.loading ? 0.6 : 1,
-              }}
-            >
-              {label('refreshReport', lang)}
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                border: '1px solid #d1d5db',
-                borderRadius: 12,
-                padding: '10px 14px',
-                fontSize: 13,
-                fontWeight: 700,
-                background: '#fff',
-                cursor: 'pointer',
-              }}
-            >
-              {label('closeModal', lang)}
-            </button>
-          </div>
-
-          <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>
-            Hinweis: Aktuell wird der Report als JSON angezeigt (Debug/MVP). UI-Rendering der Abschnitte folgt.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  function loadGoogleMaps(language) {
-    return new Promise((resolve, reject) => {
-      if (window.google && window.google.maps) return resolve();
-      const existing = document.querySelector('script[data-w2h-gmaps]');
-      if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true });
-        existing.addEventListener('error', (ev) => reject(ev), { once: true });
-        return;
-      }
-      const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=marker&language=${language}`;
-      s.async = true;
-      s.defer = true;
-      s.dataset.w2hGmaps = '1';
-      s.addEventListener('load', () => resolve(), { once: true });
-      s.addEventListener('error', (ev) => reject(ev), { once: true });
-      document.head.appendChild(s);
-    });
-  }
-
-  function repairMojibake(s = '') {
-    // eslint-disable-next-line no-undef
-    return /Ã|Å|Â/.test(s) ? decodeURIComponent(escape(s)) : s;
-  }
-
-  function pickName(row, langCode) {
-    const raw =
-      (langCode === 'de' && row.name_de) ||
-      (langCode === 'it' && row.name_it) ||
-      (langCode === 'fr' && row.name_fr) ||
-      (langCode === 'hr' && row.name_hr) ||
-      (langCode === 'en' && row.name_en) ||
-      row.display_name ||
-      row.name_de ||
-      row.name_en ||
-      '';
-    return repairMojibake(raw);
-  }
-
-  function pickDescriptionFromRow(row, langCode) {
-    return (
-      (langCode === 'de' && row.description_de) ||
-      (langCode === 'it' && row.description_it) ||
-      (langCode === 'fr' && row.description_fr) ||
-      (langCode === 'hr' && row.description_hr) ||
-      (langCode === 'en' && row.description_en) ||
-      ''
-    );
-  }
-
-  function label(key, langCode) {
-    const L = {
-      route: { de: 'Route', en: 'Directions', it: 'Itinerario', hr: 'Ruta', fr: 'Itinéraire' },
-      website: { de: 'Website', en: 'Website', it: 'Sito', hr: 'Web', fr: 'Site' },
-      call: { de: 'Anrufen', en: 'Call', it: 'Chiama', hr: 'Nazovi', fr: 'Appeler' },
-      open: { de: 'Geöffnet', en: 'Open now', it: 'Aperto', hr: 'Otvoreno', fr: 'Ouvert' },
-      closed: { de: 'Geschlossen', en: 'Closed', it: 'Chiuso', hr: 'Zatvoreno', fr: 'Fermé' },
-      photos: { de: 'Fotos', en: 'Photos', it: 'Foto', hr: 'Fotografije', fr: 'Photos' },
-      wind: { de: 'Winddaten', en: 'Wind data', it: 'Dati vento', hr: 'Podaci o vjetru', fr: 'Données vent' },
-      searchResults: { de: 'Suchergebnisse', en: 'Search results', it: 'Risultati', hr: 'Rezultati', fr: 'Résultats' },
-      resetSearch: { de: 'Suche aufheben', en: 'Clear search', it: 'Annulla', hr: 'Poništi', fr: 'Réinitialiser' },
-      disabledCat: { de: 'Kategorie ist deaktiviert', en: 'Category is disabled', it: 'Categoria disattivata', hr: 'Kategorija isključena', fr: 'Catégorie désactivée' },
-      paywalledCat: { de: 'Kategorie ist in dieser Version nicht verfügbar', en: 'Not available in this plan', it: 'Non disponibile', hr: 'Nije dostupno', fr: 'Non disponible' },
-
-      // ✅ KI-Report UI
-      kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
-      refreshReport: { de: 'Aktualisieren', en: 'Refresh', it: 'Aggiorna', hr: 'Osvježi', fr: 'Actualiser' },
-      closeModal: { de: 'Schließen', en: 'Close', it: 'Chiudi', hr: 'Zatvori', fr: 'Fermer' },
-      createdAt: { de: 'erstellt', en: 'created', it: 'creato', hr: 'izrađeno', fr: 'créé' },
-      loadingReport: { de: 'Report wird geladen…', en: 'Loading report…', it: 'Caricamento…', hr: 'Učitavanje…', fr: 'Chargement…' },
-      noReport: { de: 'Kein Report vorhanden.', en: 'No report available.', it: 'Nessun report.', hr: 'Nema izvještaja.', fr: 'Aucun rapport.' },
-
-      // ✅ Datenblock (immer sichtbar)
-      dataBlock: { de: 'Daten', en: 'Data', it: 'Dati', hr: 'Podaci', fr: 'Données' },
-    };
-    return (L[key] && (L[key][langCode] || L[key].en)) || key;
-  }
-
-  const DAY_OUTPUT = {
-    de: ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'],
-    en: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-    it: ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'],
-    fr: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'],
-    hr: ['Ponedjeljak', 'Utorak', 'Srijeda', 'Četvrtak', 'Petak', 'Subota', 'Nedjelja'],
-  };
-
-  const DAY_ALIASES = new Map([
-    ['monday', 0], ['mon', 0],
-    ['tuesday', 1], ['tue', 1], ['tues', 1],
-    ['wednesday', 2], ['wed', 2],
-    ['thursday', 3], ['thu', 3], ['thur', 3], ['thurs', 3],
-    ['friday', 4], ['fri', 4],
-    ['saturday', 5], ['sat', 5],
-    ['sunday', 6], ['sun', 6],
-    ['montag', 0], ['mo', 0],
-    ['dienstag', 1], ['di', 1],
-    ['mittwoch', 2], ['mi', 2],
-    ['donnerstag', 3], ['do', 3],
-    ['freitag', 4], ['fr', 4],
-    ['samstag', 5], ['sa', 5],
-    ['sonntag', 6], ['so', 6],
-    ['lunedì', 0], ['lunedi', 0], ['lun', 0],
-    ['martedì', 1], ['martedi', 1], ['mar', 1],
-    ['mercoledì', 2], ['mercoledi', 2], ['mer', 2],
-    ['giovedì', 3], ['giovedi', 3], ['gio', 3],
-    ['venerdì', 4], ['venerdi', 4], ['ven', 4],
-    ['sabato', 5], ['sab', 5],
-    ['domenica', 6], ['dom', 6],
-    ['lundi', 0],
-    ['mardi', 1],
-    ['mercredi', 2],
-    ['jeudi', 3],
-    ['vendredi', 4],
-    ['samedi', 5],
-    ['dimanche', 6],
-    ['ponedjeljak', 0], ['pon', 0],
-    ['utorak', 1], ['uto', 1],
-    ['srijeda', 2], ['sri', 2],
-    ['četvrtak', 3], ['cetvrtak', 3], ['čet', 3], ['cet', 3],
-    ['petak', 4], ['pet', 4],
-    ['subota', 5], ['sub', 5],
-    ['nedjelja', 6], ['ned', 6],
-  ]);
-
-  function localizeHoursLine(line = '', langCode = 'de') {
-    const m = String(line).match(/^\s*([^:]+):\s*(.*)$/);
-    if (!m) return line;
-    const head = m[1].trim();
-    const rest = m[2].trim();
-    const idx = DAY_ALIASES.get(head.toLowerCase());
-    if (idx === undefined) return line;
-    const outDay = (DAY_OUTPUT[langCode] || DAY_OUTPUT.en)[idx];
-    return `${outDay}: ${rest}`;
-  }
-
-  function localizeHoursList(list = [], langCode = 'de') {
-    return list.map((ln) => localizeHoursLine(String(ln), langCode));
-  }
-
-  // Mapping per ID (bestehende Felder)
-  const FIELD_MAP_BY_ID = {
-    5: 'address',
-    28: 'address',
-    29: 'website',
-    25: 'website',
-    30: 'phone',
-    34: 'phone',
-    14: 'opening_now',
-    16: 'opening_hours',
-    37: 'opening_hours',
-    38: 'opening_hours',
-    39: 'opening_hours',
-    40: 'opening_hours',
-    41: 'opening_hours',
-    42: 'opening_hours',
-    43: 'opening_hours',
-    22: 'rating',
-    26: 'rating_total',
-    21: 'price',
-    33: 'description',
-    17: 'photos',
-    102: 'wind_profile',
-    105: 'wind_hint',
-    107: 'livewind_station',
-  };
-
-  const FIELD_MAP_BY_KEY = {
-    wind_profile: 'wind_profile',
-    wind_swell_profile: 'wind_profile',
-    wind_profile_info: 'wind_hint',
-    wind_hint: 'wind_hint',
-    wind_note: 'wind_hint',
-    livewind_station: 'livewind_station',
-  };
-
-  // ---- Canonical duplicate handling (Fix B) -------------------------
-  const LANG_PREF = (langCode) => [langCode, 'de', 'en', 'it', 'fr', 'hr', ''];
-
-  function toStrMaybe(v) {
-    if (v === null || v === undefined) return '';
-    if (typeof v === 'string') return v;
-    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-    try {
-      return JSON.stringify(v);
-    } catch {
-      return String(v);
-    }
-  }
-
-  function isMeaningfulValueForCanon(canon, v) {
-    if (v === null || v === undefined) return false;
-    if (canon === 'rating' || canon === 'rating_total' || canon === 'price') {
-      const n = typeof v === 'number' ? v : Number(String(v));
-      return Number.isFinite(n) && n !== 0; // 0 ist oft "leer"
-    }
-    const s = String(v).trim();
-    if (!s) return false;
-
-    // AI-Ausreden/Fehlermeldungen in value_text bei website/phone etc. nicht bevorzugen
-    const badSnippets = [
-      'entschuldigung',
-      'ich kann',
-      'ne mogu',
-      'žao mi je',
-      'je suis',
-      'i am not able',
-      'cannot',
-      'kann den angegebenen inhalt nicht',
-      'nicht übersetzen',
-    ];
-    const low = s.toLowerCase();
-    if ((canon === 'website' || canon === 'phone') && badSnippets.some((b) => low.includes(b))) return false;
-
-    return true;
-  }
-
-  function shouldReplaceCanon(existingVal, existingLang, candidateVal, candidateLang, canon, langCode) {
-    const pref = LANG_PREF(langCode);
-
-    const exOk = isMeaningfulValueForCanon(canon, existingVal);
-    const caOk = isMeaningfulValueForCanon(canon, candidateVal);
-
-    if (!exOk && caOk) return true;
-    if (exOk && !caOk) return false;
-    if (!exOk && !caOk) return false;
-
-    const exL = (existingLang || '').toLowerCase();
-    const caL = (candidateLang || '').toLowerCase();
-
-    const exRank = pref.indexOf(exL) === -1 ? 999 : pref.indexOf(exL);
-    const caRank = pref.indexOf(caL) === -1 ? 999 : pref.indexOf(caL);
-
-    return caRank < exRank;
-  }
-
-  function setCanon(obj, canon, val, lc, langCode) {
-    obj._canonLang = obj._canonLang || {};
-    const existing = obj[canon];
-    const existingLc = obj._canonLang[canon];
-
-    if (existing === undefined) {
-      obj[canon] = val;
-      obj._canonLang[canon] = (lc || '').toLowerCase();
-      return;
-    }
-
-    if (shouldReplaceCanon(existing, existingLc, val, lc, canon, langCode)) {
-      obj[canon] = val;
-      obj._canonLang[canon] = (lc || '').toLowerCase();
-    } else if (DEBUG_LOG) {
-      console.warn(`[w2h] skip weaker duplicate "${canon}"`, { existing, existingLc, candidate: val, lc });
-    }
-  }
-
-  function getMarkerIcon(catId, svgMarkup) {
-    if (DEBUG_MARKERS && typeof google !== 'undefined' && google.maps && google.maps.SymbolPath) {
-      return { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillOpacity: 0.9, strokeWeight: 2 };
-    }
-
-    const key = String(catId ?? 'default');
-    if (iconCache.current.has(key)) return iconCache.current.get(key);
-    const rawSvg = svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
-
-    const icon = {
-      url: svgToDataUrl(rawSvg),
-      scaledSize: new google.maps.Size(40, 40),
-      anchor: new google.maps.Point(20, 40),
-    };
-
-    iconCache.current.set(key, icon);
-    return icon;
-  }
-
-  function createDebugOverlay(map, locations) {
-    if (!DEBUG_BOUNDING) return;
-    if (typeof google === 'undefined' || !google.maps || !google.maps.OverlayView) return;
-
-    class MarkerDebugOverlay extends google.maps.OverlayView {
-      constructor(locs) {
-        super();
-        this.locations = locs;
-        this.div = document.createElement('div');
-        this.div.style.position = 'absolute';
-      }
-
-      onAdd() {
-        const panes = this.getPanes();
-        if (panes && panes.overlayMouseTarget) panes.overlayMouseTarget.appendChild(this.div);
-      }
-
-      draw() {
-        const projection = this.getProjection();
-        if (!projection || !this.locations) return;
-
-        const size = 40;
-        const html = this.locations
-          .map((loc) => {
-            const latLng = new google.maps.LatLng(loc.lat, loc.lng);
-            const pos = projection.fromLatLngToDivPixel(latLng);
-            if (!pos) return '';
-            const left = pos.x - size / 2;
-            const top = pos.y - size;
-
-            return `<div style="position:absolute;left:${left}px;top:${top}px;width:${size}px;height:${size}px;border:1px solid red;box-sizing:border-box;pointer-events:none;"></div>`;
-          })
-          .join('');
-
-        this.div.innerHTML = html;
-      }
-
-      onRemove() {
-        if (this.div && this.div.parentNode) this.div.parentNode.removeChild(this.div);
-      }
-    }
-
-    const overlay = new MarkerDebugOverlay(locations);
-    overlay.setMap(map);
-  }
-
-  function normalizeGooglePhotos(val) {
-    try {
-      let arr = null;
-      if (Array.isArray(val)) arr = val;
-      else if (typeof val === 'string' && val.trim().startsWith('[')) arr = JSON.parse(val);
-      if (!Array.isArray(arr)) return [];
-      return arr
-        .map((p) => ({
-          photo_reference: p.photo_reference || p.photoreference,
-          width: p.width || null,
-          height: p.height || null,
-          html_attributions: p.html_attributions || null,
-          source: 'google',
-        }))
-        .filter((p) => p.photo_reference);
-    } catch (errPhotos) {
-      console.warn('[w2h] normalizeGooglePhotos failed', errPhotos);
-      return [];
-    }
-  }
-
-  function pickFirstThumb(photos) {
-    if (!Array.isArray(photos) || !photos.length) return null;
-
-    // 1) User-Fotos (verschiedene Feldnamen tolerieren)
-    const user = photos.find((p) => p && (p.thumb || p.public_url || p.url || p.image_url));
-    if (user) return user.thumb || user.public_url || user.url || user.image_url;
-
-    // 2) Google-Fotos (verschiedene Feldnamen tolerieren)
-    const g = photos.find(
-      (p) =>
-        p &&
-        (p.photo_reference ||
-          p.photoreference ||
-          p.photoRef ||
-          p.photo_ref ||
-          (p.ref && typeof p.ref === 'string'))
-    );
-
-    const ref =
-      (g && (g.photo_reference || g.photoreference || g.photoRef || g.photo_ref || g.ref)) || null;
-
-    if (ref) return photoUrl(ref, 600);
-
-    return null;
-   }
-
-
-  // ✅ InfoWindow HTML: eigener Datenblock immer sichtbar; KI-Report ausschließlich per Klick (Modal).
-  function buildInfoContent(row, kvRaw, iconSvgRaw, langCode) {
-    const kv = kvRaw && typeof kvRaw === 'object' ? kvRaw : {};
-    const title = escapeHtml(pickName(row, langCode));
-    const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
-
-    const addrByLang = kv.addressByLang && typeof kv.addressByLang === 'object' ? kv.addressByLang : {};
-    const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
-
-    let addrSel = '';
-    for (const L of pref) {
-      if (addrByLang[L]) {
-        addrSel = addrByLang[L];
-        break;
-      }
-    }
-
-    // ✅ WICHTIG: Fallback auf locations.address
-    const addressRaw = addrSel || kv.address || row.address || '';
-    const address = escapeHtml(addressRaw);
-
-    const website = kv.website || row.website || '';
-    const phone = kv.phone || row.phone || '';
-
-    const ratingVal = kv.rating !== undefined && kv.rating !== null && kv.rating !== '' ? kv.rating : row.rating;
-    const rating = ratingVal !== undefined && ratingVal !== null && ratingVal !== '' ? Number(ratingVal) : null;
-
-    const ratingTotal = kv.rating_total ? parseInt(kv.rating_total, 10) : null;
-
-    // ✅ price_level in locations, "price" in kv
-    const priceVal = kv.price !== undefined && kv.price !== null && kv.price !== '' ? kv.price : row.price_level;
-    const priceLevel = priceVal !== undefined && priceVal !== null && priceVal !== '' ? parseInt(priceVal, 10) : null;
-
-    const openNow = kv.opening_now === 'true' || kv.opening_now === true;
-
-    const hoursByLang = kv.hoursByLang && typeof kv.hoursByLang === 'object' ? kv.hoursByLang : {};
-    let hoursArr = null;
-    for (const L of pref) {
-      if (Array.isArray(hoursByLang[L]) && hoursByLang[L].length) {
-        hoursArr = hoursByLang[L];
-        break;
-      }
-    }
-    const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
-
-    const photos = Array.isArray(kv.photos) ? kv.photos : [];
-    const firstThumb = pickFirstThumb(photos);
-
-    const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
-    const siteHref = website && String(website).startsWith('http') ? website : website ? `https://${website}` : '';
-    const telHref = phone ? `tel:${String(phone).replace(/\s+/g, '')}` : '';
-
-    // ✅ Icon safe render
-    const iconSvg = iconSvgRaw || defaultMarkerSvg;
-    const iconImg = svgToImgTag(iconSvg, 20);
-
-    const btnRoute = `<a class="iw-btn" href="${dirHref}" target="_blank" rel="noopener">📍 ${label('route', langCode)}</a>`;
-    const btnSite = siteHref
-      ? `<a class="iw-btn" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">🌐 ${label('website', langCode)}</a>`
-      : '';
-    const btnTel = telHref ? `<a class="iw-btn" href="${escapeHtml(telHref)}">📞 ${label('call', langCode)}</a>` : '';
-
-    let ratingHtml = '';
-    if (rating !== null && !Number.isNaN(rating)) {
-      const rInt = Math.max(0, Math.min(5, Math.round(rating)));
-      const stars = '★'.repeat(rInt) + '☆'.repeat(5 - rInt);
-      const formatted = Number.isFinite(rating) && rating.toFixed ? rating.toFixed(1) : String(rating);
-      ratingHtml = `<div class="iw-row iw-rating">${stars} ${formatted}${ratingTotal ? ` (${ratingTotal})` : ''}</div>`;
-    }
-
-    let priceHtml = '';
-    if (priceLevel !== null && !Number.isNaN(priceLevel)) {
-      const p = Math.max(0, Math.min(4, priceLevel));
-      priceHtml = `<div class="iw-row iw-price">${'€'.repeat(p || 0)}</div>`;
-    }
-
-    let openingHtml = '';
-    if (kv.opening_now !== undefined) {
-      openingHtml += `<div class="iw-row iw-open">${openNow ? `🟢 ${label('open', langCode)}` : `🔴 ${label('closed', langCode)}`}</div>`;
-    }
-    if (hoursLocalized && hoursLocalized.length) {
-      openingHtml += `<ul class="iw-hours">${hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('')}</ul>`;
-    }
-
-    const thumbHtml = photos.length
-      ? `
-        <div style="margin:6px 0 10px 0;">
-          ${
-            firstThumb
-              ? `<img src="${escapeHtml(firstThumb)}" alt="" loading="lazy" decoding="async"
-                  style="width:100%;height:auto;display:block;border-radius:10px;border:1px solid #eee;background:#fafafa;" />`
-              : `<div style="width:100%;border-radius:10px;border:1px dashed #cbd5e1;background:#f8fafc;
-                   padding:10px;font-size:12px;color:#64748b;">
-                   Fotos vorhanden (${photos.length}), Vorschau konnte nicht geladen werden.
-                 </div>`
-          }
-        </div>
-      `
-      : '';
-
-
-    const btnPhotos = photos.length
-      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${photos.length})</button>`
-      : '';
-
-    const windProfile = kv.wind_profile || null;
-    const hasWindProfile = !!windProfile;
-    const hasWindStation = !!kv.livewind_station;
-    const hasWindHint = kv.wind_hint && typeof kv.wind_hint === 'object' && Object.keys(kv.wind_hint).length > 0;
-    const showWindBtn = hasWindProfile || hasWindStation || hasWindHint;
-
-    const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
-
-    // ✅ KI-Report Button (nur nach Klick; kein Preload)
-    const btnKi = `<button id="kibtn-${row.id}" class="iw-btn iw-btn-ki">🧠 ${label('kiReport', langCode)}</button>`;
-
-    // ✅ Dynamische Attribute: Gruppiert rendern (infowindow_group)
-    let dynamicHtml = '';
-    if (Array.isArray(kv.dynamic) && kv.dynamic.length) {
-      const groups = new Map(); // groupName -> items[]
-      for (const it of kv.dynamic) {
-        const g = (it.group || '').trim();
-        const key = g || '';
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(it);
-      }
-
-      const orderedGroupKeys = Array.from(groups.keys()).sort((a, b) => {
-        if (!a && b) return 1;
-        if (a && !b) return -1;
-        return String(a).localeCompare(String(b));
-      });
-
-      const blocks = orderedGroupKeys
-        .map((gk) => {
-          const items = groups.get(gk) || [];
-          if (!items.length) return '';
-
-          const rows = items
-            .map((it) => {
-              const k = escapeHtml(it.label || it.key || '');
-              const v = it.htmlValue || '';
-              if (!k || !v) return '';
-              return `<div class="iw-row iw-dyn-row"><span class="iw-dyn-k">${k}</span><span class="iw-dyn-v">${v}</span></div>`;
-            })
-            .filter(Boolean)
-            .join('');
-
-          if (!rows) return '';
-
-          const head = gk ? `<div class="iw-dyn-group">${escapeHtml(gk)}</div>` : '';
-          return `<div class="iw-dyn-block">${head}${rows}</div>`;
-        })
-        .filter(Boolean)
-        .join('');
-
-      if (blocks) dynamicHtml = `<div class="iw-dyn">${blocks}</div>`;
-    }
-
-    // ✅ Datenblock immer sichtbar (optische Kapselung, keine Funktionseinschränkung)
-    const dataBlock = `
-      <div class="iw-block iw-block-data">
-        <div class="iw-block-hd">${escapeHtml(label('dataBlock', langCode))}</div>
-        <div class="iw-block-bd">
-          ${thumbHtml}
-          ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
-          ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
-          ${ratingHtml}
-          ${priceHtml}
-          ${openingHtml}
-          ${dynamicHtml}
-        </div>
-      </div>
-    `;
-
-    return `
-      <div class="w2h-iw">
-        <div class="iw-hd">
-          <span class="iw-ic">${iconImg}</span>
-          <div class="iw-title">
-            ${title}
-            <span class="iw-id">#${row.id}</span>
-          </div>
-        </div>
-
-        <div class="iw-bd">
-          ${dataBlock}
-        </div>
-
-        <div class="iw-actions">
-          ${btnKi}${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
-        </div>
-      </div>
-    `;
-  }
-
-  // ------------------------------
-  // ✅ Suche: Result-Set + Search Focus Mode
-  // ------------------------------
-  function normalizeTextForSearch(input) {
-    const s = String(input || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, ''); // diacritics
-    return s.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
-  }
-
-  function pickCategoryName(cat, langCode) {
-    if (!cat) return '';
-    const raw =
-      (langCode === 'de' && cat.name_de) ||
-      (langCode === 'it' && cat.name_it) ||
-      (langCode === 'fr' && cat.name_fr) ||
-      (langCode === 'hr' && cat.name_hr) ||
-      (langCode === 'en' && cat.name_en) ||
-      cat.name_de ||
-      cat.name_en ||
-      '';
-    return String(raw || '').trim();
-  }
-
-  // ✅ Kategorie-Index aus geladenen Locations (inkl. group_key / visibility_tier)
-  const categoryIndex = useMemo(() => {
-    const idx = new Map(); // catId -> {id, group_key, visibility_tier, namesNorm:Set, displayName}
-    const locs = locationsRef.current || [];
-    for (const row of locs) {
-      const c = row.categories;
-      if (!c) continue;
-      const id = row.category_id;
-      if (id === null || id === undefined) continue;
-      const key = String(id);
-      if (!idx.has(key)) {
-        const names = [
-          pickCategoryName(c, 'de'),
-          pickCategoryName(c, 'en'),
-          pickCategoryName(c, 'it'),
-          pickCategoryName(c, 'fr'),
-          pickCategoryName(c, 'hr'),
-          c.google_cat_id ? String(c.google_cat_id) : '',
-        ].filter(Boolean);
-        const namesNorm = new Set(names.map((n) => normalizeTextForSearch(n)).filter(Boolean));
-
-        idx.set(key, {
-          id: String(id),
-          group_key: c.group_key || null,
-          visibility_tier: Number.isFinite(Number(c.visibility_tier)) ? Number(c.visibility_tier) : 0,
-          namesNorm,
-          displayName: pickCategoryName(c, lang) || pickCategoryName(c, 'de') || pickCategoryName(c, 'en') || `#${id}`,
-        });
-      }
-    }
-    return idx;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, selectedRegion, regions, booted]);
-
-  function buildSearchHaystack(row, meta, langCode) {
-    const parts = [];
-
-    // names
-    parts.push(row.display_name, row.name_de, row.name_en, row.name_it, row.name_fr, row.name_hr);
-
-    // descriptions
-    parts.push(row.description_de, row.description_en, row.description_it, row.description_fr, row.description_hr);
-
-    // ids / plus codes
-    parts.push(row.google_place_id, row.plus_code);
-
-    // ✅ locations table: address/phone/website
-    parts.push(row.address, row.phone, row.website);
-
-    // category names + google type
-    if (row.categories) {
-      parts.push(
-        pickCategoryName(row.categories, 'de'),
-        pickCategoryName(row.categories, 'en'),
-        pickCategoryName(row.categories, 'it'),
-        pickCategoryName(row.categories, 'fr'),
-        pickCategoryName(row.categories, 'hr')
-      );
-      if (row.categories.google_cat_id) parts.push(String(row.categories.google_cat_id));
-    }
-
-    // meta address / website / phone (optional but helpful)
-    if (meta && typeof meta === 'object') {
-      if (meta.address) parts.push(meta.address);
-      if (meta.addressByLang && typeof meta.addressByLang === 'object') Object.values(meta.addressByLang).forEach((v) => parts.push(v));
-      if (meta.website) parts.push(meta.website);
-      if (meta.phone) parts.push(meta.phone);
-      if (meta.description) parts.push(meta.description);
-    }
-
-    const joined = parts.filter(Boolean).join(' ');
-    return normalizeTextForSearch(joined);
-  }
-
-  function scoreMatch({ hay, tokens, nameHay }) {
-    // All tokens must match (AND). Score rewards tighter matches.
-    let score = 0;
-
-    for (const t of tokens) {
-      if (!t) continue;
-
-      // exact word bonus
-      const wordRe = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      if (wordRe.test(hay)) score += 30;
-      else if (hay.includes(t)) score += 15;
-      else return -1; // AND requirement: token missing
-    }
-
-    // prefer name/title matches
-    if (nameHay) {
-      for (const t of tokens) {
-        if (!t) continue;
-        if (nameHay === t) score += 40;
-        else if (nameHay.startsWith(t)) score += 25;
-        else if (nameHay.includes(t)) score += 10;
-      }
-    }
-
-    return score;
-  }
-
-  // ✅ Kategorie-Erkennung aus Query (z.B. "Porec Restaurant")
-  function detectCategoriesFromQuery(qNorm) {
-    const hits = [];
-    if (!qNorm) return hits;
-    for (const [catId, rec] of categoryIndex.entries()) {
-      for (const n of rec.namesNorm) {
-        if (!n) continue;
-        if (qNorm === n || qNorm.includes(` ${n} `) || qNorm.endsWith(` ${n}`) || qNorm.startsWith(`${n} `) || qNorm.includes(n)) {
-          hits.push({ id: catId, group_key: rec.group_key, name: rec.displayName, visibility_tier: rec.visibility_tier });
-          break;
-        }
-      }
-    }
-    // dedupe
-    const seen = new Set();
-    return hits.filter((h) => {
-      const k = `${h.id}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-  }
-
-  function getGroupMembers(catHitIds) {
-    // Wenn Kategorie in einer Gruppe ist -> alle IDs mit gleichem group_key zurückgeben
-    const groups = new Set();
-    for (const id of catHitIds) {
-      const rec = categoryIndex.get(String(id));
-      if (rec && rec.group_key) groups.add(String(rec.group_key));
-    }
-    const out = new Set(catHitIds.map((x) => String(x)));
-    if (!groups.size) return Array.from(out);
-
-    for (const [id, rec] of categoryIndex.entries()) {
-      if (rec.group_key && groups.has(String(rec.group_key))) out.add(String(id));
-    }
-    return Array.from(out);
-  }
-
-  function isCategoryAllowedByTier(catId) {
-    const rec = categoryIndex.get(String(catId));
-    if (!rec) return true;
-    const tier = Number(rec.visibility_tier || 0);
-    return tier <= USER_VISIBILITY_TIER;
-  }
-
-  function isLayerEnabled(catId) {
-    // layerState ist Map<string,bool> (catId als string)
-    const v = layerState.current.get(String(catId));
-    return v ?? true;
-  }
-
-  // ✅ Search Focus: Marker Visibility Override
-  function enterSearchFocus(resultRows) {
-    if (!mapObj.current) return;
-
-    // Save current marker visibility
-    const prev = new Map();
-    for (const m of markers.current) prev.set(m, m.getVisible());
-    prevVisibilityRef.current = prev;
-
-    // Hide all, then show only results
-    for (const m of markers.current) m.setVisible(false);
-    for (const row of resultRows) {
-      const marker = markerMapRef.current.get(row.id);
-      if (marker) marker.setVisible(true);
-    }
-
-    // fitBounds
-    try {
-      const b = new google.maps.LatLngBounds();
-      resultRows.forEach((r) => b.extend(new google.maps.LatLng(r.lat, r.lng)));
-      if (!b.isEmpty()) mapObj.current.fitBounds(b, 60);
-    } catch (e) {
-      console.warn('[w2h] fitBounds in search focus failed', e);
-    }
-  }
-
-  function exitSearchFocus() {
-    // Restore marker visibility using normal layer logic
-    prevVisibilityRef.current = null;
-    applyLayerVisibility();
-  }
-
-  function clearSearchMode() {
-    closeInfoWindow();
-    setSearchMode({ active: false, query: '', results: [], message: '', matchedCategories: [] });
-    exitSearchFocus();
-  }
-
-  function openResult(row) {
-    const marker = markerMapRef.current.get(row.id);
-    if (marker && window.google && window.google.maps && google.maps.event) {
-      google.maps.event.trigger(marker, 'click');
-    } else if (mapObj.current) {
-      mapObj.current.panTo({ lat: row.lat, lng: row.lng });
-      mapObj.current.setZoom(16);
-    }
-  }
-
-  function handleSearch() {
-    const raw = searchQuery.trim();
-    if (!raw || !mapObj.current || !locationsRef.current.length) return;
-
-    const qNorm = normalizeTextForSearch(raw);
-    if (!qNorm) return;
-
-    const tokens = qNorm.split(' ').filter((t) => t.length >= 2);
-    if (!tokens.length) return;
-
-    // Kategorie-Hits + Gruppen-Erweiterung
-    const catHits = detectCategoriesFromQuery(` ${qNorm} `);
-    const catIds = catHits.map((h) => h.id);
-    const groupExpandedCatIds = catIds.length ? getGroupMembers(catIds) : [];
-
-    // Tier-Block (Paywall)
-    const tierBlocked = groupExpandedCatIds.filter((id) => !isCategoryAllowedByTier(id));
-    if (catIds.length && tierBlocked.length) {
-      setSearchMode({
-        active: true,
-        query: raw,
-        results: [],
-        message: `${label('paywalledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
-        matchedCategories: catHits,
-      });
-      exitSearchFocus();
-      return;
-    }
-
-    // Layer-Block (Deaktiviert)
-    if (catIds.length) {
-      const enabledAny = groupExpandedCatIds.some((id) => isLayerEnabled(id));
-      if (!enabledAny) {
-        setSearchMode({
-          active: true,
-          query: raw,
-          results: [],
-          message: `${label('disabledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
-          matchedCategories: catHits,
-        });
-        exitSearchFocus();
-        return;
-      }
-    }
-
-    const results = [];
-    for (const row of locationsRef.current) {
-      const meta = metaByLocRef.current.get(row.id) || {};
-      const hay = buildSearchHaystack(row, meta, lang);
-      if (!hay) continue;
-
-      if (catIds.length) {
-        const inCat = groupExpandedCatIds.includes(String(row.category_id));
-        if (!inCat) continue;
-      }
-
-      const nameHay = normalizeTextForSearch(
-        [
-          row.display_name,
-          row.name_de,
-          row.name_en,
-          row.name_it,
-          row.name_fr,
-          row.name_hr,
-          pickCategoryName(row.categories, lang),
-        ]
-          .filter(Boolean)
-          .join(' ')
-      );
-
-      const s = scoreMatch({ hay, tokens, nameHay });
-      if (s >= 0) results.push({ row, score: s });
-    }
-
-    results.sort((a, b) => b.score - a.score);
-    const limited = results.slice(0, 50);
-
-    if (!limited.length) {
-      const regionLabel =
-        selectedRegion === 'all'
-          ? allLabel(lang)
-          : pickRegionName(regions.find((r) => r.slug === selectedRegion) || { slug: selectedRegion }, lang);
-
-      setSearchMode({
-        active: true,
-        query: raw,
-        results: [],
-        message: `Keine Treffer. Tipp: Region prüfen (aktuell: ${regionLabel}) oder Query vereinfachen.`,
-        matchedCategories: catHits,
-      });
-      exitSearchFocus();
-      return;
-    }
-
-    setSearchMode({ active: true, query: raw, results: limited, message: '', matchedCategories: catHits });
-    enterSearchFocus(limited.map((x) => x.row));
-  }
-
-  // ✅ Auto-Region anhand Geolocation + Regions-Bounds (wenn regions geladen)
-  useEffect(() => {
-    if (!booted || !mapObj.current) return;
-    if (regionMode !== 'auto') return;
-    if (!regions.length) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
-
-    const onSuccess = (pos) => {
-      const { latitude, longitude } = pos.coords;
-      const hit = regions.find((r) => pointInRegion(latitude, longitude, r)) || null;
-
-      if (hit) {
-        setSelectedRegion(hit.slug);
-        if (mapObj.current && window.google) {
-          const b = boundsToLatLngBounds(hit);
-          setTimeout(() => {
-            try {
-              mapObj.current.fitBounds(b, 40);
-            } catch (e) {
-              console.warn('[w2h] fitBounds failed', e);
-            }
-          }, 0);
-        }
-      } else {
-        setSelectedRegion('all');
-      }
-    };
-
-    const onError = (err) => {
-      console.warn('[w2h] Geolocation failed/denied:', err);
-      setRegionMode('manual');
-    };
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-      enableHighAccuracy: false,
-      timeout: 5000,
-      maximumAge: 600000,
-    });
-  }, [booted, regionMode, regions]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function boot() {
-      try {
-        await loadGoogleMaps(lang);
-        if (cancelled || !mapRef.current) return;
-
-        mapObj.current = new google.maps.Map(mapRef.current, {
-          center: { lat: 45.6, lng: 13.8 },
-          zoom: 7,
-          clickableIcons: false,
-          styles: GOOGLE_MAP_STYLE,
-        });
-
-        infoWin.current = new google.maps.InfoWindow();
-
-        // ✅ Klick in die Karte schließt InfoWindow
-        mapObj.current.addListener('click', () => {
-          closeInfoWindow();
-          infoWinOpenedByMarkerRef.current = false;
-        });
-
-        setBooted(true);
-      } catch (errBoot) {
-        console.error('[w2h] Google Maps load failed:', errBoot);
-      }
-    }
-
-    boot();
-    return () => {
-      cancelled = true;
-    };
-  }, [lang]);
-
-  // ✅ Regions laden (Supabase)
-  useEffect(() => {
-    if (!booted) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const { data, error } = await supabase
-        .from('regions')
-        .select('slug,name_de,name_en,name_it,name_fr,name_hr,bounds_north,bounds_south,bounds_east,bounds_west,sort_order,is_active')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true });
-
-      if (cancelled) return;
-
-      if (error) {
-        console.warn('[w2h] regions load failed:', error.message);
-        setRegions([]);
-        return;
-      }
-
-      setRegions(data || []);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [booted]);
-
-  useEffect(() => {
-    if (!booted || !mapObj.current) return;
-    loadMarkers(lang);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booted, lang, selectedRegion, regions]);
-
-  async function loadMarkers(langCode) {
-    const schema = await ensureAttributeSchema();
-
-    // ✅ WICHTIG: address/phone/website/rating/price_level aus locations laden
-    let locQuery = supabase.from('locations').select(`
-        id,lat,lng,category_id,display_name,
-        google_place_id,plus_code,
-        address,phone,website,rating,price_level,
-        name_de,name_en,name_hr,name_it,name_fr,
-        description_de,description_en,description_hr,description_it,description_fr,active,
-        categories:category_id ( id, icon_svg, google_cat_id, name_de, name_en, name_it, name_fr, name_hr, group_key, visibility_tier )
-      `);
-
-    const r = selectedRegion === 'all' ? null : regions.find((x) => x.slug === selectedRegion);
-    if (r) {
-      locQuery = locQuery.gte('lat', r.bounds_south).lte('lat', r.bounds_north).gte('lng', r.bounds_west).lte('lng', r.bounds_east);
-    }
-
-    const { data: locs, error: errLocs } = await locQuery;
-    if (errLocs) {
-      console.error(errLocs);
-      return;
-    }
-
-    const allLocs = locs || [];
-    const visibleLocs = allLocs.filter((l) => l.active !== false);
-
-    // Dedup (place_id / plus_code / latlng)
-    const seen = new Set();
-    const locList = [];
-    for (const row of visibleLocs) {
-      const key =
-        (row.google_place_id && `pid:${row.google_place_id}`) ||
-        (row.plus_code && `pc:${row.plus_code}`) ||
-        `ll:${row.lat?.toFixed(5)}|${row.lng?.toFixed(5)}`;
-      if (seen.has(key)) {
-        if (DEBUG_LOG) console.log('[w2h] skip duplicate location for key', key, 'id', row.id);
-        continue;
-      }
-      seen.add(key);
-      locList.push(row);
-    }
-
-    const locIds = locList.map((l) => l.id);
-
-    // location_values laden
-    let kvRows = [];
-    if (locIds.length) {
-      const { data, error } = await supabase
-        .from('location_values')
-        .select('location_id, attribute_id, value_text, value_number, value_option, value_bool, value_json, name, language_code')
-        .in('location_id', locIds);
-
-      if (error) console.warn('[w2h] location_values load:', error.message);
-      else kvRows = data || [];
-    }
-
-    if (DEBUG_LOG) {
-      console.log('[w2h] schema.byId size:', schema?.byId?.size);
-      console.log('[w2h] kvRows length:', kvRows?.length);
-    }
-
-    // Aggregation pro Location
-    const kvByLoc = new Map();
-
-    function ensureDyn(obj) {
-      if (!obj._dyn) obj._dyn = new Map(); // dynKey -> { def, valuesByLang: {}, any, attrId }
-      return obj._dyn;
-    }
-
-    (kvRows || []).forEach((r2) => {
-      const locId = r2.location_id;
-      const attrId = Number(r2.attribute_id);
-      if (!Number.isFinite(attrId)) return;
-
-      if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
-      const obj = kvByLoc.get(locId);
-
-      const lc = (r2.language_code || '').toLowerCase();
-
-      // ✅ Definition/Key aus Schema holen
-      const defById = schema && schema.byId ? schema.byId.get(attrId) : null;
-      const key = (defById && defById.key ? String(defById.key) : '').trim() || null;
-
-      const canon = FIELD_MAP_BY_ID[attrId] || (key && FIELD_MAP_BY_KEY[key]);
-
-      // 1) Canonical Fields (mit Fix B)
-      if (canon) {
-        if (canon === 'photos') {
-          const googleArr = normalizeGooglePhotos(r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null);
-          if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
-          return;
-        }
-
-        if (canon === 'wind_profile') {
-          try {
-            const j = r2.value_json && typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json || '{}');
-            obj.wind_profile = j || null;
-          } catch (errWp) {
-            console.warn('[w2h] wind_profile JSON parse failed', errWp);
-            obj.wind_profile = null;
-          }
-          return;
-        }
-
-        if (canon === 'wind_hint') {
-          obj.wind_hint = obj.wind_hint || {};
-          let text = '';
-          if (r2.value_text && String(r2.value_text).trim()) text = String(r2.value_text);
-          else if (r2.value_json) {
-            try {
-              const j = typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json);
-              if (typeof j === 'string') text = j;
-              else if (Array.isArray(j) && j.length) text = String(j[0]);
-              else if (j && typeof j === 'object' && j.text) text = String(j.text);
-            } catch (errWh) {
-              console.warn('[w2h] wind_hint JSON parse failed', errWh, r2);
-            }
-          }
-          if (lc && text) obj.wind_hint[lc] = text;
-          return;
-        }
-
-        if (canon === 'livewind_station') {
-          let stationId = '';
-          if (r2.value_text && String(r2.value_text).trim()) stationId = String(r2.value_text).trim();
-          else if (r2.value_json) {
-            try {
-              const j = typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json);
-              if (typeof j === 'string' || typeof j === 'number') stationId = String(j).trim();
-            } catch (errLs) {
-              console.warn('[w2h] livewind_station JSON parse failed', errLs, r2);
-            }
-          }
-
-          const stationName = r2.name && String(r2.name).trim() ? String(r2.name).trim() : null;
-          if (stationId) {
-            obj.livewind_station = stationId;
-            if (stationName) obj.livewind_station_name = stationName;
-          }
-          return;
-        }
-
-        // Value pick
-        let val = null;
-        if (r2.value_json !== null && r2.value_json !== undefined && r2.value_json !== '') val = r2.value_json;
-        else if (r2.value_text !== null && r2.value_text !== undefined && r2.value_text !== '') val = r2.value_text;
-        else if (r2.value_option !== null && r2.value_option !== undefined && r2.value_option !== '') val = r2.value_option;
-        else if (r2.value_number !== null && r2.value_number !== undefined) val = r2.value_number;
-        else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
-
-        if (val === null || val === undefined || val === '') return;
-
-        // Canon per-type handling
-        if (canon === 'opening_hours') {
-          obj.hoursByLang = obj.hoursByLang || {};
-          let arr = null;
-          if (Array.isArray(val)) arr = val;
-          else if (typeof val === 'string' && val.trim().startsWith('[')) {
-            try {
-              arr = JSON.parse(val);
-            } catch {
-              arr = [String(val)];
-            }
-          }
-          if (!arr) arr = String(val).split('\n');
-          if (lc) obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
-          else obj.hoursByLang._ = (obj.hoursByLang._ || []).concat(arr);
-          return;
-        }
-
-        if (canon === 'address') {
-          obj.addressByLang = obj.addressByLang || {};
-          const v = toStrMaybe(val);
-          if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || v;
-          else obj.address = obj.address || v;
-          return;
-        }
-
-        if (canon === 'description') {
-          const v = toStrMaybe(val);
-          if (!obj.description) obj.description = v;
-          else if (lc && lc === langCode) obj.description = v;
-          return;
-        }
-
-        if (canon === 'rating' || canon === 'rating_total' || canon === 'price') {
-          const n = typeof val === 'number' ? val : Number(String(val));
-          if (!Number.isFinite(n)) return;
-          setCanon(obj, canon, n, lc, langCode);
-          return;
-        }
-
-        setCanon(obj, canon, toStrMaybe(val), lc, langCode);
-        return;
-      }
-
-      // 2) Dynamische Attribute
-      let def = defById || null;
-
-      if (def && def.is_active === false) return;
-      if (!DYNAMIC_SMOKE_TEST && def && def.show_in_infowindow === false) return;
-
-      if (def && schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
-        const lvl = Number(def.visibility_level);
-        if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
-      }
-
-      // Value-Pick
-      let val = null;
-      if (r2.value_json !== null && r2.value_json !== undefined && r2.value_json !== '') val = r2.value_json;
-      else if (r2.value_text !== null && r2.value_text !== undefined && r2.value_text !== '') val = r2.value_text;
-      else if (r2.value_option !== null && r2.value_option !== undefined && r2.value_option !== '') val = r2.value_option;
-      else if (r2.value_number !== null && r2.value_number !== undefined) val = r2.value_number;
-      else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
-
-      if (val === null || val === undefined || val === '') return;
-
-      const dynKey = (key || (def && def.key) || `attr_${attrId}`).toString();
-      const dyn = ensureDyn(obj);
-      if (!dyn.has(dynKey)) dyn.set(dynKey, { def, valuesByLang: {}, any: null, attrId });
-      const entry = dyn.get(dynKey);
-
-      entry.any = entry.any ?? val;
-      entry.attrId = entry.attrId ?? attrId;
-
-      if (lc) entry.valuesByLang[lc] = val;
-      else entry.valuesByLang._ = val;
-    });
-
-    // 3) Dyn finalisieren
-    let dynCountTotal = 0;
-
-    for (const loc of locList) {
-      const obj = kvByLoc.get(loc.id) || {};
-
-      if (obj._dyn && obj._dyn instanceof Map && obj._dyn.size) {
-        const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr', '_'];
-        const list = [];
-
-        for (const [k, entry] of obj._dyn.entries()) {
-          const def = entry.def || null;
-          const attrId = entry.attrId ?? null;
-
-          let chosen = null;
-          for (const L of pref) {
-            if (entry.valuesByLang && entry.valuesByLang[L] !== undefined) {
-              chosen = entry.valuesByLang[L];
-              break;
-            }
-          }
-
-          const v = chosen !== null && chosen !== undefined ? chosen : entry.any;
-          if (v === null || v === undefined || v === '') continue;
-
-          const kLower = String(k || '').toLowerCase();
-          if (kLower.includes('wind_profile') || kLower.includes('wind_swell') || kLower.includes('wind_hint') || kLower.includes('livewind_station')) {
-            continue;
-          }
-
-          const labelTxt = def ? getAttrLabel(def, langCode) : DYNAMIC_SMOKE_TEST ? `Attr ${attrId}` : '';
-          const htmlValue = formatDynamicValue({ def: def || {}, val: v, langCode });
-          if (!labelTxt || !htmlValue) continue;
-
-          const ord = def ? def.infowindow_order ?? def.sort_order ?? 9999 : 9999;
-          const grp = def ? def.infowindow_group ?? '' : '';
-
-          list.push({
-            key: k,
-            attribute_id: def ? def.attribute_id : attrId,
-            sort_order: ord,
-            group: grp,
-            label: labelTxt,
-            htmlValue,
-          });
-        }
-
-        list.sort((a, b) => {
-          const ga = String(a.group || '');
-          const gb = String(b.group || '');
-          if (ga !== gb) {
-            if (!ga && gb) return 1;
-            if (ga && !gb) return -1;
-            return ga.localeCompare(gb);
-          }
-          const sa = Number(a.sort_order ?? 9999);
-          const sb = Number(b.sort_order ?? 9999);
-          if (sa !== sb) return sa - sb;
-          return String(a.label).localeCompare(String(b.label));
-        });
-
-        obj.dynamic = list;
-        dynCountTotal += list.length;
-      } else {
-        obj.dynamic = [];
-      }
-
-      delete obj._dyn;
-      delete obj._canonLang;
-      kvByLoc.set(loc.id, obj);
-    }
-
-    if (DEBUG_LOG) console.log('[w2h] dynamic total count:', dynCountTotal);
-
-    // 🔹 Locations + Meta für Suche speichern
-    locationsRef.current = locList;
-    metaByLocRef.current = kvByLoc;
-
-    // Alte Marker entfernen
-    markers.current.forEach((m) => m.setMap(null));
-    markers.current = [];
-    markerMapRef.current = new Map();
-
-    // Marker erzeugen
-    locList.forEach((row) => {
-      const title = pickName(row, langCode);
-      const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
-
-      const marker = new google.maps.Marker({
-        position: { lat: row.lat, lng: row.lng },
-        title,
-        icon: getMarkerIcon(row.category_id, svg),
-        map: mapObj.current,
-        zIndex: 1000 + (row.category_id || 0),
-        clickable: true,
-      });
-
-      marker._cat = String(row.category_id);
-      markerMapRef.current.set(row.id, marker);
-
-      marker.addListener('click', () => {
-        infoWinOpenedByMarkerRef.current = true;
-
-        const meta = kvByLoc.get(row.id) || {};
-        let html;
-        try {
-          html = buildInfoContent(row, meta, svg, langCode);
-        } catch (errBI) {
-          console.error('[w2h] buildInfoContent failed for location', row.id, errBI, { row, meta });
-          html = buildErrorInfoContent(row.id);
-        }
-
-        infoWin.current.setContent(html);
-        infoWin.current.open({ map: mapObj.current, anchor: marker });
-
-        if (mapObj.current && typeof mapObj.current.panBy === 'function') {
-          setTimeout(() => {
-            try {
-              let offsetX = 160;
-              let offsetY = -140;
-
-              if (typeof window !== 'undefined') {
-                const w = window.innerWidth;
-                const h = window.innerHeight;
-                if (w <= 1024) {
-                  offsetX = 140;
-                  offsetY = -160;
-                }
-                if (w <= 640 && h > w) {
-                  offsetX = 120;
-                  offsetY = -220;
-                }
-              }
-              mapObj.current.panBy(offsetX, offsetY);
-            } catch (e) {
-              console.warn('[w2h] panBy failed', e);
-            }
-          }, 0);
-        }
-
-        google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
-          try {
-            const kvNow = kvByLoc.get(row.id) || meta;
-
-            const btn = document.getElementById(`phbtn-${row.id}`);
-            if (btn) {
-              btn.addEventListener('click', () => {
-                const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-                if (photos.length) setGallery({ title: pickName(row, langCode), photos });
-              });
-            }
-
-            const wbtn = document.getElementById(`windbtn-${row.id}`);
-            if (wbtn) {
-              wbtn.addEventListener('click', () => {
-                setWindModal({
-                  id: row.id,
-                  title: pickName(row, langCode),
-                  windProfile: kvNow.wind_profile || null,
-                  windHint: kvNow.wind_hint || {},
-                  liveWindStation: kvNow.livewind_station || null,
-                  liveWindStationName: kvNow.livewind_station_name || null,
-                });
-              });
-            }
-
-            // ✅ KI-Report Button (Lazy: Modal + Fetch nur nach Klick)
-            const kibtn = document.getElementById(`kibtn-${row.id}`);
-            if (kibtn) {
-              kibtn.addEventListener('click', async () => {
-                const titleNow = pickName(row, langCode);
-
-                // Modal sofort öffnen (Loading)
-                setKiModal({
-                  locationId: row.id,
-                  title: titleNow,
-                  loading: true,
-                  error: '',
-                  report: null,
-                  createdAt: null,
-                });
-
-                try {
-                  const data = await fetchKiReport({ locationId: row.id, langCode });
-                  const reportObj = data.report_json || data.report || data;
-                  const createdAt = data.created_at || reportObj?.created_at || null;
-
-                  setKiModal((prev) => ({
-                    ...(prev || {}),
-                    locationId: row.id,
-                    title: titleNow,
-                    loading: false,
-                    error: '',
-                    report: reportObj,
-                    createdAt,
-                  }));
-                } catch (e) {
-                  setKiModal((prev) => ({
-                    ...(prev || {}),
-                    locationId: row.id,
-                    title: titleNow,
-                    loading: false,
-                    error: e?.message || 'KI-Report konnte nicht geladen werden.',
-                    report: null,
-                    createdAt: null,
-                  }));
-                }
-              });
-            }
-          } catch (errDom) {
-            console.error('[w2h] domready handler failed for location', row.id, errDom);
-          }
-        });
-      });
-
-      markers.current.push(marker);
-    });
-
-    if (DEBUG_BOUNDING) createDebugOverlay(mapObj.current, locList);
-
-    // Wenn Search Focus aktiv war, neu anwenden (z.B. Region gewechselt)
-    if (searchMode.active && searchMode.results && searchMode.results.length) enterSearchFocus(searchMode.results.map((x) => x.row));
-    else applyLayerVisibility();
-
-    if (DEBUG_LOG) {
-      const some = locList[0];
-      if (some) console.log('[w2h] sample loc', some.id, 'dynamic:', (kvByLoc.get(some.id) || {}).dynamic);
-    }
-  }
-
-  function applyLayerVisibility() {
-    // Wenn Search Focus aktiv: nicht überschreiben
-    if (searchMode.active && prevVisibilityRef.current) return;
-
-    markers.current.forEach((m) => {
-      const vis = layerState.current.get(m._cat);
-      m.setVisible(vis ?? true);
-    });
-  }
-
-  // ------------------------------
-  // ✅ UI: Search Results Panel
-  // ------------------------------
-  const resultPanelTitle = `${label('searchResults', lang)}${searchMode.active ? ` (${searchMode.results.length})` : ''}`;
-
-  return (
-    <div className="w2h-map-wrap">
-      <div
-        className="w2h-region-panel"
-        style={{
-          zIndex: 5,
-          background: 'rgba(255,255,255,0.92)',
-          borderRadius: 12,
-          padding: '6px 8px',
-          boxShadow: '0 4px 12px rgba(0,0,0,.12)',
-          fontSize: 12,
-        }}
-      >
-        <div style={{ marginBottom: 4, fontWeight: 600 }}>Region</div>
-        <select
-          value={selectedRegion}
-          onChange={(e) => {
-            const slug = e.target.value;
-            setRegionMode('manual');
-            setSelectedRegion(slug);
-
-            // Bei Regionwechsel: Search Focus aufheben
-            if (searchMode.active) clearSearchMode();
-
-            if (!mapObj.current || !window.google) return;
-
-            if (slug === 'all') {
-              mapObj.current.setCenter({ lat: 45.6, lng: 13.8 });
-              mapObj.current.setZoom(7);
-              return;
-            }
-
-            const r = regions.find((x) => x.slug === slug);
-            if (r) {
-              const b = boundsToLatLngBounds(r);
-              setTimeout(() => {
-                try {
-                  mapObj.current.fitBounds(b, 40);
-                } catch (err) {
-                  console.warn('[w2h] fitBounds failed', err);
-                }
-              }, 0);
-            }
-          }}
-          style={{
-            width: '100%',
-            fontSize: 12,
-            padding: '3px 6px',
-            borderRadius: 8,
-            border: '1px solid #d1d5db',
-            marginBottom: 4,
-          }}
-        >
-          <option value="all">{allLabel(lang)}</option>
-          {regions.map((r) => (
-            <option key={r.slug} value={r.slug}>
-              {pickRegionName(r, lang)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={() => {
-            if (searchMode.active) clearSearchMode();
-            setRegionMode('auto');
-          }}
-          style={{
-            width: '100%',
-            fontSize: 11,
-            padding: '3px 6px',
-            borderRadius: 8,
-            border: '1px solid #e5e7eb',
-            background: '#f3f4f6',
-            cursor: 'pointer',
-          }}
-        >
-          Auto (mein Standort)
-        </button>
-      </div>
-
-      {/* Search Bar */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 20,
-          zIndex: 10,
-          background: 'rgba(255,255,255,0.92)',
-          borderRadius: 9999,
-          padding: '6px 10px',
-          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-        }}
-      >
-        <input
-          type="text"
-          placeholder="Ort oder Name suchen…"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSearch();
-            if (e.key === 'Escape') {
-              setSearchQuery('');
-              if (searchMode.active) clearSearchMode();
-            }
-          }}
-          style={{
-            border: '1px solid #d1d5db',
-            borderRadius: 9999,
-            padding: '4px 10px',
-            fontSize: 13,
-            minWidth: 220,
-          }}
-        />
-        <button
-          type="button"
-          onClick={handleSearch}
-          style={{
-            border: 'none',
-            borderRadius: 9999,
-            padding: '5px 12px',
-            fontSize: 13,
-            fontWeight: 600,
-            background: '#0284c7',
-            color: '#fff',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Suchen
-        </button>
-
-        {searchMode.active ? (
-          <button
-            type="button"
-            onClick={clearSearchMode}
-            style={{
-              border: '1px solid #d1d5db',
-              borderRadius: 9999,
-              padding: '5px 10px',
-              fontSize: 13,
-              fontWeight: 600,
-              background: '#fff',
-              color: '#111',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-            title={label('resetSearch', lang)}
-          >
-            {label('resetSearch', lang)}
-          </button>
-        ) : null}
-      </div>
-
-      {/* Search Results Panel */}
-      {searchMode.active ? (
-        <div
-          className="w2h-search-panel"
-          style={{
-            position: 'absolute',
-            top: 58,
-            right: 20,
-            zIndex: 10,
-            width: 360,
-            maxWidth: '92vw',
-            maxHeight: '70vh',
             overflow: 'auto',
-            background: 'rgba(255,255,255,0.96)',
-            borderRadius: 14,
-            padding: 12,
-            boxShadow: '0 10px 28px rgba(0,0,0,.18)',
-            border: '1px solid rgba(0,0,0,.06)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>{resultPanelTitle}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{searchMode.query}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#6b7280' }}>KI-Report</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#111827' }}>{title || 'Spot'}</div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button
+                onClick={onRefresh}
+                disabled={!!loading}
+                style={{
+                  background: loading ? '#e5e7eb' : '#111827',
+                  color: loading ? '#6b7280' : '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  cursor: loading ? 'default' : 'pointer',
+                  fontWeight: 800,
+                  fontSize: 12,
+                }}
+              >
+                {loading ? 'Lädt…' : 'Aktualisieren'}
+              </button>
+
+              <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                ×
+              </button>
+            </div>
           </div>
 
-          {searchMode.message ? (
-            <div
-              style={{
-                marginTop: 10,
-                padding: '10px 10px',
-                borderRadius: 10,
-                background: '#fff7ed',
-                border: '1px solid #fed7aa',
-                color: '#7c2d12',
-                fontSize: 12,
-                lineHeight: 1.35,
-              }}
-            >
-              {searchMode.message}
-              {searchMode.matchedCategories && searchMode.matchedCategories.length ? (
-                <div style={{ marginTop: 6, color: '#9a3412' }}>Hinweis: Aktiviere die Kategorie im Layer-Menü, um Ergebnisse zu sehen.</div>
-              ) : null}
+          {error ? (
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: 12, color: '#7f1d1d', fontSize: 13 }}>
+              {String(error)}
             </div>
           ) : null}
 
-          {searchMode.results && searchMode.results.length ? (
-            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-              {searchMode.results.map(({ row, score }) => {
-                const catName = row.categories ? pickCategoryName(row.categories, lang) : '';
+          {loading ? (
+            <div style={{ fontSize: 13, color: '#6b7280' }}>Report wird geladen…</div>
+          ) : report ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {renderKiReportPretty(report, lang)}
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>Quelle: Datenbank + Live-Abfrage. Inhalte werden bei Aktualisierung überschrieben (wenn so konfiguriert).</div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: '#6b7280' }}>Kein Report vorhanden.</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderKiReportPretty(report, langCode) {
+    if (!report || typeof report !== 'object') return null;
+
+    const title = report.title || '';
+    const summary = report.summary || '';
+    const highlights = Array.isArray(report.highlights) ? report.highlights : [];
+    const attrs = Array.isArray(report.attributes) ? report.attributes : [];
+    const pi = report.practical_info && typeof report.practical_info === 'object' ? report.practical_info : {};
+
+    const rows = [];
+
+    if (pi.address) rows.push({ k: langCode === 'de' ? 'Adresse' : 'Address', v: String(pi.address) });
+    if (pi.phone) rows.push({ k: langCode === 'de' ? 'Telefon' : 'Phone', v: String(pi.phone) });
+    if (pi.website) rows.push({ k: 'Website', v: String(pi.website) });
+    if (pi.rating !== undefined && pi.rating !== null) rows.push({ k: 'Rating', v: String(pi.rating) });
+    if (pi.price_level !== undefined && pi.price_level !== null) rows.push({ k: langCode === 'de' ? 'Preisniveau' : 'Price level', v: String(pi.price_level) });
+
+    return (
+      <div style={{ display: 'grid', gap: 12 }}>
+        {title ? <div style={{ fontSize: 13, fontWeight: 800 }}>{title}</div> : null}
+
+        {summary ? (
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #e5e7eb',
+              borderRadius: 12,
+              padding: 12,
+              fontSize: 13,
+              lineHeight: 1.45,
+              color: '#111827',
+            }}
+          >
+            {summary}
+          </div>
+        ) : null}
+
+        {highlights.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: '#111827' }}>{langCode === 'de' ? 'Highlights' : 'Highlights'}</div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+              {highlights.map((h, i) => (
+                <li key={`${h}-${i}`}>{String(h)}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {rows.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>{langCode === 'de' ? 'Praktische Infos' : 'Practical info'}</div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {rows.map((r) => {
+                const isUrl = r.k === 'Website' && String(r.v).startsWith('http');
                 return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => openResult(row)}
-                    style={{
-                      textAlign: 'left',
-                      border: '1px solid #e5e7eb',
-                      background: '#fff',
-                      borderRadius: 12,
-                      padding: '10px 10px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>{pickName(row, lang)}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af' }}>#{row.id}</div>
+                  <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'start' }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{r.k}</div>
+                    <div style={{ fontSize: 13, color: '#374151', wordBreak: 'break-word' }}>
+                      {isUrl ? (
+                        <a href={r.v} target="_blank" rel="noopener" style={{ color: '#1f6aa2', textDecoration: 'underline' }}>
+                          {r.v}
+                        </a>
+                      ) : (
+                        r.v
+                      )}
                     </div>
-                    {catName ? <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{catName}</div> : null}
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{Number.isFinite(score) ? `Score: ${score}` : ''}</div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
-          ) : null}
+          </div>
+        ) : null}
+
+        {attrs.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>{langCode === 'de' ? 'Attribute' : 'Attributes'}</div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              {attrs.map((a, idx) => (
+                <div key={`${a.label || 'attr'}-${idx}`} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', paddingTop: idx ? 10 : 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>{String(a.label || '')}</div>
+                  {a.value ? <div style={{ fontSize: 13, color: '#374151', marginTop: 4, whiteSpace: 'pre-wrap' }}>{String(a.value)}</div> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // ---------------------------------------------
+  // ✅ Map & Data boot
+  // ---------------------------------------------
+  function ensureInfoWindow() {
+    if (!infoWin.current && typeof google !== 'undefined' && google.maps?.InfoWindow) {
+      infoWin.current = new google.maps.InfoWindow({ disableAutoPan: false });
+    }
+    return infoWin.current;
+  }
+
+  async function loadRegions() {
+    const { data, error } = await supabase.from('regions').select('*').order('sort_order', { ascending: true });
+    if (error) {
+      console.warn('[w2h] regions load failed:', error.message);
+      return [];
+    }
+    setRegions(data || []);
+    return data || [];
+  }
+
+  // Minimal: categories for LayerPanel
+  async function loadCategories() {
+    const cols =
+      'id,group_key,sort_order,is_active,' +
+      'name_de,name_en,name_it,name_fr,name_hr,' +
+      'marker_svg,marker_color,icon_url';
+
+    const { data, error } = await supabase.from('categories').select(cols).order('sort_order', { ascending: true });
+    if (error) {
+      console.warn('[w2h] categories load failed:', error.message);
+      return [];
+    }
+    return data || [];
+  }
+
+  async function loadLocations() {
+    const cols =
+      'id,category_id,lat,lng,display_name,name_de,name_en,name_it,name_fr,name_hr,' +
+      'google_place_id,plus_code,source_type';
+
+    // NOTE: filter/regions layer happens client-side.
+    const { data, error } = await supabase.from('locations').select(cols);
+    if (error) {
+      console.warn('[w2h] locations load failed:', error.message);
+      return [];
+    }
+    return data || [];
+  }
+
+  async function loadLocationValues(locationIds) {
+    if (!Array.isArray(locationIds) || !locationIds.length) return [];
+
+    const cols =
+      'id,location_id,attribute_id,value_text,value_number,value_bool,value_json,' +
+      'lang,created_at,updated_at';
+
+    const { data, error } = await supabase.from('location_values').select(cols).in('location_id', locationIds);
+    if (error) {
+      console.warn('[w2h] location_values load failed:', error.message);
+      return [];
+    }
+    return data || [];
+  }
+
+  function pickTitle(row) {
+    return (
+      (lang === 'de' && (row.display_name || row.name_de)) ||
+      (lang === 'en' && row.name_en) ||
+      (lang === 'it' && row.name_it) ||
+      (lang === 'fr' && row.name_fr) ||
+      (lang === 'hr' && row.name_hr) ||
+      row.display_name ||
+      row.name_de ||
+      row.name_en ||
+      `Spot #${row.id}`
+    );
+  }
+
+  function buildMarkerIcon(category, sizePx = 30) {
+    if (!category) {
+      const url = svgToDataUrl(defaultMarkerSvg);
+      return {
+        url,
+        scaledSize: new google.maps.Size(sizePx, sizePx),
+        anchor: new google.maps.Point(sizePx / 2, sizePx),
+      };
+    }
+
+    // priority: marker_svg (our svg), else icon_url, else default
+    const cached = iconCache.current.get(category.id);
+    if (cached) return cached;
+
+    let url = '';
+    if (category.marker_svg && String(category.marker_svg).trim().startsWith('<')) {
+      url = svgToDataUrl(String(category.marker_svg));
+    } else if (category.icon_url) {
+      url = String(category.icon_url);
+    } else {
+      url = svgToDataUrl(defaultMarkerSvg);
+    }
+
+    const icon = {
+      url,
+      scaledSize: new google.maps.Size(sizePx, sizePx),
+      anchor: new google.maps.Point(sizePx / 2, sizePx),
+    };
+
+    iconCache.current.set(category.id, icon);
+    return icon;
+  }
+
+  function clearMarkers() {
+    markers.current.forEach((m) => {
+      try {
+        m.setMap(null);
+      } catch {
+        // ignore
+      }
+    });
+    markers.current = [];
+    markerMapRef.current = new Map();
+  }
+
+  function setMarkerVisibilityByCategory(categoryId, visible) {
+    markers.current.forEach((m) => {
+      const cid = m.__w2hCategoryId;
+      if (cid === categoryId) m.setVisible(!!visible);
+    });
+  }
+
+  function computeAggregatedMeta(values, schema, langCode) {
+    // returns { photos, windProfile, windHint, liveWindStation, ...dynamicKVs }
+    const out = {};
+
+    // helper to choose "best" value from LV row
+    const valFromRow = (r) => {
+      if (r.value_json !== null && r.value_json !== undefined) return r.value_json;
+      if (r.value_text !== null && r.value_text !== undefined) return r.value_text;
+      if (r.value_number !== null && r.value_number !== undefined) return r.value_number;
+      if (r.value_bool !== null && r.value_bool !== undefined) return r.value_bool;
+      return null;
+    };
+
+    (values || []).forEach((r) => {
+      if (!r) return;
+
+      const def = schema?.byId?.get?.(Number(r.attribute_id)) || null;
+      const key = def?.key || String(r.attribute_id);
+
+      // multilingual: prefer current lang rows; otherwise keep first
+      if (def?.multilingual) {
+        if (r.lang === langCode) {
+          out[key] = valFromRow(r);
+        } else if (out[key] === undefined) {
+          out[key] = valFromRow(r);
+        }
+      } else {
+        // non multilingual: keep first
+        if (out[key] === undefined) out[key] = valFromRow(r);
+      }
+    });
+
+    return out;
+  }
+
+  function deriveSpecialMeta(meta) {
+    // optional keys used by our UI
+    const out = {
+      photos: null,
+      windProfile: null,
+      windHint: null,
+      liveWindStation: null,
+      liveWindStationName: null,
+    };
+
+    // photos: supports various shapes
+    if (meta?.photos) out.photos = meta.photos;
+    if (meta?.gallery) out.photos = meta.gallery;
+
+    // wind profile / hint
+    if (meta?.wind_profile) out.windProfile = meta.wind_profile;
+    if (meta?.windProfile) out.windProfile = meta.windProfile;
+
+    if (meta?.wind_hint) out.windHint = meta.wind_hint;
+    if (meta?.windHint) out.windHint = meta.windHint;
+
+    // live wind station
+    if (meta?.livewind_station) out.liveWindStation = meta.livewind_station;
+    if (meta?.liveWindStation) out.liveWindStation = meta.liveWindStation;
+
+    if (meta?.livewind_station_name) out.liveWindStationName = meta.livewind_station_name;
+    if (meta?.liveWindStationName) out.liveWindStationName = meta.liveWindStationName;
+
+    return out;
+  }
+
+  function buildDynamicInfoRows(row, values, schema) {
+    // Build HTML rows for dynamic attributes based on attribute_definitions
+    // Filters:
+    // - is_active true
+    // - show_in_infowindow true (unless smoke test)
+    // - visibility_level <= INFO_VISIBILITY_MAX and <= USER_VISIBILITY_TIER
+    const byAttr = new Map(); // attribute_id -> row value object
+    (values || []).forEach((v) => {
+      const id = Number(v.attribute_id);
+      if (!byAttr.has(id)) byAttr.set(id, []);
+      byAttr.get(id).push(v);
+    });
+
+    const defs = Array.from(schema?.byId?.values?.() || []);
+    defs.sort((a, b) => {
+      const ga = String(a.infowindow_group || '');
+      const gb = String(b.infowindow_group || '');
+      if (ga !== gb) return ga.localeCompare(gb);
+      const oa = Number(a.infowindow_order ?? a.sort_order ?? 9999);
+      const ob = Number(b.infowindow_order ?? b.sort_order ?? 9999);
+      return oa - ob;
+    });
+
+    const rows = [];
+    defs.forEach((def) => {
+      if (!def) return;
+      if (def.is_active === false) return;
+
+      const visLevel = schema?.hasVisibility ? Number(def.visibility_level ?? 0) : 0;
+      if (!Number.isFinite(visLevel)) return;
+      if (visLevel > INFO_VISIBILITY_MAX) return;
+      if (visLevel > USER_VISIBILITY_TIER) return;
+
+      const show = def.show_in_infowindow === true;
+      if (!show && !DYNAMIC_SMOKE_TEST) return;
+
+      const vals = byAttr.get(Number(def.attribute_id)) || [];
+      if (!vals.length) return;
+
+      // choose best row for language (if multilingual)
+      let chosen = vals[0];
+      if (def.multilingual) {
+        const hit = vals.find((v) => v.lang === lang);
+        if (hit) chosen = hit;
+      }
+
+      const rawVal = (chosen.value_json ?? chosen.value_text ?? chosen.value_number ?? chosen.value_bool);
+      if (rawVal === null || rawVal === undefined || rawVal === '') return;
+
+      const label = getAttrLabel(def, lang);
+      const rendered = formatDynamicValue({ def, val: rawVal, langCode: lang });
+
+      rows.push(
+        `<div class="iw-row">
+          <div class="iw-k">${escapeHtml(label || def.key || '')}</div>
+          <div class="iw-v">${rendered}</div>
+        </div>`
+      );
+    });
+
+    return rows;
+  }
+
+  function buildInfoWindowHtml({ row, category, meta, dynamicRows }) {
+    const title = escapeHtml(pickTitle(row));
+    const catName =
+      (lang === 'de' && category?.name_de) ||
+      (lang === 'en' && category?.name_en) ||
+      (lang === 'it' && category?.name_it) ||
+      (lang === 'fr' && category?.name_fr) ||
+      (lang === 'hr' && category?.name_hr) ||
+      category?.name_de ||
+      category?.name_en ||
+      '';
+
+    const iconTag = svgToImgTag(category?.marker_svg || defaultMarkerSvg, 18);
+
+    const pid = row.google_place_id ? escapeHtml(row.google_place_id) : '';
+    const plus = row.plus_code ? escapeHtml(row.plus_code) : '';
+
+    const buttons = `
+      <div class="iw-actions">
+        <button class="w2h-btn" data-action="gallery">Fotos</button>
+        <button class="w2h-btn" data-action="wind">Wind</button>
+        <button class="w2h-btn primary" data-action="ki">KI-Report</button>
+      </div>
+    `;
+
+    const metaLine = `
+      <div class="iw-meta">
+        ${catName ? `<span class="iw-cat">${iconTag}<span>${escapeHtml(catName)}</span></span>` : ''}
+        ${pid ? `<span class="iw-chip">Place</span>` : ''}
+        ${plus ? `<span class="iw-chip">${plus}</span>` : ''}
+      </div>
+    `;
+
+    const dyn = dynamicRows.length
+      ? `<div class="iw-dyn">${dynamicRows.join('')}</div>`
+      : `<div class="iw-empty">${lang === 'de' ? 'Noch keine Detailwerte hinterlegt.' : 'No details yet.'}</div>`;
+
+    return `
+      <style>
+        .w2h-iw{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:340px}
+        .w2h-iw .iw-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+        .w2h-iw .iw-title{font-weight:900;font-size:15px;line-height:1.2;margin:0;color:#111827}
+        .w2h-iw .iw-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+        .w2h-iw .iw-cat{display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 8px;font-size:12px;color:#0f172a}
+        .w2h-iw .iw-chip{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:999px;padding:4px 8px;font-size:12px}
+        .w2h-iw .iw-actions{display:flex;gap:8px;margin-top:10px}
+        .w2h-btn{border:1px solid #e5e7eb;background:#fff;border-radius:10px;padding:7px 10px;font-size:12px;font-weight:800;cursor:pointer}
+        .w2h-btn.primary{background:#111827;color:#fff;border-color:#111827}
+        .iw-dyn{margin-top:12px;display:grid;gap:10px}
+        .iw-row{display:grid;grid-template-columns:1fr 1.2fr;gap:10px;align-items:start}
+        .iw-k{font-size:12px;font-weight:900;color:#111827}
+        .iw-v{font-size:12px;color:#374151;word-break:break-word}
+        .iw-empty{margin-top:12px;font-size:12px;color:#6b7280}
+      </style>
+
+      <div class="w2h-iw" data-location-id="${escapeHtml(String(row.id))}">
+        <div class="iw-hd">
+          <div>
+            <h3 class="iw-title">${title}</h3>
+            ${metaLine}
+          </div>
         </div>
-      ) : null}
+        ${buttons}
+        ${dyn}
+      </div>
+    `;
+  }
 
-      <div ref={mapRef} className="w2h-map" />
+  function attachInfoWindowHandlers({ row, category, meta }) {
+    // Add click listeners to InfoWindow DOM after it is rendered.
+    // Note: google maps renders into its own container; we query by data-location-id.
+    window.setTimeout(() => {
+      try {
+        const root = document.querySelector(`.w2h-iw[data-location-id="${CSS.escape(String(row.id))}"]`);
+        if (!root) return;
 
-      <LayerPanel
-        lang={lang}
-        onInit={(initialMap) => {
-          layerState.current = new Map(initialMap);
-          applyLayerVisibility();
+        const btnGallery = root.querySelector('button[data-action="gallery"]');
+        const btnWind = root.querySelector('button[data-action="wind"]');
+        const btnKi = root.querySelector('button[data-action="ki"]');
+
+        if (btnGallery) {
+          btnGallery.onclick = () => {
+            const derived = deriveSpecialMeta(meta);
+            setGallery({
+              title: pickTitle(row),
+              photos: derived.photos || meta?.photos || [],
+              row,
+            });
+          };
+        }
+
+        if (btnWind) {
+          btnWind.onclick = () => {
+            const derived = deriveSpecialMeta(meta);
+            setWindModal({
+              id: row.id,
+              title: pickTitle(row),
+              windProfile: derived.windProfile || null,
+              windHint: derived.windHint || null,
+              liveWindStation: derived.liveWindStation || null,
+              liveWindStationName: derived.liveWindStationName || null,
+            });
+          };
+        }
+
+        if (btnKi) {
+          btnKi.onclick = async () => {
+            const locationId = row.id;
+            const title = pickTitle(row);
+
+            setKiModal({ locationId, title, loading: true, error: null, report: null, createdAt: null });
+
+            try {
+              const data = await fetchKiReport({ locationId, langCode: lang });
+              setKiModal({
+                locationId,
+                title,
+                loading: false,
+                error: null,
+                report: data?.report || data,
+                createdAt: data?.createdAt || data?.created_at || null,
+              });
+            } catch (err) {
+              setKiModal({ locationId, title, loading: false, error: err?.message || String(err), report: null, createdAt: null });
+            }
+          };
+        }
+      } catch (err) {
+        console.warn('[w2h] attachInfoWindowHandlers failed', err);
+      }
+    }, 0);
+  }
+
+  async function openInfoWindowForRow(row, category, values) {
+    const iw = ensureInfoWindow();
+    if (!iw) return;
+
+    try {
+      const schema = await ensureAttributeSchema();
+      const dynamicRows = buildDynamicInfoRows(row, values, schema);
+
+      const meta = computeAggregatedMeta(values, schema, lang);
+      const html = buildInfoWindowHtml({ row, category, meta, dynamicRows });
+
+      iw.setContent(html);
+      iw.open({ map: mapObj.current, anchor: markerMapRef.current.get(row.id) || undefined });
+
+      attachInfoWindowHandlers({ row, category, meta });
+    } catch (err) {
+      console.warn('[w2h] InfoWindow build failed', err);
+      iw.setContent(buildErrorInfoContent(row.id));
+      iw.open({ map: mapObj.current, anchor: markerMapRef.current.get(row.id) || undefined });
+    }
+  }
+
+  function applyRegionFilter(rows) {
+    if (selectedRegion === 'all') return rows || [];
+    const r = regions.find((x) => x.slug === selectedRegion);
+    if (!r) return rows || [];
+    return (rows || []).filter((row) => pointInRegion(row.lat, row.lng, r));
+  }
+
+  function fitToRegion() {
+    if (!mapObj.current || !regions.length) return;
+
+    if (selectedRegion === 'all') {
+      // Fit to all markers if possible
+      const rows = locationsRef.current || [];
+      if (!rows.length) return;
+      const b = new google.maps.LatLngBounds();
+      rows.forEach((r) => b.extend(new google.maps.LatLng(Number(r.lat), Number(r.lng))));
+      mapObj.current.fitBounds(b, 40);
+      return;
+    }
+
+    const r = regions.find((x) => x.slug === selectedRegion);
+    if (!r) return;
+    mapObj.current.fitBounds(boundsToLatLngBounds(r), 40);
+  }
+
+  async function boot() {
+    if (booted) return;
+    if (!mapRef.current) return;
+    if (typeof window === 'undefined') return;
+    if (!window.google?.maps) {
+      console.warn('[w2h] google.maps not available yet (script missing?)');
+      return;
+    }
+
+    // Map init
+    const map = new google.maps.Map(mapRef.current, {
+      center: { lat: 45.2, lng: 13.6 },
+      zoom: 7,
+      mapTypeControl: false,
+      fullscreenControl: true,
+      streetViewControl: false,
+      clickableIcons: false,
+      styles: GOOGLE_MAP_STYLE,
+    });
+
+    mapObj.current = map;
+    ensureInfoWindow();
+
+    // Data load (parallel)
+    const [cats, regs] = await Promise.all([loadCategories(), loadRegions()]);
+
+    // init layer state: default = visible for active categories
+    const ls = new Map();
+    (cats || []).forEach((c) => {
+      if (!c) return;
+      if (c.is_active === false) return;
+      ls.set(Number(c.id), true);
+    });
+    layerState.current = ls;
+
+    // Load locations + values
+    const locsAll = await loadLocations();
+    const locs = applyRegionFilter(locsAll);
+    locationsRef.current = locs;
+
+    const schema = await ensureAttributeSchema();
+    const locIds = locs.map((l) => l.id);
+    const lvs = await loadLocationValues(locIds);
+
+    // group location_values by location_id
+    const byLoc = new Map();
+    lvs.forEach((r) => {
+      if (!r) return;
+      const id = Number(r.location_id);
+      if (!byLoc.has(id)) byLoc.set(id, []);
+      byLoc.get(id).push(r);
+    });
+
+    // build metaByLocRef
+    const metaByLoc = new Map();
+    locs.forEach((row) => {
+      const vals = byLoc.get(Number(row.id)) || [];
+      metaByLoc.set(Number(row.id), computeAggregatedMeta(vals, schema, lang));
+    });
+    metaByLocRef.current = metaByLoc;
+
+    // markers
+    clearMarkers();
+
+    const catById = new Map((cats || []).map((c) => [Number(c.id), c]));
+    locs.forEach((row) => {
+      const cat = catById.get(Number(row.category_id)) || null;
+      const visible = layerState.current.get(Number(row.category_id)) !== false;
+
+      const marker = new google.maps.Marker({
+        position: { lat: Number(row.lat), lng: Number(row.lng) },
+        map,
+        title: pickTitle(row),
+        icon: DEBUG_MARKERS ? undefined : buildMarkerIcon(cat, 32),
+        optimized: true,
+        clickable: true,
+        zIndex: 1,
+        visible,
+      });
+
+      marker.__w2hRow = row;
+      marker.__w2hCategoryId = Number(row.category_id);
+
+      marker.addListener('click', async () => {
+        infoWinOpenedByMarkerRef.current = true;
+        const vals = byLoc.get(Number(row.id)) || [];
+        await openInfoWindowForRow(row, cat, vals);
+      });
+
+      markers.current.push(marker);
+      markerMapRef.current.set(Number(row.id), marker);
+    });
+
+    if (DEBUG_BOUNDING) {
+      // simple bounding circles for debug
+      markers.current.forEach((m) => {
+        const pos = m.getPosition();
+        if (!pos) return;
+        new google.maps.Circle({
+          map,
+          center: pos,
+          radius: 20,
+          strokeColor: '#ff0000',
+          strokeOpacity: 0.9,
+          strokeWeight: 1,
+          fillOpacity: 0,
+        });
+      });
+    }
+
+    // initial fit
+    if ((regs || []).length) fitToRegion();
+
+    // close iw on map click (but not when clicking inside iw)
+    map.addListener('click', () => {
+      infoWinOpenedByMarkerRef.current = false;
+      closeInfoWindow();
+    });
+
+    setBooted(true);
+
+    if (DEBUG_LOG) {
+      console.log('[w2h] boot ok', { categories: cats?.length || 0, regions: regs?.length || 0, locations: locs?.length || 0, values: lvs?.length || 0 });
+    }
+  }
+
+  // ---------------------------------------------
+  // ✅ Effects
+  // ---------------------------------------------
+  useEffect(() => {
+    boot().catch((e) => console.warn('[w2h] boot failed', e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Region change: refilter & refresh markers (simple rebuild)
+  useEffect(() => {
+    if (!booted) return;
+
+    (async () => {
+      const locsAll = await loadLocations();
+      const locs = applyRegionFilter(locsAll);
+      locationsRef.current = locs;
+
+      const schema = await ensureAttributeSchema();
+      const locIds = locs.map((l) => l.id);
+      const lvs = await loadLocationValues(locIds);
+
+      const byLoc = new Map();
+      lvs.forEach((r) => {
+        if (!r) return;
+        const id = Number(r.location_id);
+        if (!byLoc.has(id)) byLoc.set(id, []);
+        byLoc.get(id).push(r);
+      });
+
+      // rebuild meta
+      const metaByLoc = new Map();
+      locs.forEach((row) => metaByLoc.set(Number(row.id), computeAggregatedMeta(byLoc.get(Number(row.id)) || [], schema, lang)));
+      metaByLocRef.current = metaByLoc;
+
+      // rebuild markers
+      const cats = await loadCategories();
+      const catById = new Map((cats || []).map((c) => [Number(c.id), c]));
+      clearMarkers();
+
+      locs.forEach((row) => {
+        const cat = catById.get(Number(row.category_id)) || null;
+        const visible = layerState.current.get(Number(row.category_id)) !== false;
+
+        const marker = new google.maps.Marker({
+          position: { lat: Number(row.lat), lng: Number(row.lng) },
+          map: mapObj.current,
+          title: pickTitle(row),
+          icon: DEBUG_MARKERS ? undefined : buildMarkerIcon(cat, 32),
+          optimized: true,
+          clickable: true,
+          visible,
+        });
+
+        marker.__w2hRow = row;
+        marker.__w2hCategoryId = Number(row.category_id);
+
+        marker.addListener('click', async () => {
+          infoWinOpenedByMarkerRef.current = true;
+          const vals = byLoc.get(Number(row.id)) || [];
+          await openInfoWindowForRow(row, cat, vals);
+        });
+
+        markers.current.push(marker);
+        markerMapRef.current.set(Number(row.id), marker);
+      });
+
+      if (regionMode === 'auto') fitToRegion();
+    })().catch((e) => console.warn('[w2h] region refresh failed', e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegion, regionMode, booted]);
+
+  // ---------------------------------------------
+  // ✅ LayerPanel handlers
+  // ---------------------------------------------
+  const onToggleLayer = (categoryId, nextVisible) => {
+    layerState.current.set(Number(categoryId), !!nextVisible);
+    setMarkerVisibilityByCategory(Number(categoryId), !!nextVisible);
+  };
+
+  // ---------------------------------------------
+  // ✅ Search (simple: title + plus_code + place_id)
+  // ---------------------------------------------
+  const searchResults = useMemo(() => {
+    const q = (searchQuery || '').trim().toLowerCase();
+    if (!q) return [];
+    const rows = locationsRef.current || [];
+    const out = [];
+
+    rows.forEach((row) => {
+      const t = pickTitle(row).toLowerCase();
+      const p = String(row.plus_code || '').toLowerCase();
+      const g = String(row.google_place_id || '').toLowerCase();
+
+      const hay = `${t} ${p} ${g}`;
+      if (hay.includes(q)) out.push(row);
+    });
+
+    return out.slice(0, 20);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, booted, selectedRegion]);
+
+  const focusRow = async (row) => {
+    if (!row || !mapObj.current) return;
+    const marker = markerMapRef.current.get(Number(row.id));
+    if (marker) {
+      mapObj.current.panTo(marker.getPosition());
+      mapObj.current.setZoom(Math.max(mapObj.current.getZoom() || 8, 12));
+      google.maps.event.trigger(marker, 'click');
+    }
+  };
+
+  // ---------------------------------------------
+  // ✅ Ki Modal refresh handler
+  // ---------------------------------------------
+  const onRefreshKi = async () => {
+    if (!kiModal?.locationId) return;
+    const locationId = kiModal.locationId;
+    setKiModal((m) => ({ ...(m || {}), loading: true, error: null }));
+
+    try {
+      const data = await refreshKiReport({ locationId, langCode: lang });
+      setKiModal((m) => ({
+        ...(m || {}),
+        loading: false,
+        error: null,
+        report: data?.report || data,
+        createdAt: data?.createdAt || data?.created_at || null,
+      }));
+    } catch (err) {
+      setKiModal((m) => ({ ...(m || {}), loading: false, error: err?.message || String(err) }));
+    }
+  };
+
+  // ---------------------------------------------
+  // UI
+  // ---------------------------------------------
+  return (
+    <div style={{ position: 'relative' }}>
+      {/* Map */}
+      <div ref={mapRef} style={{ width: '100%', height: '70vh', borderRadius: 18, overflow: 'hidden' }} />
+
+      {/* Layer Panel (floating) */}
+      <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 3 }}>
+        <LayerPanel
+          lang={lang}
+          onToggleLayer={onToggleLayer}
+          selectedRegion={selectedRegion}
+          onSelectRegion={(slug) => {
+            setSelectedRegion(slug);
+            setRegionMode('auto');
+          }}
+          regions={regions}
+          allLabel={allLabel(lang)}
+        />
+      </div>
+
+      {/* Search */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          zIndex: 3,
+          width: 320,
+          maxWidth: '92vw',
+          background: 'rgba(255,255,255,.92)',
+          border: '1px solid #e5e7eb',
+          borderRadius: 14,
+          padding: 10,
+          boxShadow: '0 10px 30px rgba(0,0,0,.12)',
         }}
-        onToggle={(catKey, visible, meta) => {
-          // ✅ Gruppenlogik: wenn LayerPanel meta.affected_category_ids liefert
-          const affected = meta && Array.isArray(meta.affected_category_ids) ? meta.affected_category_ids : [catKey];
+      >
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={lang === 'de' ? 'Suchen… (Name / Pluscode / Place ID)' : 'Search…'}
+            style={{
+              width: '100%',
+              border: '1px solid #e5e7eb',
+              borderRadius: 12,
+              padding: '10px 12px',
+              fontSize: 13,
+              outline: 'none',
+              background: '#fff',
+            }}
+          />
+          <button
+            onClick={() => setSearchQuery('')}
+            style={{ border: '1px solid #e5e7eb', background: '#fff', borderRadius: 12, padding: '10px 10px', fontWeight: 800, cursor: 'pointer' }}
+            title={lang === 'de' ? 'Leeren' : 'Clear'}
+          >
+            ×
+          </button>
+        </div>
 
-          for (const k of affected) layerState.current.set(String(k), visible);
+        {searchResults.length ? (
+          <div style={{ marginTop: 8, maxHeight: 300, overflow: 'auto', display: 'grid', gap: 6 }}>
+            {searchResults.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => focusRow(r)}
+                style={{
+                  textAlign: 'left',
+                  border: '1px solid #e5e7eb',
+                  background: '#fff',
+                  borderRadius: 12,
+                  padding: '8px 10px',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>{pickTitle(r)}</div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>
+                  #{r.id} · {r.plus_code ? r.plus_code : r.google_place_id ? 'Place' : ''}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
-          // Wenn Search Focus aktiv ist: nicht überschreiben
-          if (!searchMode.active) applyLayerVisibility();
-        }}
-        onToggleAll={(visible) => {
-          const updated = new Map();
-          layerState.current.forEach((_v, key) => updated.set(key, visible));
-          layerState.current = updated;
-          if (!searchMode.active) applyLayerVisibility();
-        }}
-      />
-
+      {/* Modals */}
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
       <WindModal modal={windModal} onClose={() => setWindModal(null)} />
-
-      {/* ✅ Lazy-Render: KiReportModal existiert nur wenn wirklich geöffnet */}
-      {kiModal ? (
-        <KiReportModal
-          modal={kiModal}
-          onClose={() => setKiModal(null)}
-          onRefresh={async () => {
-            if (!kiModal?.locationId) return;
-
-            setKiModal((prev) => ({ ...(prev || {}), loading: true, error: '' }));
-            try {
-              const data = await refreshKiReport({ locationId: kiModal.locationId, langCode: lang });
-              const reportObj = data.report_json || data.report || data;
-              const createdAt = data.created_at || reportObj?.created_at || null;
-
-              setKiModal((prev) => ({
-                ...(prev || {}),
-                loading: false,
-                error: '',
-                report: reportObj,
-                createdAt,
-              }));
-            } catch (e) {
-              setKiModal((prev) => ({
-                ...(prev || {}),
-                loading: false,
-                error: e?.message || 'Aktualisieren fehlgeschlagen.',
-              }));
-            }
-          }}
-        />
-      ) : null}
-
-      <style jsx>{`
-        .w2h-map-wrap {
-          position: relative;
-          height: 100vh;
-          width: 100%;
-        }
-        .w2h-map {
-          height: 100%;
-          width: 100%;
-        }
-        .w2h-region-panel {
-          position: absolute;
-          top: 64px;
-          left: 50%;
-          transform: translateX(-50%);
-          min-width: 210px;
-          max-width: 320px;
-        }
-        @media (max-width: 640px) {
-          .w2h-region-panel {
-            top: 80px;
-            right: 10px;
-            left: auto;
-            transform: none;
-            min-width: 170px;
-            max-width: 230px;
-            width: 60vw;
-          }
-          .w2h-search-panel {
-            top: 110px !important;
-            right: 10px !important;
-            width: min(92vw, 360px) !important;
-            max-height: 62vh !important;
-          }
-        }
-      `}</style>
-
-      <style jsx global>{`
-        .gm-style .w2h-iw {
-          max-width: 340px;
-          font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          color: #1a1a1a;
-        }
-        .gm-style .w2h-iw .iw-hd {
-          display: grid;
-          grid-template-columns: 22px 1fr;
-          gap: 8px;
-          align-items: center;
-          margin-bottom: 6px;
-        }
-        .gm-style .w2h-iw .iw-ic img {
-          width: 20px;
-          height: 20px;
-          display: block;
-        }
-        .gm-style .w2h-iw .iw-title {
-          font-weight: 700;
-          font-size: 14px;
-        }
-        .gm-style .w2h-iw .iw-id {
-          font-weight: 400;
-          font-size: 11px;
-          color: #9ca3af;
-          margin-left: 4px;
-        }
-        .gm-style .w2h-iw .iw-row {
-          margin: 6px 0;
-        }
-        .gm-style .w2h-iw .iw-desc {
-          color: #444;
-          white-space: normal;
-        }
-        .gm-style .w2h-iw .iw-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-top: 10px;
-        }
-        .gm-style .w2h-iw .iw-btn {
-          display: inline-block;
-          padding: 6px 10px;
-          border-radius: 8px;
-          background: #1f6aa2;
-          color: #fff;
-          text-decoration: none;
-          font-weight: 600;
-          font-size: 12px;
-          cursor: pointer;
-          border: none;
-        }
-        .gm-style .w2h-iw .iw-btn:hover {
-          filter: brightness(0.95);
-        }
-        .gm-style .w2h-iw .iw-btn-wind {
-          background: #0ea5e9;
-        }
-        .gm-style .w2h-iw .iw-btn-ki {
-          background: #111827;
-        }
-        .gm-style .w2h-iw .iw-btn-ki:hover {
-          filter: brightness(1.05);
-        }
-        .gm-style .w2h-iw .iw-rating {
-          font-size: 13px;
-          color: #f39c12;
-        }
-        .gm-style .w2h-iw .iw-price {
-          font-size: 13px;
-          color: #27ae60;
-        }
-        .gm-style .w2h-iw .iw-open {
-          font-size: 13px;
-        }
-        .gm-style .w2h-iw .iw-hours {
-          padding-left: 16px;
-          margin: 4px 0;
-        }
-
-        /* ✅ Datenblock (immer sichtbar) */
-        .gm-style .w2h-iw .iw-block {
-          border: 1px solid #eef2f7;
-          background: #ffffff;
-          border-radius: 12px;
-          padding: 10px;
-        }
-        .gm-style .w2h-iw .iw-block-hd {
-          font-weight: 900;
-          font-size: 12px;
-          letter-spacing: 0.2px;
-          color: #111;
-          margin-bottom: 6px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .gm-style .w2h-iw .iw-block-bd {
-          display: block;
-        }
-
-        /* ✅ Dynamische Attribute */
-        .gm-style .w2h-iw .iw-dyn {
-          margin-top: 8px;
-          padding-top: 8px;
-          border-top: 1px solid #eee;
-          display: grid;
-          gap: 10px;
-        }
-        .gm-style .w2h-iw .iw-dyn-block {
-          display: grid;
-          gap: 6px;
-        }
-        .gm-style .w2h-iw .iw-dyn-group {
-          font-weight: 800;
-          font-size: 12px;
-          letter-spacing: 0.2px;
-          color: #111;
-          margin-top: 2px;
-        }
-        .gm-style .w2h-iw .iw-dyn-row {
-          display: grid;
-          grid-template-columns: 1fr 1.2fr;
-          gap: 10px;
-          align-items: start;
-        }
-        .gm-style .w2h-iw .iw-dyn-k {
-          font-weight: 600;
-          color: #111;
-        }
-        .gm-style .w2h-iw .iw-dyn-v {
-          color: #374151;
-          word-break: break-word;
-        }
-        .gm-style .w2h-iw .iw-dyn-v a {
-          color: #1f6aa2;
-          text-decoration: underline;
-        }
-      `}</style>
+      <KiReportModal modal={kiModal} onClose={() => setKiModal(null)} onRefresh={onRefreshKi} />
     </div>
   );
 }
