@@ -1334,9 +1334,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       : '';
 
 
-    const btnPhotos = photos.length
-      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${photos.length})</button>`
-      : '';
+    
 
     const windProfile = kv.wind_profile || null;
     const hasWindProfile = !!windProfile;
