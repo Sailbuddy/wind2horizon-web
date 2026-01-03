@@ -10,7 +10,7 @@ const SUPA_URL =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL
 
-// Für READ reicht anon (wenn RLS-Select erlaubt ist)
+// Für READ reicht anon (wenn RLS-Select erlaubt ist) – wir bevorzugen aber serverseitig Service-Role, falls vorhanden
 const SUPA_ANON_KEY =
   process.env.SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
@@ -22,38 +22,49 @@ const SUPA_SERVICE_KEY =
   process.env.SUPABASE_SERVICE_KEY // optional fallback name
 
 function badEnvRead() {
-  return !SUPA_URL || !SUPA_ANON_KEY
+  // Read geht, wenn URL + (Service ODER Anon) vorhanden
+  return !SUPA_URL || !(SUPA_SERVICE_KEY || SUPA_ANON_KEY)
 }
+
 function badEnvWrite() {
   // Für Updates brauchen wir idealerweise den Service-Key
   return !SUPA_URL || !SUPA_SERVICE_KEY
 }
 
 function supaRead() {
-  return createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { persistSession: false } })
+  // Serverseitig Service-Role bevorzugen -> robust gegen RLS-Select-Probleme
+  const key = SUPA_SERVICE_KEY || SUPA_ANON_KEY
+  return createClient(SUPA_URL, key, { auth: { persistSession: false } })
 }
+
 function supaWrite() {
   return createClient(SUPA_URL, SUPA_SERVICE_KEY, { auth: { persistSession: false } })
 }
 
-// ---- GET /api/user-photos?ids=1,2,3 ----------------------------------------
+// ---- GET /api/user-photos?location_ids=2030,2031  (alias: ?ids=...) ---------
 export async function GET(req) {
   try {
     if (badEnvRead()) {
       return NextResponse.json(
-        { ok: false, error: 'Missing SUPABASE_URL / ANON_KEY on server' },
+        { ok: false, error: 'Missing SUPABASE_URL and (SUPABASE_SERVICE_ROLE_KEY or ANON_KEY) on server' },
         { status: 500 }
       )
     }
 
     const url = new URL(req.url)
-    const idsParam = url.searchParams.get('ids') || ''
-    const ids = idsParam
+
+    // prefer explicit name, keep ids as backward-compatible fallback
+    const idsParam =
+      url.searchParams.get('location_ids') ||
+      url.searchParams.get('ids') ||
+      ''
+
+    const locationIds = idsParam
       .split(',')
       .map(s => parseInt(s.trim(), 10))
       .filter(n => Number.isFinite(n))
 
-    if (!ids.length) {
+    if (!locationIds.length) {
       return NextResponse.json({ ok: true, rows: [], items: {} }, { status: 200 })
     }
 
@@ -61,8 +72,8 @@ export async function GET(req) {
 
     const { data, error } = await supabase
       .from('user_photos')
-      .select('id, location_id, public_url, width, height, caption, author, preferred_width')
-      .in('location_id', ids)
+      .select('id, location_id, storage_path, public_url, width, height, author, caption, source_tag, created_at, preferred_width')
+      .in('location_id', locationIds)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -78,11 +89,16 @@ export async function GET(req) {
       if (!items[r.location_id]) items[r.location_id] = []
       items[r.location_id].push({
         id: r.id,
-        public_url: r.public_url,
-        width: r.width,
-        height: r.height,
-        caption: r.caption,
-        author: r.author,
+        location_id: r.location_id,
+        storage_path: r.storage_path ?? null,
+        public_url: r.public_url ?? null,
+        url: r.public_url ?? null, // alias for UI compatibility
+        width: r.width ?? null,
+        height: r.height ?? null,
+        caption: r.caption ?? null,
+        author: r.author ?? null,
+        source_tag: r.source_tag ?? null,
+        created_at: r.created_at ?? null,
         preferred_width: r.preferred_width ?? null,
       })
     }
