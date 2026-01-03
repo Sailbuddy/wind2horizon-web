@@ -2286,10 +2286,9 @@ google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
     const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
     if (googlePhotos.length) setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
   }
-  }
 });
 
-
+    }
 
     // ... hier bleiben dann windbtn/kibtn etc. wie gehabt ...
 
