@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
+import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
 
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
@@ -2234,17 +2235,69 @@ export default function GoogleMapClient({ lang = 'de' }) {
           }, 0);
         }
 
-        google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
-          try {
-            const kvNow = kvByLoc.get(row.id) || meta;
+google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+  try {
+    const kvNow = kvByLoc.get(row.id) || meta;
 
-            const btn = document.getElementById(`phbtn-${row.id}`);
-            if (btn) {
-              btn.addEventListener('click', () => {
-                const photos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-                if (photos.length) setGallery({ title: pickName(row, langCode), photos, row  });
-              });
-            }
+    const btn = document.getElementById(`phbtn-${row.id}`);
+    if (btn) {
+      btn.addEventListener('click', async () => {
+  try {
+    const titleNow = pickName(row, langCode);
+
+    const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+    const userPhotos = await hydrateUserPhotos(row.id, langCode);
+
+    // Dedupe (Google: photo_reference | User: url/public_url/thumb/image_url)
+    const seen = new Set();
+    const merged = [];
+
+    const pushUnique = (p) => {
+      if (!p) return;
+
+      const gRef = p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref;
+      if (gRef) {
+        const k = `g:${String(gRef)}`;
+        if (seen.has(k)) return;
+        seen.add(k);
+        merged.push(p);
+        return;
+      }
+
+      const u = p.public_url || p.url || p.thumb || p.image_url;
+      if (u) {
+        const k = `u:${String(u)}`;
+        if (seen.has(k)) return;
+        seen.add(k);
+        merged.push(p);
+        return; // ✅ optional: Clean-up / Zukunftssicherheit
+      }
+    };
+
+    // Reihenfolge: User zuerst, dann Google
+    (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
+    googlePhotos.forEach(pushUnique);
+
+    if (merged.length) {
+      setGallery({ title: titleNow, photos: merged, row });
+    }
+  } catch (e) {
+    console.warn('[w2h] merge gallery failed', e);
+    const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+    if (googlePhotos.length) setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
+  }
+});
+
+    }
+
+    // ... hier bleiben dann windbtn/kibtn etc. wie gehabt ...
+
+  } catch (errDom) {
+    console.error('[w2h] domready handler failed for location', row.id, errDom);
+  }
+});
+
+}
 
             const wbtn = document.getElementById(`windbtn-${row.id}`);
             if (wbtn) {
