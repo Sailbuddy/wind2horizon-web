@@ -1271,8 +1271,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
     const hoursLocalized = hoursArr ? localizeHoursList(hoursArr, langCode) : null;
 
-    const photos = Array.isArray(kv.photos) ? kv.photos : [];
-    const firstThumb = pickFirstThumb(photos, row);
+    const googlePhotos = Array.isArray(kv.photos) ? kv.photos : [];
+    const userThumb = kv.user_photo_thumb || '';
+    const userCount = Number(kv.user_photo_count || 0);
+
+    const firstThumb = userThumb || pickFirstThumb(googlePhotos, row);
+    const totalPhotos = googlePhotos.length + userCount;
+    const btnPhotos = totalPhotos
+  ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${totalPhotos})</button>`
+  : '';
 
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref = website && String(website).startsWith('http') ? website : website ? `https://${website}` : '';
@@ -1310,7 +1317,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       openingHtml += `<ul class="iw-hours">${hoursLocalized.map((h) => `<li>${escapeHtml(String(h))}</li>`).join('')}</ul>`;
     }
 
-    const thumbHtml = photos.length
+    const thumbHtml = totalPhotos
       ? `
         <div style="margin:6px 0 10px 0;">
           ${
@@ -1319,7 +1326,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
                   style="width:100%;height:auto;display:block;border-radius:10px;border:1px solid #eee;background:#fafafa;" />`
               : `<div style="width:100%;border-radius:10px;border:1px dashed #cbd5e1;background:#f8fafc;
                    padding:10px;font-size:12px;color:#64748b;">
-                   Fotos vorhanden (${photos.length}), Vorschau konnte nicht geladen werden.
+                   Fotos vorhanden (${totalPhotos}), Vorschau konnte nicht geladen werden.
                  </div>`
           }
         </div>
@@ -1907,6 +1914,43 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
 
     const locIds = locList.map((l) => l.id);
+    // ------------------------------
+    // ✅ User-Photos Meta (Count + First Preview URL) aus public.user_photos
+    // ------------------------------
+    let userPhotoRows = [];
+    if (locIds.length) {
+      const { data: up, error: upErr } = await supabase
+        .from('user_photos')
+        .select('location_id, public_url, created_at')
+        .in('location_id', locIds)
+        .order('created_at', { ascending: false });
+
+      if (upErr) {
+        console.warn('[w2h] user_photos meta load failed:', upErr.message, upErr);
+        userPhotoRows = [];
+      } else {
+        userPhotoRows = up || [];
+      }
+
+      if (DEBUG_LOG) {
+        console.log('[w2h] user_photos meta rows:', userPhotoRows.length, userPhotoRows.slice(0, 3));
+      }
+    }
+
+    // Map: location_id -> { count, firstUrl }
+    const userPhotoMeta = new Map();
+    for (const p of userPhotoRows) {
+      const id = Number(p.location_id);
+      if (!Number.isFinite(id)) continue;
+
+      if (!userPhotoMeta.has(id)) userPhotoMeta.set(id, { count: 0, firstUrl: '' });
+      const rec = userPhotoMeta.get(id);
+
+      rec.count += 1;
+      // Da wir created_at DESC laden, ist das erste Vorkommen das "neueste" Foto
+      if (!rec.firstUrl && p.public_url) rec.firstUrl = String(p.public_url);
+    }
+
 
     // location_values laden
     let kvRows = [];
@@ -2098,6 +2142,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     for (const loc of locList) {
       const obj = kvByLoc.get(loc.id) || {};
+      // ✅ User-Foto Meta anhängen (für InfoWindow Thumb + Button)
+      const up = userPhotoMeta.get(loc.id);
+      obj.user_photo_count = up ? Number(up.count || 0) : 0;
+      obj.user_photo_thumb = up && up.firstUrl ? String(up.firstUrl) : '';
 
       if (obj._dyn && obj._dyn instanceof Map && obj._dyn.size) {
         const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr', '_'];
