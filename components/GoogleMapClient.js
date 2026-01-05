@@ -340,6 +340,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const inputType = (def && def.input_type) || '';
     if (val === null || val === undefined) return '';
 
+
+    // unwrap meta wrapper objects/arrays
+    val = unwrapMetaValue(val);
+
     const isObj = typeof val === 'object';
     const asText = isObj ? JSON.stringify(val) : String(val);
 
@@ -1045,6 +1049,43 @@ export default function GoogleMapClient({ lang = 'de' }) {
     } catch {
       return String(v);
     }
+
+  // --- Meta-Wrapper Handling (ai:false etc.) -------------------------
+  // location_values.value_* kann bei uns gelegentlich als Wrapper-Objekt kommen,
+  // z.B. { value: "...", ai: false } oder { text: "...", ai: false }.
+  // Diese Helper entfernt den Wrapper, damit im InfoWindow nie "ai:false" auftaucht.
+  function unwrapMetaValue(v) {
+    if (v === null || v === undefined) return v;
+
+    // Array-Wrapper: [actualValue, { ai: false }] o.ä.
+    if (Array.isArray(v)) {
+      if (v.length === 0) return v;
+      // Wenn 2-te Komponente nur Meta ist -> erstes Element nutzen
+      if (v.length >= 2 && v[1] && typeof v[1] === 'object' && ('ai' in v[1] || 'source' in v[1])) return v[0];
+      return v;
+    }
+
+    if (typeof v !== 'object') return v;
+
+    // Häufigste Formen
+    if ('value' in v) return v.value;
+    if ('text' in v) return v.text;
+
+    // Reine Meta-Objekte nicht anzeigen
+    const keys = Object.keys(v);
+    if (keys.length === 1 && keys[0] === 'ai') return null;
+
+    // Objekt mit ai-Flag + Nutzdaten: ai entfernen (und ggf. single remaining key zurückgeben)
+    if ('ai' in v) {
+      const { ai, ...rest } = v; // eslint-disable-line no-unused-vars
+      const restKeys = Object.keys(rest);
+      if (restKeys.length === 1) return rest[restKeys[0]];
+      return rest;
+    }
+
+    return v;
+  }
+
   }
 
   function isMeaningfulValueForCanon(canon, v) {
@@ -2056,6 +2097,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
         else if (r2.value_number !== null && r2.value_number !== undefined) val = r2.value_number;
         else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
 
+        // unwrap {value,ai:false} etc.
+        val = unwrapMetaValue(val);
+
         if (val === null || val === undefined || val === '') return;
 
         // Canon per-type handling
@@ -2120,6 +2164,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
       else if (r2.value_option !== null && r2.value_option !== undefined && r2.value_option !== '') val = r2.value_option;
       else if (r2.value_number !== null && r2.value_number !== undefined) val = r2.value_number;
       else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
+
+        // unwrap {value,ai:false} etc.
+        val = unwrapMetaValue(val);
 
       if (val === null || val === undefined || val === '') return;
 
