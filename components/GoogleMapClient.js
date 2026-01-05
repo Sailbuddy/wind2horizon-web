@@ -1162,8 +1162,16 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (iconCache.current.has(key)) return iconCache.current.get(key);
     const rawSvg = svgMarkup && String(svgMarkup).trim().startsWith('<') ? svgMarkup : defaultMarkerSvg;
 
+    let url;
+    try {
+      url = svgToDataUrl(rawSvg);
+    } catch (e) {
+      if (DEBUG_LOG) console.error('[w2h] svgToDataUrl failed – falling back to default marker', e);
+      return undefined;
+    }
+
     const icon = {
-      url: svgToDataUrl(rawSvg),
+      url,
       scaledSize: new google.maps.Size(40, 40),
       anchor: new google.maps.Point(20, 40),
     };
@@ -2017,6 +2025,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
 
     (kvRows || []).forEach((r2) => {
+    try {
       const locId = r2.location_id;
       const attrId = Number(r2.attribute_id);
       if (!Number.isFinite(attrId)) return;
@@ -2180,7 +2189,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       if (lc) entry.valuesByLang[lc] = val;
       else entry.valuesByLang._ = val;
-    });
+    } catch (e) {
+      if (DEBUG_LOG) console.error('[w2h] location_values parse failed', e, r2);
+    }
+  });
 
     // 3) Dyn finalisieren
     let dynCountTotal = 0;
