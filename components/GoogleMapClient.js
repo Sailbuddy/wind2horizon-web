@@ -342,7 +342,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
 
     // unwrap meta wrapper objects/arrays
-    val = unwrapMetaValue(val);
+    val = unwrapMetaValue(val, langCode);
 
     const isObj = typeof val === 'object';
     const asText = isObj ? JSON.stringify(val) : String(val);
@@ -1049,44 +1049,48 @@ export default function GoogleMapClient({ lang = 'de' }) {
     } catch {
       return String(v);
     }
+  }
 
-  // --- Meta-Wrapper Handling (ai:false etc.) -------------------------
-  // location_values.value_* kann bei uns gelegentlich als Wrapper-Objekt kommen,
-  // z.B. { value: "...", ai: false } oder { text: "...", ai: false }.
-  // Diese Helper entfernt den Wrapper, damit im InfoWindow nie "ai:false" auftaucht.
-  function unwrapMetaValue(v) {
-    if (v === null || v === undefined) return v;
+  /**
+   * Robust “Unwrap” für eure Value-Formate:
+   * - Arrays wie [true,{ai:false},...] -> true
+   * - Objekte wie {value: "...", ai:false} -> "..."
+   * - Übersetzungsobjekte {de:"..",en:".."} oder {text:".."} -> best match
+   * - reine Metaobjekte -> null
+   */
+  function unwrapMetaValue(v, preferredLang = 'de') {
+    if (v === null || v === undefined) return null;
 
-    // Array-Wrapper: [actualValue, { ai: false }] o.ä.
+    // 1) Array-Wrapper: [value, meta...] => erstes Element ist der Wert
     if (Array.isArray(v)) {
-      if (v.length === 0) return v;
-      // Wenn 2-te Komponente nur Meta ist -> erstes Element nutzen
-      if (v.length >= 2 && v[1] && typeof v[1] === 'object' && ('ai' in v[1] || 'source' in v[1])) return v[0];
-      return v;
+      if (v.length === 0) return null;
+      return unwrapMetaValue(v[0], preferredLang);
     }
 
+    // 2) Primitive
     if (typeof v !== 'object') return v;
 
-    // Häufigste Formen
-    if ('value' in v) return v.value;
-    if ('text' in v) return v.text;
+    // 3) Objekt mit value/text
+    if ('value' in v) return unwrapMetaValue(v.value, preferredLang);
+    if (typeof v.text === 'string' && v.text.trim()) return v.text;
 
-    // Reine Meta-Objekte nicht anzeigen
-    const keys = Object.keys(v);
-    if (keys.length === 1 && keys[0] === 'ai') return null;
-
-    // Objekt mit ai-Flag + Nutzdaten: ai entfernen (und ggf. single remaining key zurückgeben)
-    if ('ai' in v) {
-      const { ai, ...rest } = v; // eslint-disable-line no-unused-vars
-      const restKeys = Object.keys(rest);
-      if (restKeys.length === 1) return rest[restKeys[0]];
-      return rest;
+    // 4) Übersetzungsobjekte: de/en/hr/it/fr ...
+    for (const k of [preferredLang, 'de', 'en', 'hr', 'it', 'fr']) {
+      if (k in v) return unwrapMetaValue(v[k], preferredLang);
     }
 
+    // 5) Spezialfall { tr: ... }
+    if ('tr' in v) return unwrapMetaValue(v.tr, preferredLang);
+
+    // 6) Meta-only => nicht anzeigen
+    const keys = Object.keys(v);
+    const metaKeys = new Set(['ai', 'source', 'sources', 'meta', 'confidence']);
+    if (keys.length && keys.every((k) => metaKeys.has(k))) return null;
+
+    // 7) sonst: Objekt zurückgeben (wird später JSON-stringified falls nötig)
     return v;
   }
 
-  }
 
   function isMeaningfulValueForCanon(canon, v) {
     if (v === null || v === undefined) return false;
@@ -1279,7 +1283,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   function buildInfoContent(row, kvRaw, iconSvgRaw, langCode) {
     const kv = kvRaw && typeof kvRaw === 'object' ? kvRaw : {};
     const title = escapeHtml(pickName(row, langCode));
-    const desc = escapeHtml(pickDescriptionFromRow(row, langCode) || kv.description || '');
+    const rawDesc = pickDescriptionFromRow(row, langCode) || unwrapMetaValue(kv.description, langCode) || '';
+    const desc = escapeHtml(toStrMaybe(rawDesc));
 
     const addrByLang = kv.addressByLang && typeof kv.addressByLang === 'object' ? kv.addressByLang : {};
     const pref = [langCode, 'de', 'en', 'it', 'fr', 'hr'];
@@ -2107,7 +2112,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
 
         // unwrap {value,ai:false} etc.
-        val = unwrapMetaValue(val);
+        val = unwrapMetaValue(val, langCode);
 
         if (val === null || val === undefined || val === '') return;
 
@@ -2175,7 +2180,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
 
         // unwrap {value,ai:false} etc.
-        val = unwrapMetaValue(val);
+        val = unwrapMetaValue(val, langCode);
 
       if (val === null || val === undefined || val === '') return;
 
