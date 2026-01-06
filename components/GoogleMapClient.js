@@ -1153,7 +1153,12 @@ export default function GoogleMapClient({ lang = 'de' }) {
       obj[canon] = val;
       obj._canonLang[canon] = (lc || '').toLowerCase();
     } else if (DEBUG_LOG) {
-      console.warn(`[w2h] skip weaker duplicate "${canon}"`, { existing, existingLc, candidate: val, lc });
+      const ex = String(existing ?? '');
+      const ca = String(val ?? '');
+      // Nur loggen, wenn wirklich unterschiedlich (sonst Console-Spam)
+      if (ex.trim() !== ca.trim()) {
+        console.warn(`[w2h] skip weaker duplicate "${canon}"`, { existing, existingLc, candidate: val, lc });
+      }
     }
   }
 
