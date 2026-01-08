@@ -1061,13 +1061,31 @@ export default function GoogleMapClient({ lang = 'de' }) {
   function unwrapMetaValue(v, preferredLang = 'de') {
     if (v === null || v === undefined) return null;
 
-    // 1) Array-Wrapper: [value, meta...] => erstes Element ist der Wert
+    // 1) Array-Wrapper: nur für skalare Meta-Wrapper [value,{ai/...},...] entpacken.
+// Strukturierte Arrays (z. B. Google Photos) bleiben Arrays.
     if (Array.isArray(v)) {
       if (v.length === 0) return null;
-      return unwrapMetaValue(v[0], preferredLang);
+
+      const primary = v[0];
+      const looksScalar =
+        primary === null ||
+        primary === undefined ||
+        typeof primary === 'string' ||
+        typeof primary === 'number' ||
+        typeof primary === 'boolean';
+
+      const looksMeta =
+        v.length >= 2 &&
+        v.slice(1).some((m) => m && typeof m === 'object' && !Array.isArray(m) && ('ai' in m || 'by' in m || 'ts' in m || 'source' in m));
+
+      if (looksScalar && looksMeta) {
+        return unwrapMetaValue(primary, preferredLang);
+      }
+
+      return v;
     }
 
-    // 2) Primitive
+// 2) Primitive
     if (typeof v !== 'object') return v;
 
     // 3) Objekt mit value/text
@@ -1084,7 +1102,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
     // 6) Meta-only => nicht anzeigen
     const keys = Object.keys(v);
-    const metaKeys = new Set(['ai', 'source', 'sources', 'meta', 'confidence']);
+    const metaKeys = new Set(['ai', 'by', 'ts', 'source', 'sources', 'meta', 'confidence']);
     if (keys.length && keys.every((k) => metaKeys.has(k))) return null;
 
     // 7) sonst: Objekt zurückgeben (wird später JSON-stringified falls nötig)
@@ -1978,7 +1996,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (locIds.length) {
       const { data: up, error: upErr } = await supabase
         .from('user_photos')
-        .select('location_id, public_url, created_at')
+        .select('location_id, public_url, created_at, source_tag')
         .in('location_id', locIds)
         .order('created_at', { ascending: false });
 
@@ -2006,6 +2024,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
       rec.count += 1;
       // Da wir created_at DESC laden, ist das erste Vorkommen das "neueste" Foto
       if (!rec.firstUrl && p.public_url) rec.firstUrl = String(p.public_url);
+
+      if (!rec.aiCount) rec.aiCount = 0;
+      const st = String(p.source_tag || '').toLowerCase();
+      if (st.includes('ai')) rec.aiCount += 1;
+
     }
 
 
