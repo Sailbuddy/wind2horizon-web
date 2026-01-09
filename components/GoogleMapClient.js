@@ -169,6 +169,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // ✅ Track, ob InfoWindow zuletzt durch Marker geöffnet wurde
   const infoWinOpenedByMarkerRef = useRef(false);
 
+  // ✅ Locate UI
+  const [locateBusy, setLocateBusy] = useState(false);
+  const [locateErr, setLocateErr] = useState('');
+
+  // ✅ User Location / Locate UI Refs
+  const userPosRef = useRef(null); // { lat, lng, accuracy }
+  const userMarkerRef = useRef(null);
+  const userAccuracyCircleRef = useRef(null);
+
   // ✅ Helper: InfoWindow schließen
   const closeInfoWindow = () => {
     try {
@@ -340,7 +349,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const inputType = (def && def.input_type) || '';
     if (val === null || val === undefined) return '';
 
-
     // unwrap meta wrapper objects/arrays
     val = unwrapMetaValue(val, langCode);
 
@@ -439,6 +447,143 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
 
     return attrSchemaRef.current;
+  }
+
+  // ------------------------------
+  // ✅ Locate helpers (Marker + Accuracy-Kreis + Centering + Geolocation)
+  // ------------------------------
+  function upsertUserMarker(lat, lng) {
+    if (!mapObj.current || !window.google) return;
+
+    const pos = { lat, lng };
+
+    if (!userMarkerRef.current) {
+      userMarkerRef.current = new google.maps.Marker({
+        position: pos,
+        map: mapObj.current,
+        clickable: false,
+        zIndex: 999999,
+        title: 'Mein Standort',
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 6,
+          fillOpacity: 1,
+          strokeWeight: 2,
+        },
+      });
+    } else {
+      userMarkerRef.current.setPosition(pos);
+      if (!userMarkerRef.current.getMap()) userMarkerRef.current.setMap(mapObj.current);
+    }
+  }
+
+  function upsertAccuracyCircle(lat, lng, accuracyMeters, enabled = true) {
+    if (!mapObj.current || !window.google) return;
+
+    if (!enabled || !Number.isFinite(Number(accuracyMeters)) || Number(accuracyMeters) <= 0) {
+      if (userAccuracyCircleRef.current) userAccuracyCircleRef.current.setMap(null);
+      userAccuracyCircleRef.current = null;
+      return;
+    }
+
+    const center = { lat, lng };
+    const radius = Math.max(5, Number(accuracyMeters));
+
+    if (!userAccuracyCircleRef.current) {
+      userAccuracyCircleRef.current = new google.maps.Circle({
+        map: mapObj.current,
+        center,
+        radius,
+        clickable: false,
+        zIndex: 999998,
+        strokeOpacity: 0.25,
+        strokeWeight: 1,
+        fillOpacity: 0.08,
+      });
+    } else {
+      userAccuracyCircleRef.current.setCenter(center);
+      userAccuracyCircleRef.current.setRadius(radius);
+      if (!userAccuracyCircleRef.current.getMap()) userAccuracyCircleRef.current.setMap(mapObj.current);
+    }
+  }
+
+  function centerMapOn(lat, lng, opts = {}) {
+    if (!mapObj.current) return;
+    const { zoom = 12, pan = true } = opts;
+    const pos = { lat, lng };
+
+    try {
+      if (pan && typeof mapObj.current.panTo === 'function') mapObj.current.panTo(pos);
+      else mapObj.current.setCenter(pos);
+
+      const z = mapObj.current.getZoom?.();
+      if (!Number.isFinite(z) || z < zoom) mapObj.current.setZoom(zoom);
+    } catch (e) {
+      console.warn('[w2h] centerMapOn failed', e);
+    }
+  }
+
+  async function requestAndApplyGeolocation({ reason = 'auto', alsoSetAutoRegion = true, showAccuracy = true } = {}) {
+    if (!mapObj.current) return false;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return false;
+
+    const onSuccess = (pos) => {
+      const { latitude, longitude, accuracy } = pos.coords;
+
+      userPosRef.current = { lat: latitude, lng: longitude, accuracy: Number(accuracy || 0) };
+
+      // ✅ 1) Immer auf echte Position zentrieren
+      centerMapOn(latitude, longitude, { zoom: reason === 'button' ? 13 : 12, pan: true });
+
+      // ✅ 2) Marker + optional Accuracy-Kreis
+      upsertUserMarker(latitude, longitude);
+      upsertAccuracyCircle(latitude, longitude, accuracy, showAccuracy);
+
+      // ✅ 3) Optional: Auto-Region zusätzlich anwenden (wenn regions vorhanden)
+      if (alsoSetAutoRegion && regions && regions.length) {
+        const hit = regions.find((r) => pointInRegion(latitude, longitude, r)) || null;
+
+        if (hit) {
+          setSelectedRegion(hit.slug);
+          try {
+            const b = boundsToLatLngBounds(hit);
+            setTimeout(() => {
+              try {
+                mapObj.current?.fitBounds(b, 40);
+              } catch (e) {
+                console.warn('[w2h] fitBounds (auto-region) failed', e);
+              }
+            }, 0);
+          } catch (e) {
+            console.warn('[w2h] fitBounds (auto-region) failed', e);
+          }
+        } else {
+          setSelectedRegion('all');
+        }
+      }
+    };
+
+    const onError = (err) => {
+      const code = err?.code;
+      const msg = err?.message || '';
+      console.warn('[w2h] Geolocation failed/denied:', { code, message: msg });
+
+      // UI-Hinweis nur, wenn User aktiv klickt (bei Auto-Init möglichst still)
+      if (reason === 'button') {
+        if (code === 1) setLocateErr('Standortzugriff wurde abgelehnt.');
+        else if (code === 2) setLocateErr('Standort aktuell nicht verfügbar.');
+        else if (code === 3) setLocateErr('Standortabfrage ist abgelaufen.');
+        else setLocateErr('Standortabfrage fehlgeschlagen.');
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy: reason === 'button',
+      timeout: 12000,
+      maximumAge: 300000,
+    });
+
+    return true;
   }
 
   // ------------------------------
@@ -639,107 +784,106 @@ export default function GoogleMapClient({ lang = 'de' }) {
       </div>
     );
   }
-  
+
   function renderKiReportPretty(report, langCode) {
-  if (!report || typeof report !== 'object') return null;
+    if (!report || typeof report !== 'object') return null;
 
-  const title = report.title || '';
-  const summary = report.summary || '';
-  const highlights = Array.isArray(report.highlights) ? report.highlights : [];
-  const attrs = Array.isArray(report.attributes) ? report.attributes : [];
-  const pi = report.practical_info && typeof report.practical_info === 'object' ? report.practical_info : {};
+    const title = report.title || '';
+    const summary = report.summary || '';
+    const highlights = Array.isArray(report.highlights) ? report.highlights : [];
+    const attrs = Array.isArray(report.attributes) ? report.attributes : [];
+    const pi = report.practical_info && typeof report.practical_info === 'object' ? report.practical_info : {};
 
-  const rows = [];
+    const rows = [];
 
-  if (pi.address) rows.push({ k: langCode === 'de' ? 'Adresse' : 'Address', v: String(pi.address) });
-  if (pi.phone) rows.push({ k: langCode === 'de' ? 'Telefon' : 'Phone', v: String(pi.phone) });
-  if (pi.website) rows.push({ k: 'Website', v: String(pi.website) });
-  if (pi.rating !== undefined && pi.rating !== null) rows.push({ k: 'Rating', v: String(pi.rating) });
-  if (pi.price_level !== undefined && pi.price_level !== null) rows.push({ k: langCode === 'de' ? 'Preisniveau' : 'Price level', v: String(pi.price_level) });
+    if (pi.address) rows.push({ k: langCode === 'de' ? 'Adresse' : 'Address', v: String(pi.address) });
+    if (pi.phone) rows.push({ k: langCode === 'de' ? 'Telefon' : 'Phone', v: String(pi.phone) });
+    if (pi.website) rows.push({ k: 'Website', v: String(pi.website) });
+    if (pi.rating !== undefined && pi.rating !== null) rows.push({ k: 'Rating', v: String(pi.rating) });
+    if (pi.price_level !== undefined && pi.price_level !== null) rows.push({ k: langCode === 'de' ? 'Preisniveau' : 'Price level', v: String(pi.price_level) });
 
-  return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      {title ? <div style={{ fontSize: 13, fontWeight: 800 }}>{title}</div> : null}
+    return (
+      <div style={{ display: 'grid', gap: 12 }}>
+        {title ? <div style={{ fontSize: 13, fontWeight: 800 }}>{title}</div> : null}
 
-      {summary ? (
-        <div
-          style={{
-            background: '#f8fafc',
-            border: '1px solid #e5e7eb',
-            borderRadius: 12,
-            padding: 12,
-            fontSize: 13,
-            lineHeight: 1.45,
-            color: '#111827',
-          }}
-        >
-          {summary}
-        </div>
-      ) : null}
-
-      {highlights.length ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: '#111827' }}>
-            {langCode === 'de' ? 'Highlights' : 'Highlights'}
+        {summary ? (
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #e5e7eb',
+              borderRadius: 12,
+              padding: 12,
+              fontSize: 13,
+              lineHeight: 1.45,
+              color: '#111827',
+            }}
+          >
+            {summary}
           </div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
-            {highlights.map((h, i) => (
-              <li key={`${h}-${i}`}>{String(h)}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+        ) : null}
 
-      {rows.length ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
-            {langCode === 'de' ? 'Praktische Infos' : 'Practical info'}
+        {highlights.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: '#111827' }}>
+              {langCode === 'de' ? 'Highlights' : 'Highlights'}
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+              {highlights.map((h, i) => (
+                <li key={`${h}-${i}`}>{String(h)}</li>
+              ))}
+            </ul>
           </div>
+        ) : null}
 
-          <div style={{ display: 'grid', gap: 8 }}>
-            {rows.map((r) => {
-              const isUrl = r.k === 'Website' && String(r.v).startsWith('http');
-              return (
-                <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'start' }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{r.k}</div>
-                  <div style={{ fontSize: 13, color: '#374151', wordBreak: 'break-word' }}>
-                    {isUrl ? (
-                      <a href={r.v} target="_blank" rel="noopener" style={{ color: '#1f6aa2', textDecoration: 'underline' }}>
-                        {r.v}
-                      </a>
-                    ) : (
-                      r.v
-                    )}
+        {rows.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
+              {langCode === 'de' ? 'Praktische Infos' : 'Practical info'}
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {rows.map((r) => {
+                const isUrl = r.k === 'Website' && String(r.v).startsWith('http');
+                return (
+                  <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'start' }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{r.k}</div>
+                    <div style={{ fontSize: 13, color: '#374151', wordBreak: 'break-word' }}>
+                      {isUrl ? (
+                        <a href={r.v} target="_blank" rel="noopener" style={{ color: '#1f6aa2', textDecoration: 'underline' }}>
+                          {r.v}
+                        </a>
+                      ) : (
+                        r.v
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {attrs.length ? (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
+              {langCode === 'de' ? 'Attribute' : 'Attributes'}
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              {attrs.map((a, idx) => (
+                <div key={`${a.label || 'attr'}-${idx}`} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', paddingTop: idx ? 10 : 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>{a.label || ''}</div>
+                  <div style={{ fontSize: 13, color: '#374151', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                    {typeof a.value === 'object' ? JSON.stringify(a.value, null, 2) : String(a.value ?? '')}
                   </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      ) : null}
-
-      {attrs.length ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8, color: '#111827' }}>
-            {langCode === 'de' ? 'Attribute' : 'Attributes'}
-          </div>
-
-          <div style={{ display: 'grid', gap: 10 }}>
-            {attrs.map((a, idx) => (
-              <div key={`${a.label || 'attr'}-${idx}`} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', paddingTop: idx ? 10 : 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>{a.label || ''}</div>
-                <div style={{ fontSize: 13, color: '#374151', marginTop: 4, whiteSpace: 'pre-wrap' }}>
-                  {typeof a.value === 'object' ? JSON.stringify(a.value, null, 2) : String(a.value ?? '')}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
+        ) : null}
+      </div>
+    );
+  }
 
   function KiReportModal({ modal, onClose, onRefresh }) {
     if (!modal) return null;
@@ -1062,7 +1206,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
     if (v === null || v === undefined) return null;
 
     // 1) Array-Wrapper: nur für skalare Meta-Wrapper [value,{ai/...},...] entpacken.
-// Strukturierte Arrays (z. B. Google Photos) bleiben Arrays.
+    // Strukturierte Arrays (z. B. Google Photos) bleiben Arrays.
     if (Array.isArray(v)) {
       if (v.length === 0) return null;
 
@@ -1085,7 +1229,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       return v;
     }
 
-// 2) Primitive
+    // 2) Primitive
     if (typeof v !== 'object') return v;
 
     // 3) Objekt mit value/text
@@ -1108,7 +1252,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
     // 7) sonst: Objekt zurückgeben (wird später JSON-stringified falls nötig)
     return v;
   }
-
 
   function isMeaningfulValueForCanon(canon, v) {
     if (v === null || v === undefined) return false;
@@ -1275,32 +1418,30 @@ export default function GoogleMapClient({ lang = 'de' }) {
   }
 
   function pickFirstThumb(photos, row) {
-  if (!Array.isArray(photos) || !photos.length) return null;
+    if (!Array.isArray(photos) || !photos.length) return null;
 
-  // 1) User-Fotos
-  const user = photos.find((p) => p && (p.thumb || p.public_url || p.url || p.image_url));
-  if (user) return user.thumb || user.public_url || user.url || user.image_url;
+    // 1) User-Fotos
+    const user = photos.find((p) => p && (p.thumb || p.public_url || p.url || p.image_url));
+    if (user) return user.thumb || user.public_url || user.url || user.image_url;
 
-  // 2) Google-Fotos
-  const g = photos.find(
-    (p) =>
-      p &&
-      (p.photo_reference ||
-        p.photoreference ||
-        p.photoRef ||
-        p.photo_ref ||
-        (p.ref && typeof p.ref === 'string'))
-  );
+    // 2) Google-Fotos
+    const g = photos.find(
+      (p) =>
+        p &&
+        (p.photo_reference ||
+          p.photoreference ||
+          p.photoRef ||
+          p.photo_ref ||
+          (p.ref && typeof p.ref === 'string'))
+    );
 
-  const ref =
-    (g && (g.photo_reference || g.photoreference || g.photoRef || g.photo_ref || g.ref)) || null;
+    const ref =
+      (g && (g.photo_reference || g.photoreference || g.photoRef || g.photo_ref || g.ref)) || null;
 
-  if (ref) return photoUrl(ref, 600, row);
+    if (ref) return photoUrl(ref, 600, row);
 
-  return null;
+    return null;
   }
-
-
 
   // ✅ InfoWindow HTML: eigener Datenblock immer sichtbar; KI-Report ausschließlich per Klick (Modal).
   function buildInfoContent(row, kvRaw, iconSvgRaw, langCode) {
@@ -1355,8 +1496,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
     const firstThumb = userThumb || pickFirstThumb(googlePhotos, row);
     const totalPhotos = googlePhotos.length + userCount;
     const btnPhotos = totalPhotos
-  ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${totalPhotos})</button>`
-  : '';
+      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${totalPhotos})</button>`
+      : '';
 
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
     const siteHref = website && String(website).startsWith('http') ? website : website ? `https://${website}` : '';
@@ -1409,9 +1550,6 @@ export default function GoogleMapClient({ lang = 'de' }) {
         </div>
       `
       : '';
-
-
-    
 
     const windProfile = kv.wind_profile || null;
     const hasWindProfile = !!windProfile;
@@ -1835,44 +1973,28 @@ export default function GoogleMapClient({ lang = 'de' }) {
     enterSearchFocus(limited.map((x) => x.row));
   }
 
-  // ✅ Auto-Region anhand Geolocation + Regions-Bounds (wenn regions geladen)
+  // ✅ Geolocation: beim Boot (einmal) versuchen, unabhängig von Regions.
+  useEffect(() => {
+    if (!booted || !mapObj.current) return;
+    if (regionMode !== 'auto') return;
+
+    // Versuch sofort (Center + Marker). Auto-Region nur, falls regions schon da sind.
+    requestAndApplyGeolocation({ reason: 'auto', alsoSetAutoRegion: true, showAccuracy: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booted, regionMode]);
+
+  // ✅ Sobald Regions geladen sind: wenn wir schon eine Position haben -> Region nachziehen
   useEffect(() => {
     if (!booted || !mapObj.current) return;
     if (regionMode !== 'auto') return;
     if (!regions.length) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
-    const onSuccess = (pos) => {
-      const { latitude, longitude } = pos.coords;
-      const hit = regions.find((r) => pointInRegion(latitude, longitude, r)) || null;
+    const p = userPosRef.current;
+    if (!p) return;
 
-      if (hit) {
-        setSelectedRegion(hit.slug);
-        if (mapObj.current && window.google) {
-          const b = boundsToLatLngBounds(hit);
-          setTimeout(() => {
-            try {
-              mapObj.current.fitBounds(b, 40);
-            } catch (e) {
-              console.warn('[w2h] fitBounds failed', e);
-            }
-          }, 0);
-        }
-      } else {
-        setSelectedRegion('all');
-      }
-    };
-
-    const onError = (err) => {
-      console.warn('[w2h] Geolocation failed/denied:', err);
-      setRegionMode('manual');
-    };
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-      enableHighAccuracy: false,
-      timeout: 5000,
-      maximumAge: 600000,
-    });
+    const hit = regions.find((r) => pointInRegion(p.lat, p.lng, r)) || null;
+    if (hit) setSelectedRegion(hit.slug);
+    else setSelectedRegion('all');
   }, [booted, regionMode, regions]);
 
   useEffect(() => {
@@ -1907,6 +2029,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
     boot();
     return () => {
       cancelled = true;
+      try {
+        if (userMarkerRef.current) userMarkerRef.current.setMap(null);
+        userMarkerRef.current = null;
+        if (userAccuracyCircleRef.current) userAccuracyCircleRef.current.setMap(null);
+        userAccuracyCircleRef.current = null;
+      } catch {
+        // ignore
+      }
     };
   }, [lang]);
 
@@ -2028,9 +2158,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       if (!rec.aiCount) rec.aiCount = 0;
       const st = String(p.source_tag || '').toLowerCase();
       if (st.includes('ai')) rec.aiCount += 1;
-
     }
-
 
     // location_values laden
     let kvRows = [];
@@ -2058,80 +2186,148 @@ export default function GoogleMapClient({ lang = 'de' }) {
     }
 
     (kvRows || []).forEach((r2) => {
-    try {
-      const locId = r2.location_id;
-      const attrId = Number(r2.attribute_id);
-      if (!Number.isFinite(attrId)) return;
+      try {
+        const locId = r2.location_id;
+        const attrId = Number(r2.attribute_id);
+        if (!Number.isFinite(attrId)) return;
 
-      if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
-      const obj = kvByLoc.get(locId);
+        if (!kvByLoc.has(locId)) kvByLoc.set(locId, {});
+        const obj = kvByLoc.get(locId);
 
-      const lc = (r2.language_code || '').toLowerCase();
+        const lc = (r2.language_code || '').toLowerCase();
 
-      // ✅ Definition/Key aus Schema holen
-      const defById = schema && schema.byId ? schema.byId.get(attrId) : null;
-      const key = (defById && defById.key ? String(defById.key) : '').trim() || null;
+        // ✅ Definition/Key aus Schema holen
+        const defById = schema && schema.byId ? schema.byId.get(attrId) : null;
+        const key = (defById && defById.key ? String(defById.key) : '').trim() || null;
 
-      const canon = FIELD_MAP_BY_ID[attrId] || (key && FIELD_MAP_BY_KEY[key]);
+        const canon = FIELD_MAP_BY_ID[attrId] || (key && FIELD_MAP_BY_KEY[key]);
 
-      // 1) Canonical Fields (mit Fix B)
-      if (canon) {
-        if (canon === 'photos') {
-          const googleArr = normalizeGooglePhotos(r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null);
-          if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
-          return;
-        }
-
-        if (canon === 'wind_profile') {
-          try {
-            const j = r2.value_json && typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json || '{}');
-            obj.wind_profile = j || null;
-          } catch (errWp) {
-            console.warn('[w2h] wind_profile JSON parse failed', errWp);
-            obj.wind_profile = null;
+        // 1) Canonical Fields (mit Fix B)
+        if (canon) {
+          if (canon === 'photos') {
+            const googleArr = normalizeGooglePhotos(r2.value_json !== null && r2.value_json !== undefined ? r2.value_json : r2.value_text || null);
+            if (googleArr.length) obj.photos = (obj.photos || []).concat(googleArr);
+            return;
           }
-          return;
-        }
 
-        if (canon === 'wind_hint') {
-          obj.wind_hint = obj.wind_hint || {};
-          let text = '';
-          if (r2.value_text && String(r2.value_text).trim()) text = String(r2.value_text);
-          else if (r2.value_json) {
+          if (canon === 'wind_profile') {
             try {
-              const j = typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json);
-              if (typeof j === 'string') text = j;
-              else if (Array.isArray(j) && j.length) text = String(j[0]);
-              else if (j && typeof j === 'object' && j.text) text = String(j.text);
-            } catch (errWh) {
-              console.warn('[w2h] wind_hint JSON parse failed', errWh, r2);
+              const j = r2.value_json && typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json || '{}');
+              obj.wind_profile = j || null;
+            } catch (errWp) {
+              console.warn('[w2h] wind_profile JSON parse failed', errWp);
+              obj.wind_profile = null;
             }
+            return;
           }
-          if (lc && text) obj.wind_hint[lc] = text;
+
+          if (canon === 'wind_hint') {
+            obj.wind_hint = obj.wind_hint || {};
+            let text = '';
+            if (r2.value_text && String(r2.value_text).trim()) text = String(r2.value_text);
+            else if (r2.value_json) {
+              try {
+                const j = typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json);
+                if (typeof j === 'string') text = j;
+                else if (Array.isArray(j) && j.length) text = String(j[0]);
+                else if (j && typeof j === 'object' && j.text) text = String(j.text);
+              } catch (errWh) {
+                console.warn('[w2h] wind_hint JSON parse failed', errWh, r2);
+              }
+            }
+            if (lc && text) obj.wind_hint[lc] = text;
+            return;
+          }
+
+          if (canon === 'livewind_station') {
+            let stationId = '';
+            if (r2.value_text && String(r2.value_text).trim()) stationId = String(r2.value_text).trim();
+            else if (r2.value_json) {
+              try {
+                const j = typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json);
+                if (typeof j === 'string' || typeof j === 'number') stationId = String(j).trim();
+              } catch (errLs) {
+                console.warn('[w2h] livewind_station JSON parse failed', errLs, r2);
+              }
+            }
+
+            const stationName = r2.name && String(r2.name).trim() ? String(r2.name).trim() : null;
+            if (stationId) {
+              obj.livewind_station = stationId;
+              if (stationName) obj.livewind_station_name = stationName;
+            }
+            return;
+          }
+
+          // Value pick
+          let val = null;
+          if (r2.value_json !== null && r2.value_json !== undefined && r2.value_json !== '') val = r2.value_json;
+          else if (r2.value_text !== null && r2.value_text !== undefined && r2.value_text !== '') val = r2.value_text;
+          else if (r2.value_option !== null && r2.value_option !== undefined && r2.value_option !== '') val = r2.value_option;
+          else if (r2.value_number !== null && r2.value_number !== undefined) val = r2.value_number;
+          else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
+
+          // unwrap {value,ai:false} etc.
+          val = unwrapMetaValue(val, langCode);
+
+          if (val === null || val === undefined || val === '') return;
+
+          // Canon per-type handling
+          if (canon === 'opening_hours') {
+            obj.hoursByLang = obj.hoursByLang || {};
+            let arr = null;
+            if (Array.isArray(val)) arr = val;
+            else if (typeof val === 'string' && val.trim().startsWith('[')) {
+              try {
+                arr = JSON.parse(val);
+              } catch {
+                arr = [String(val)];
+              }
+            }
+            if (!arr) arr = String(val).split('\n');
+            if (lc) obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
+            else obj.hoursByLang._ = (obj.hoursByLang._ || []).concat(arr);
+            return;
+          }
+
+          if (canon === 'address') {
+            obj.addressByLang = obj.addressByLang || {};
+            const v = toStrMaybe(val);
+            if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || v;
+            else obj.address = obj.address || v;
+            return;
+          }
+
+          if (canon === 'description') {
+            const v = toStrMaybe(val);
+            if (!obj.description) obj.description = v;
+            else if (lc && lc === langCode) obj.description = v;
+            return;
+          }
+
+          if (canon === 'rating' || canon === 'rating_total' || canon === 'price') {
+            const n = typeof val === 'number' ? val : Number(String(val));
+            if (!Number.isFinite(n)) return;
+            setCanon(obj, canon, n, lc, langCode);
+            return;
+          }
+
+          setCanon(obj, canon, toStrMaybe(val), lc, langCode);
           return;
         }
 
-        if (canon === 'livewind_station') {
-          let stationId = '';
-          if (r2.value_text && String(r2.value_text).trim()) stationId = String(r2.value_text).trim();
-          else if (r2.value_json) {
-            try {
-              const j = typeof r2.value_json === 'object' ? r2.value_json : JSON.parse(r2.value_json);
-              if (typeof j === 'string' || typeof j === 'number') stationId = String(j).trim();
-            } catch (errLs) {
-              console.warn('[w2h] livewind_station JSON parse failed', errLs, r2);
-            }
-          }
+        // 2) Dynamische Attribute
+        let def = defById || null;
 
-          const stationName = r2.name && String(r2.name).trim() ? String(r2.name).trim() : null;
-          if (stationId) {
-            obj.livewind_station = stationId;
-            if (stationName) obj.livewind_station_name = stationName;
-          }
-          return;
+        if (def && def.is_active === false) return;
+        if (!DYNAMIC_SMOKE_TEST && def && def.show_in_infowindow === false) return;
+
+        if (def && schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
+          const lvl = Number(def.visibility_level);
+          if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
         }
 
-        // Value pick
+        // Value-Pick
         let val = null;
         if (r2.value_json !== null && r2.value_json !== undefined && r2.value_json !== '') val = r2.value_json;
         else if (r2.value_text !== null && r2.value_text !== undefined && r2.value_text !== '') val = r2.value_text;
@@ -2144,88 +2340,20 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
         if (val === null || val === undefined || val === '') return;
 
-        // Canon per-type handling
-        if (canon === 'opening_hours') {
-          obj.hoursByLang = obj.hoursByLang || {};
-          let arr = null;
-          if (Array.isArray(val)) arr = val;
-          else if (typeof val === 'string' && val.trim().startsWith('[')) {
-            try {
-              arr = JSON.parse(val);
-            } catch {
-              arr = [String(val)];
-            }
-          }
-          if (!arr) arr = String(val).split('\n');
-          if (lc) obj.hoursByLang[lc] = (obj.hoursByLang[lc] || []).concat(arr);
-          else obj.hoursByLang._ = (obj.hoursByLang._ || []).concat(arr);
-          return;
-        }
+        const dynKey = (key || (def && def.key) || `attr_${attrId}`).toString();
+        const dyn = ensureDyn(obj);
+        if (!dyn.has(dynKey)) dyn.set(dynKey, { def, valuesByLang: {}, any: null, attrId });
+        const entry = dyn.get(dynKey);
 
-        if (canon === 'address') {
-          obj.addressByLang = obj.addressByLang || {};
-          const v = toStrMaybe(val);
-          if (lc) obj.addressByLang[lc] = obj.addressByLang[lc] || v;
-          else obj.address = obj.address || v;
-          return;
-        }
+        entry.any = entry.any ?? val;
+        entry.attrId = entry.attrId ?? attrId;
 
-        if (canon === 'description') {
-          const v = toStrMaybe(val);
-          if (!obj.description) obj.description = v;
-          else if (lc && lc === langCode) obj.description = v;
-          return;
-        }
-
-        if (canon === 'rating' || canon === 'rating_total' || canon === 'price') {
-          const n = typeof val === 'number' ? val : Number(String(val));
-          if (!Number.isFinite(n)) return;
-          setCanon(obj, canon, n, lc, langCode);
-          return;
-        }
-
-        setCanon(obj, canon, toStrMaybe(val), lc, langCode);
-        return;
+        if (lc) entry.valuesByLang[lc] = val;
+        else entry.valuesByLang._ = val;
+      } catch (e) {
+        if (DEBUG_LOG) console.error('[w2h] location_values parse failed', e, r2);
       }
-
-      // 2) Dynamische Attribute
-      let def = defById || null;
-
-      if (def && def.is_active === false) return;
-      if (!DYNAMIC_SMOKE_TEST && def && def.show_in_infowindow === false) return;
-
-      if (def && schema && schema.hasVisibility && def.visibility_level !== null && def.visibility_level !== undefined) {
-        const lvl = Number(def.visibility_level);
-        if (!Number.isNaN(lvl) && lvl > INFO_VISIBILITY_MAX) return;
-      }
-
-      // Value-Pick
-      let val = null;
-      if (r2.value_json !== null && r2.value_json !== undefined && r2.value_json !== '') val = r2.value_json;
-      else if (r2.value_text !== null && r2.value_text !== undefined && r2.value_text !== '') val = r2.value_text;
-      else if (r2.value_option !== null && r2.value_option !== undefined && r2.value_option !== '') val = r2.value_option;
-      else if (r2.value_number !== null && r2.value_number !== undefined) val = r2.value_number;
-      else if (r2.value_bool !== null && r2.value_bool !== undefined) val = r2.value_bool;
-
-        // unwrap {value,ai:false} etc.
-        val = unwrapMetaValue(val, langCode);
-
-      if (val === null || val === undefined || val === '') return;
-
-      const dynKey = (key || (def && def.key) || `attr_${attrId}`).toString();
-      const dyn = ensureDyn(obj);
-      if (!dyn.has(dynKey)) dyn.set(dynKey, { def, valuesByLang: {}, any: null, attrId });
-      const entry = dyn.get(dynKey);
-
-      entry.any = entry.any ?? val;
-      entry.attrId = entry.attrId ?? attrId;
-
-      if (lc) entry.valuesByLang[lc] = val;
-      else entry.valuesByLang._ = val;
-    } catch (e) {
-      if (DEBUG_LOG) console.error('[w2h] location_values parse failed', e, r2);
-    }
-  });
+    });
 
     // 3) Dyn finalisieren
     let dynCountTotal = 0;
@@ -2373,131 +2501,130 @@ export default function GoogleMapClient({ lang = 'de' }) {
           }, 0);
         }
 
-google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
-  try {
-    const kvNow = kvByLoc.get(row.id) || meta;
+        google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+          try {
+            const kvNow = kvByLoc.get(row.id) || meta;
 
-    // ---------------------------
-    // Fotos Button: User + Google (gemischt)
-    // ---------------------------
-    const btn = document.getElementById(`phbtn-${row.id}`);
-    if (btn) {
-      btn.addEventListener('click', async () => {
-        try {
-          const titleNow = pickName(row, langCode);
+            // ---------------------------
+            // Fotos Button: User + Google (gemischt)
+            // ---------------------------
+            const btn = document.getElementById(`phbtn-${row.id}`);
+            if (btn) {
+              btn.addEventListener('click', async () => {
+                try {
+                  const titleNow = pickName(row, langCode);
 
-          const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-          const userPhotos = await hydrateUserPhotos(row.id, langCode);
+                  const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+                  const userPhotos = await hydrateUserPhotos(row.id, langCode);
 
-          // Dedupe (Google: photo_reference | User: url/public_url/thumb/image_url)
-          const seen = new Set();
-          const merged = [];
+                  // Dedupe (Google: photo_reference | User: url/public_url/thumb/image_url)
+                  const seen = new Set();
+                  const merged = [];
 
-          const pushUnique = (p) => {
-            if (!p) return;
+                  const pushUnique = (p) => {
+                    if (!p) return;
 
-            const gRef = p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref;
-            if (gRef) {
-              const k = `g:${String(gRef)}`;
-              if (seen.has(k)) return;
-              seen.add(k);
-              merged.push(p);
-              return;
+                    const gRef = p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref;
+                    if (gRef) {
+                      const k = `g:${String(gRef)}`;
+                      if (seen.has(k)) return;
+                      seen.add(k);
+                      merged.push(p);
+                      return;
+                    }
+
+                    const u = p.public_url || p.url || p.thumb || p.image_url;
+                    if (u) {
+                      const k = `u:${String(u)}`;
+                      if (seen.has(k)) return;
+                      seen.add(k);
+                      merged.push(p);
+                    }
+                  };
+
+                  // Reihenfolge: User zuerst, dann Google
+                  (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
+                  googlePhotos.forEach(pushUnique);
+
+                  if (merged.length) {
+                    setGallery({ title: titleNow, photos: merged, row });
+                  }
+                } catch (e) {
+                  console.warn('[w2h] merge gallery failed', e);
+                  const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+                  if (googlePhotos.length) {
+                    setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
+                  }
+                }
+              });
             }
 
-            const u = p.public_url || p.url || p.thumb || p.image_url;
-            if (u) {
-              const k = `u:${String(u)}`;
-              if (seen.has(k)) return;
-              seen.add(k);
-              merged.push(p);
+            // ---------------------------
+            // Wind Button
+            // ---------------------------
+            const wbtn = document.getElementById(`windbtn-${row.id}`);
+            if (wbtn) {
+              wbtn.addEventListener('click', () => {
+                setWindModal({
+                  id: row.id,
+                  title: pickName(row, langCode),
+                  windProfile: kvNow.wind_profile || null,
+                  windHint: kvNow.wind_hint || {},
+                  liveWindStation: kvNow.livewind_station || null,
+                  liveWindStationName: kvNow.livewind_station_name || null,
+                });
+              });
             }
-          };
 
-          // Reihenfolge: User zuerst, dann Google
-          (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
-          googlePhotos.forEach(pushUnique);
+            // ---------------------------
+            // KI-Report Button (Lazy Fetch)
+            // ---------------------------
+            const kibtn = document.getElementById(`kibtn-${row.id}`);
+            if (kibtn) {
+              kibtn.addEventListener('click', async () => {
+                const titleNow = pickName(row, langCode);
 
-          if (merged.length) {
-            setGallery({ title: titleNow, photos: merged, row });
+                // Modal sofort öffnen (Loading)
+                setKiModal({
+                  locationId: row.id,
+                  title: titleNow,
+                  loading: true,
+                  error: '',
+                  report: null,
+                  createdAt: null,
+                });
+
+                try {
+                  const data = await fetchKiReport({ locationId: row.id, langCode });
+                  const reportObj = data.report_json || data.report || data;
+                  const createdAt = data.created_at || reportObj?.created_at || null;
+
+                  setKiModal((prev) => ({
+                    ...(prev || {}),
+                    locationId: row.id,
+                    title: titleNow,
+                    loading: false,
+                    error: '',
+                    report: reportObj,
+                    createdAt,
+                  }));
+                } catch (e) {
+                  setKiModal((prev) => ({
+                    ...(prev || {}),
+                    locationId: row.id,
+                    title: titleNow,
+                    loading: false,
+                    error: e?.message || 'KI-Report konnte nicht geladen werden.',
+                    report: null,
+                    createdAt: null,
+                  }));
+                }
+              });
+            }
+          } catch (errDom) {
+            console.error('[w2h] domready handler failed for location', row.id, errDom);
           }
-        } catch (e) {
-          console.warn('[w2h] merge gallery failed', e);
-          const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-          if (googlePhotos.length) {
-            setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
-          }
-        }
-      });
-    }
-
-    // ---------------------------
-    // Wind Button
-    // ---------------------------
-    const wbtn = document.getElementById(`windbtn-${row.id}`);
-    if (wbtn) {
-      wbtn.addEventListener('click', () => {
-        setWindModal({
-          id: row.id,
-          title: pickName(row, langCode),
-          windProfile: kvNow.wind_profile || null,
-          windHint: kvNow.wind_hint || {},
-          liveWindStation: kvNow.livewind_station || null,
-          liveWindStationName: kvNow.livewind_station_name || null,
         });
-      });
-    }
-
-    // ---------------------------
-    // KI-Report Button (Lazy Fetch)
-    // ---------------------------
-    const kibtn = document.getElementById(`kibtn-${row.id}`);
-    if (kibtn) {
-      kibtn.addEventListener('click', async () => {
-        const titleNow = pickName(row, langCode);
-
-        // Modal sofort öffnen (Loading)
-        setKiModal({
-          locationId: row.id,
-          title: titleNow,
-          loading: true,
-          error: '',
-          report: null,
-          createdAt: null,
-        });
-
-        try {
-          const data = await fetchKiReport({ locationId: row.id, langCode });
-          const reportObj = data.report_json || data.report || data;
-          const createdAt = data.created_at || reportObj?.created_at || null;
-
-          setKiModal((prev) => ({
-            ...(prev || {}),
-            locationId: row.id,
-            title: titleNow,
-            loading: false,
-            error: '',
-            report: reportObj,
-            createdAt,
-          }));
-        } catch (e) {
-          setKiModal((prev) => ({
-            ...(prev || {}),
-            locationId: row.id,
-            title: titleNow,
-            loading: false,
-            error: e?.message || 'KI-Report konnte nicht geladen werden.',
-            report: null,
-            createdAt: null,
-          }));
-        }
-      });
-    }
-  } catch (errDom) {
-    console.error('[w2h] domready handler failed for location', row.id, errDom);
-  }
-});
-
       });
 
       markers.current.push(marker);
@@ -2595,6 +2722,8 @@ google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
           onClick={() => {
             if (searchMode.active) clearSearchMode();
             setRegionMode('auto');
+            setLocateErr('');
+            requestAndApplyGeolocation({ reason: 'button', alsoSetAutoRegion: true, showAccuracy: true });
           }}
           style={{
             width: '100%',
@@ -2683,6 +2812,67 @@ google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
           >
             {label('resetSearch', lang)}
           </button>
+        ) : null}
+      </div>
+
+      {/* ✅ Locate Button (dezentes Floating UI) */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 14,
+          bottom: 18,
+          zIndex: 10,
+          display: 'grid',
+          gap: 6,
+          alignItems: 'start',
+        }}
+      >
+        <button
+          type="button"
+          onClick={async () => {
+            setLocateErr('');
+            setLocateBusy(true);
+            try {
+              const ok = await requestAndApplyGeolocation({ reason: 'button', alsoSetAutoRegion: true, showAccuracy: true });
+              if (!ok) setLocateErr('Geolocation nicht verfügbar.');
+            } finally {
+              setTimeout(() => setLocateBusy(false), 350);
+            }
+          }}
+          title="Meinen Standort verwenden"
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 9999,
+            border: '1px solid rgba(0,0,0,.12)',
+            background: 'rgba(255,255,255,0.92)',
+            boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+            cursor: 'pointer',
+            display: 'grid',
+            placeItems: 'center',
+            fontSize: 16,
+            lineHeight: 1,
+            opacity: locateBusy ? 0.7 : 1,
+          }}
+        >
+          ⦿
+        </button>
+
+        {locateErr ? (
+          <div
+            style={{
+              maxWidth: 220,
+              fontSize: 11,
+              color: '#7c2d12',
+              background: 'rgba(255,247,237,0.95)',
+              border: '1px solid #fed7aa',
+              borderRadius: 10,
+              padding: '6px 8px',
+              boxShadow: '0 6px 18px rgba(0,0,0,.10)',
+            }}
+          >
+            {locateErr}
+          </div>
         ) : null}
       </div>
 
