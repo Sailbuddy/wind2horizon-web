@@ -1069,6 +1069,20 @@ export default function GoogleMapClient({ lang = 'de' }) {
       resetSearch: { de: 'Suche aufheben', en: 'Clear search', it: 'Annulla', hr: 'Poništi', fr: 'Réinitialiser' },
       disabledCat: { de: 'Kategorie ist deaktiviert', en: 'Category is disabled', it: 'Categoria disattivata', hr: 'Kategorija isključena', fr: 'Catégorie désactivée' },
       paywalledCat: { de: 'Kategorie ist in dieser Version nicht verfügbar', en: 'Not available in this plan', it: 'Non disponibile', hr: 'Nije dostupno', fr: 'Non disponible' },
+      searchPlaceholder: {
+      de: 'Ort oder Name suchen…',
+      en: 'Search place or name…',
+      it: 'Cerca luogo o nome…',
+      hr: 'Traži mjesto ili naziv…',
+      fr: 'Rechercher un lieu ou un nom…',
+  },
+      searchButton: {
+      de: 'Suchen',
+      en: 'Search',
+      it: 'Cerca',
+      hr: 'Traži',
+      fr: 'Rechercher',
+  },
 
       // ✅ KI-Report UI
       kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
@@ -2757,7 +2771,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       >
         <input
           type="text"
-          placeholder="Ort oder Name suchen…"
+          placeholder={label('searchPlaceholder', lang)}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -2790,7 +2804,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             whiteSpace: 'nowrap',
           }}
         >
-          Suchen
+          {label('searchButton', lang)}
         </button>
 
         {searchMode.active ? (
