@@ -1,40 +1,48 @@
 // lib/seo.ts
-const SITE = "https://wind2horizon.com";
+import type { Metadata } from "next";
 
-const ogLocaleByLang: Record<string, string> = {
-  de: "de_DE",
-  en: "en_US",
-  it: "it_IT",
-  fr: "fr_FR",
-  hr: "hr_HR",
-};
+export function buildLangMetadata(lang: string): Metadata {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || "https://wind2horizon.com";
 
-export function buildLangMetadata(lang: "de" | "en" | "it" | "fr" | "hr") {
-  const canonical = `${SITE}/${lang}`;
+  const titles: Record<string, string> = {
+    de: "Wind2Horizon",
+    en: "Wind2Horizon",
+    it: "Wind2Horizon",
+    fr: "Wind2Horizon",
+    hr: "Wind2Horizon",
+  };
+
+  const descriptions: Record<string, string> = {
+    de: "Interaktive Karte, Segelspots, Wetter und Wissen.",
+    en: "Interactive map, sailing spots, weather and knowledge.",
+    it: "Mappa interattiva, spot di vela e meteo.",
+    fr: "Carte interactive, spots nautiques et météo.",
+    hr: "Interaktivna karta, jedriličarske lokacije i vrijeme.",
+  };
+
+  const title = titles[lang] ?? titles.en;
+  const description = descriptions[lang] ?? descriptions.en;
 
   return {
-    metadataBase: new URL(SITE),
-
+    metadataBase: new URL(baseUrl),
+    title,
+    description,
     alternates: {
-      canonical,
       languages: {
-        de: `${SITE}/de`,
-        en: `${SITE}/en`,
-        it: `${SITE}/it`,
-        fr: `${SITE}/fr`,
-        hr: `${SITE}/hr`,
-        "x-default": `${SITE}/de`,
+        de: "/de",
+        en: "/en",
+        it: "/it",
+        fr: "/fr",
+        hr: "/hr",
       },
     },
-
     openGraph: {
-      url: canonical,
-      locale: ogLocaleByLang[lang] ?? "en_US",
+      title,
+      description,
       siteName: "Wind2Horizon",
       type: "website",
+      url: `/${lang}`,
     },
-
-    // optional, aber oft sinnvoll:
-    // twitter: { card: "summary_large_image" },
-  } as const;
+  };
 }
