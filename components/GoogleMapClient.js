@@ -1,5 +1,15 @@
 'use client';
 
+console.log(
+  "W2H MAP KEY present?",
+  !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+);
+
+console.log(
+  "W2H MAP KEY prefix:",
+  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.slice(0, 6)
+);
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import LayerPanel from '@/components/LayerPanel';
