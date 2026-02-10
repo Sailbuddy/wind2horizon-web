@@ -3047,32 +3047,75 @@ export default function GoogleMapClient({ lang = 'de' }) {
           height: 100%;
           width: 100%;
         }
-        .w2h-region-panel {
+        .w2h-topbar {
           position: absolute;
-          top: 64px;
-          left: 50%;
-          transform: translateX(-50%);
+          top: 10px;
+          left: 10px;
+          right: 72px; /* keep Google controls free */
+          z-index: 50;
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          pointer-events: none; /* let map drag through except on children */
+        }
+        .w2h-topbar > * {
+          pointer-events: auto;
+        }
+        .w2h-region-panel {
           min-width: 210px;
           max-width: 320px;
         }
+        .w2h-searchbar {
+          flex: 1;
+          min-width: 240px;
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          background: rgba(255,255,255,0.96);
+          border-radius: 10px;
+          padding: 10px 12px;
+          box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        }
+        .w2h-searchbar input {
+          width: 100%;
+          padding: 10px;
+          border-radius: 8px;
+          border: 1px solid #ddd;
+          font-size: 14px;
+          outline: none;
+        }
+        .w2h-searchbar button {
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: none;
+          cursor: pointer;
+          background: #1a73e8;
+          color: #fff;
+          font-size: 14px;
+        }
         @media (max-width: 640px) {
+          .w2h-topbar {
+            right: 72px;
+            left: 10px;
+            flex-direction: column;
+            gap: 8px;
+          }
           .w2h-region-panel {
-            top: 80px;
-            right: 10px;
-            left: auto;
-            transform: none;
-            min-width: 170px;
-            max-width: 230px;
-            width: 60vw;
+            max-width: none;
+            min-width: 0;
+          }
+          .w2h-searchbar {
+            min-width: 0;
           }
           .w2h-search-panel {
-            top: 110px !important;
-            right: 10px !important;
+            top: 74px !important;
+            right: 72px !important;
             width: min(92vw, 360px) !important;
             max-height: 62vh !important;
           }
         }
-      `}</style>
+            
+`}</style>
 
       <style jsx global>{`
         .gm-style .w2h-iw {
