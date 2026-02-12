@@ -2777,67 +2777,34 @@ export default function GoogleMapClient({ lang = 'de' }) {
           display: 'flex',
           gap: 8,
           alignItems: 'center',
+      }}
+>
+      <LayerPanel
+        lang={lang}
+        onInit={(initialMap) => {
+          layerState.current = new Map(initialMap);
+          applyLayerVisibility();
         }}
-      >
-        <input
-          type="text"
-          placeholder={label('searchPlaceholder', lang)}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSearch();
-            if (e.key === 'Escape') {
-              setSearchQuery('');
-              if (searchMode.active) clearSearchMode();
-            }
-          }}
-          style={{
-            border: '1px solid #d1d5db',
-            borderRadius: 9999,
-            padding: '4px 10px',
-            fontSize: 13,
-            minWidth: 220,
-          }}
-        />
-        <button
-          type="button"
-          onClick={handleSearch}
-          style={{
-            border: 'none',
-            borderRadius: 9999,
-            padding: '5px 12px',
-            fontSize: 13,
-            fontWeight: 600,
-            background: '#0284c7',
-            color: '#fff',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {label('searchButton', lang)}
-        </button>
+        onToggle={(catKey, visible, meta) => {
+          const affected =
+            meta && Array.isArray(meta.affected_category_ids)
+              ? meta.affected_category_ids
+              : [catKey];
 
-        {searchMode.active ? (
-          <button
-            type="button"
-            onClick={clearSearchMode}
-            style={{
-              border: '1px solid #d1d5db',
-              borderRadius: 9999,
-              padding: '5px 10px',
-              fontSize: 13,
-              fontWeight: 600,
-              background: '#fff',
-              color: '#111',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-            title={label('resetSearch', lang)}
-          >
-            {label('resetSearch', lang)}
-          </button>
-        ) : null}
-      </div>
+          for (const k of affected) layerState.current.set(String(k), visible);
+
+          if (!searchMode.active) applyLayerVisibility();
+        }}
+    onToggleAll={(visible) => {
+      const updated = new Map();
+      layerState.current.forEach((_v, key) => updated.set(key, visible));
+      layerState.current = updated;
+      if (!searchMode.active) applyLayerVisibility();
+    }}
+  />
+
+
+</div>
 
       {/* ✅ Locate Button (dezentes Floating UI) */}
       <div

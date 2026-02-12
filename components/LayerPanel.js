@@ -207,8 +207,6 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
         ref={buttonRef}
         className="w2h-layer-toggle"
         type="button"
-        onMouseEnter={() => setOpen(true)}
-        onFocus={() => setOpen(true)}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls="w2h-layer-panel"
@@ -224,8 +222,6 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
         className={`w2h-layer-panel ${open ? 'open' : 'closed'}`}
         role="group"
         aria-label={label}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
       >
         {/* Zeile 1 – Alle Kategorien */}
         <label className="row row-all">
@@ -257,9 +253,9 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
 
       <style jsx global>{`
         .w2h-layer-toggle {
-          position: absolute;
-          top: 64px;
-          left: 12px;
+          position: relative;
+          top: auto;
+          left: auto;
           z-index: 6;
           background: #fff;
           border: 1px solid rgba(0, 0, 0, 0.1);
@@ -336,7 +332,7 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
 
         @media (max-width: 767px) {
           .w2h-layer-toggle {
-            top: 56px;
+            white-space: nowrap;
           }
           .w2h-layer-panel {
             top: 96px;
