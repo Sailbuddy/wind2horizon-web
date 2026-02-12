@@ -3068,7 +3068,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           top: 10px;
           left: 10px;
           right: 72px; /* keep Google controls free */
-          z-index: 50;
+          z-index: 9999;
           display: flex;
           gap: 10px;
           align-items: flex-start;
