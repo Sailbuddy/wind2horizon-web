@@ -2686,7 +2686,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
       <div
         className="w2h-region-panel"
         style={{
-          zIndex: 5,
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            zIndex: 10,
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 12,
           padding: '6px 8px',
@@ -2763,48 +2766,114 @@ export default function GoogleMapClient({ lang = 'de' }) {
         </button>
       </div>
 
-      {/* Search Bar */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 20,
-          zIndex: 10,
-          background: 'rgba(255,255,255,0.92)',
-          borderRadius: 9999,
-          padding: '6px 10px',
-          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-      }}
+      {/* Top Right Bar: Search + Categories */}
+<div
+  className="w2h-searchbar"
+  style={{
+    position: 'absolute',
+    top: 10,
+    right: 20,
+    zIndex: 10,
+    background: 'rgba(255,255,255,0.92)',
+    borderRadius: 12,
+    padding: '8px 10px',
+    boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+    display: 'flex',
+    gap: 8,
+    alignItems: 'center',
+    maxWidth: 520,
+  }}
 >
-      <LayerPanel
-        lang={lang}
-        onInit={(initialMap) => {
-          layerState.current = new Map(initialMap);
-          applyLayerVisibility();
-        }}
-        onToggle={(catKey, visible, meta) => {
-          const affected =
-            meta && Array.isArray(meta.affected_category_ids)
-              ? meta.affected_category_ids
-              : [catKey];
-
-          for (const k of affected) layerState.current.set(String(k), visible);
-
-          if (!searchMode.active) applyLayerVisibility();
-        }}
-    onToggleAll={(visible) => {
-      const updated = new Map();
-      layerState.current.forEach((_v, key) => updated.set(key, visible));
-      layerState.current = updated;
-      if (!searchMode.active) applyLayerVisibility();
+  <input
+    value={searchQuery}
+    onChange={(e) => setSearchQuery(e.target.value)}
+    placeholder={label('searchPlaceholder', lang)}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter') handleSearch();
+      if (e.key === 'Escape') {
+        setSearchQuery('');
+        if (searchMode.active) clearSearchMode();
+      }
+    }}
+    style={{
+      width: 260,
+      maxWidth: '52vw',
+      padding: '8px 10px',
+      borderRadius: 10,
+      border: '1px solid #d1d5db',
+      fontSize: 13,
+      outline: 'none',
+      background: '#fff',
     }}
   />
 
+  <button
+    type="button"
+    onClick={handleSearch}
+    style={{
+      padding: '8px 12px',
+      borderRadius: 10,
+      border: 'none',
+      cursor: 'pointer',
+      background: '#1a73e8',
+      color: '#fff',
+      fontSize: 13,
+      fontWeight: 800,
+      whiteSpace: 'nowrap',
+    }}
+  >
+    {label('searchButton', lang)}
+  </button>
 
-</div>
+  {searchMode.active ? (
+    <button
+      type="button"
+      onClick={() => {
+        setSearchQuery('');
+        clearSearchMode();
+      }}
+      style={{
+        padding: '8px 10px',
+        borderRadius: 10,
+        border: '1px solid #d1d5db',
+        cursor: 'pointer',
+        background: '#fff',
+        color: '#111',
+        fontSize: 13,
+        fontWeight: 800,
+        whiteSpace: 'nowrap',
+      }}
+      title={label('resetSearch', lang)}
+    >
+      ✕
+    </button>
+  ) : null}
+
+  {/* Kategorien/Layers nur 1x hier */}
+  <div style={{ marginLeft: 4 }}>
+    <LayerPanel
+      lang={lang}
+      onInit={(initialMap) => {
+        layerState.current = new Map(initialMap);
+        applyLayerVisibility();
+      }}
+      onToggle={(catKey, visible, meta) => {
+        const affected =
+          meta && Array.isArray(meta.affected_category_ids)
+            ? meta.affected_category_ids
+            : [catKey];
+
+        for (const k of affected) layerState.current.set(String(k), visible);
+        if (!searchMode.active) applyLayerVisibility();
+      }}
+      onToggleAll={(visible) => {
+        const updated = new Map();
+        layerState.current.forEach((_v, key) => updated.set(key, visible));
+        layerState.current = updated;
+        if (!searchMode.active) applyLayerVisibility();
+      }}
+    />
+  </div>
 
       {/* ✅ Locate Button (dezentes Floating UI) */}
       <div
@@ -2946,28 +3015,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
       <div ref={mapRef} className="w2h-map" />
 
-      <LayerPanel
-        lang={lang}
-        onInit={(initialMap) => {
-          layerState.current = new Map(initialMap);
-          applyLayerVisibility();
-        }}
-        onToggle={(catKey, visible, meta) => {
-          // ✅ Gruppenlogik: wenn LayerPanel meta.affected_category_ids liefert
-          const affected = meta && Array.isArray(meta.affected_category_ids) ? meta.affected_category_ids : [catKey];
 
-          for (const k of affected) layerState.current.set(String(k), visible);
-
-          // Wenn Search Focus aktiv ist: nicht überschreiben
-          if (!searchMode.active) applyLayerVisibility();
-        }}
-        onToggleAll={(visible) => {
-          const updated = new Map();
-          layerState.current.forEach((_v, key) => updated.set(key, visible));
-          layerState.current = updated;
-          if (!searchMode.active) applyLayerVisibility();
-        }}
-      />
 
       <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
       <WindModal modal={windModal} onClose={() => setWindModal(null)} />
