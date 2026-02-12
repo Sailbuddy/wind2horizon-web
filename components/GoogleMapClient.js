@@ -2874,6 +2874,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
       }}
     />
   </div>
+ </div> {/* <-- DAS fehlt aktuell */}
 
       {/* ✅ Locate Button (dezentes Floating UI) */}
       <div
@@ -3250,7 +3251,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
           font-weight: 800;
           font-size: 12px;
           letter-spacing: 0.2px;
-          color: #111;
+          color:111;
           margin-top: 2px;
         }
         .gm-style .w2h-iw .iw-dyn-row {
@@ -3261,7 +3262,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
         }
         .gm-style .w2h-iw .iw-dyn-k {
           font-weight: 600;
-          color: #111;
+          color: #111
         }
         .gm-style .w2h-iw .iw-dyn-v {
           color: #374151;
