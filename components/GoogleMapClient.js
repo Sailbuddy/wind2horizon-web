@@ -1,15 +1,5 @@
 'use client';
 
-console.log(
-  "W2H MAP KEY present?",
-  !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-);
-
-console.log(
-  "W2H MAP KEY prefix:",
-  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.slice(0, 6)
-);
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import LayerPanel from '@/components/LayerPanel';
@@ -147,6 +137,11 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // 🔹 Attribute-Definitionen Cache (dynamische InfoWindow-Felder)
   // { byId: Map<number, def>, byKey: Map<string, def>, hasVisibility: bool }
   const attrSchemaRef = useRef(null);
+
+  useEffect(() => {
+  console.log("W2H MAP KEY present?", !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
+  console.log("W2H MAP KEY prefix:", process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.slice(0, 6));
+}, []);
 
   // Galerie-Lightbox
   const [gallery, setGallery] = useState(null);
@@ -2689,7 +2684,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
             position: 'absolute',
             top: 10,
             left: 10,
-            zIndex: 10,
+            zIndex: 50,
           background: 'rgba(255,255,255,0.92)',
           borderRadius: 12,
           padding: '6px 8px',
