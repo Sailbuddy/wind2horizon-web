@@ -50,7 +50,6 @@ function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
     return out;
   };
 
-  const w = normBool(wind);
   const s = normBool(swell);
 
   const arrow = (deg, r) => {
@@ -2872,7 +2871,7 @@ useEffect(() => {
       }}
     />
   </div>
- </div> {/* <-- DAS fehlt aktuell */}
+ </div> 
 
       {/* ✅ Locate Button (dezentes Floating UI) */}
       <div
@@ -3064,7 +3063,7 @@ useEffect(() => {
 
   .w2h-map-wrap {
     position: relative;
-    height: calc(100vh - 70px);
+    height: 100vh;
     width: 100%;
     overflow: hidden;
   }
@@ -3290,7 +3289,6 @@ useEffect(() => {
   }
 `}</style>
 
-    </div>   
-  </>        
-  );
+</div>
+);
 }
