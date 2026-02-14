@@ -3313,7 +3313,7 @@ useEffect(() => {
         }
         .gm-style .w2h-iw .iw-dyn-k {
           font-weight: 600;
-          color: #111
+          color: #111;
         }
         .gm-style .w2h-iw .iw-dyn-v {
           color: #374151;
