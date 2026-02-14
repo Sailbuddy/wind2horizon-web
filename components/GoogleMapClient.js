@@ -10,7 +10,7 @@ import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
 const DEBUG_BOUNDING = false; // true = rote Bounding-Boxen über den Markern
-const DEBUG_LOG = true; // true = extra Console-Logs
+const DEBUG_LOG = false; // true = extra Console-Logs
 
 // 🔒 Sichtbarkeit dynamischer Attribute (falls Spalte vorhanden)
 // 0 = öffentlich, 1 = erweitert, 2+ = intern (Beispiel). Passe bei Bedarf an.
@@ -18,7 +18,7 @@ const INFO_VISIBILITY_MAX = 1;
 
 // ✅ Smoke-Test: zeigt dynamische Werte auch ohne attribute_definitions (Fallback-Label)
 // Zusätzlich: übersteuert show_in_infowindow-Filter (zeigt auch wenn false)
-const DYNAMIC_SMOKE_TEST = true;
+const DYNAMIC_SMOKE_TEST = false;
 
 // ✅ Visibility-Tier (Paywall-Ready)
 // 0 = Free, 1 = Plus, 2 = Pro (Beispiel)
@@ -138,7 +138,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   // { byId: Map<number, def>, byKey: Map<string, def>, hasVisibility: bool }
   const attrSchemaRef = useRef(null);
 
-  useEffect(() => {
+useEffect(() => {
+  if (process.env.NODE_ENV !== 'development') return;
   console.log("W2H MAP KEY present?", !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
   console.log("W2H MAP KEY prefix:", process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.slice(0, 6));
 }, []);
@@ -3053,10 +3054,14 @@ export default function GoogleMapClient({ lang = 'de' }) {
           position: relative;
           height: 100vh;
           width: 100%;
+          overflow: hidden;
         }
         .w2h-map {
-          height: 100%;
+          position: absolute;
+          inset: 0;        /* top:0; right:0; bottom:0; left:0 */
           width: 100%;
+          height: 100%;
+          z-index: 0;      /* Map ist Basis-Layer */
         }
         .w2h-topbar {
           position: absolute;
