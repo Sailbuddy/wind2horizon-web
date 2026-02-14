@@ -2678,7 +2678,48 @@ useEffect(() => {
   const resultPanelTitle = `${label('searchResults', lang)}${searchMode.active ? ` (${searchMode.results.length})` : ''}`;
 
   return (
+    <>
+      <div className="w2h-header">
+        <div className="w2h-topbar">
+          <div className="w2h-region-panel">
+            ... dein Region-Code ...
+          </div>
+
+          <div className="w2h-searchbar">
+            ... dein Search-Code ...
+          </div>
+
+          <LayerPanel
+            lang={lang}
+            onInit={(initialMap) => {
+              layerState.current = new Map(initialMap);
+              applyLayerVisibility();
+            }}
+            onToggle={(catKey, visible, meta) => {
+              const affected =
+                meta && Array.isArray(meta.affected_category_ids)
+                  ? meta.affected_category_ids
+                  : [catKey];
+
+              for (const k of affected)
+                layerState.current.set(String(k), visible);
+
+              if (!searchMode.active) applyLayerVisibility();
+            }}
+            onToggleAll={(visible) => {
+              const updated = new Map();
+              layerState.current.forEach((_v, key) =>
+                updated.set(key, visible)
+              );
+              layerState.current = updated;
+              if (!searchMode.active) applyLayerVisibility();
+            }}
+          />
+        </div>
+      </div>
+
     <div className="w2h-map-wrap">
+      <div ref={mapRef} className="w2h-map" />
       <div
         className="w2h-region-panel"
         style={{
@@ -3010,7 +3051,7 @@ useEffect(() => {
         </div>
       ) : null}
 
-      <div ref={mapRef} className="w2h-map" />
+      
 
 
 
@@ -3050,9 +3091,19 @@ useEffect(() => {
       ) : null}
 
       <style jsx>{`
+        .w2h-header {
+          height: 70px;
+          background: #1f6aa2; /* Wind2Horizon Farbe */
+          display: flex;
+          align-items: center;
+          padding: 0 16px;
+          z-index: 1000;
+          position: relative;
+      }
+        
         .w2h-map-wrap {
           position: relative;
-          height: 100vh;
+          height: calc(100vh - 70px);
           width: 100%;
           overflow: hidden;
         }
