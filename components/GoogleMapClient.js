@@ -3290,6 +3290,7 @@ useEffect(() => {
   }
 `}</style>
 
-    </div>
+    </div>   // schließt w2h-map-wrap (richtig)   </div>
+  </>        
   );
 }
