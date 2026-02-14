@@ -3092,14 +3092,14 @@ useEffect(() => {
 
       <style jsx>{`
         .w2h-header {
-          height: 70px;
+          height: 70px; 
           background: #1f6aa2; /* Wind2Horizon Farbe */
           display: flex;
           align-items: center;
           padding: 0 16px;
           z-index: 1000;
           position: relative;
-      }
+        }
         
         .w2h-map-wrap {
           position: relative;
@@ -3302,7 +3302,7 @@ useEffect(() => {
           font-weight: 800;
           font-size: 12px;
           letter-spacing: 0.2px;
-          color:111;
+          color: #111;
           margin-top: 2px;
         }
         .gm-style .w2h-iw .iw-dyn-row {
