@@ -158,21 +158,27 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
     return m;
   }, [cats]);
 
-  // Klick außerhalb => Panel schließen (für Mobile/Accessibility)
-  useEffect(() => {
-    function handleOutside(e) {
-      if (!open) return;
-      const el = e.target;
-      if (panelRef.current?.contains(el) || buttonRef.current?.contains(el)) return;
-      setOpen(false);
-    }
-    document.addEventListener('mousedown', handleOutside);
-    document.addEventListener('touchstart', handleOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleOutside);
-      document.removeEventListener('touchstart', handleOutside);
-    };
-  }, [open]);
+// Klick außerhalb => Panel schließen (nur Mobile; Desktop bleibt stabil offen)
+useEffect(() => {
+  function handleOutside(e) {
+    if (!open) return;
+
+    // ✅ Nur auf Mobile schließen (Map-Klick soll Desktop nicht beeinflussen)
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (!isMobile) return;
+
+    const el = e.target;
+    if (panelRef.current?.contains(el) || buttonRef.current?.contains(el)) return;
+    setOpen(false);
+  }
+
+  document.addEventListener('mousedown', handleOutside);
+  document.addEventListener('touchstart', handleOutside);
+  return () => {
+    document.removeEventListener('mousedown', handleOutside);
+    document.removeEventListener('touchstart', handleOutside);
+  };
+}, [open]);
 
   // Toggle one category; if it has group_key, toggle its whole group.
   const handleToggleOne = (catIdStr, checked) => {
