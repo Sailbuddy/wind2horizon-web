@@ -3057,6 +3057,11 @@ useEffect(() => {
 
 <style jsx>{`
   
+  :global(:root) {
+    --w2h-header: #39d0fa; /* TODO: hier Wind2Horizon-Blau eintragen */
+    --w2h-header-h: 70px;
+  }
+
   .w2h-page {
     height: 100vh;
     width: 100%;
@@ -3065,9 +3070,9 @@ useEffect(() => {
   }
 
   .w2h-header {
-    flex: 0 0 70px;
-    height: 70px;
-    background: #1f6aa2;
+    flex: 0 0 var(--w2h-header-h);
+    height: var(--w2h-header-h);
+    background: var(--w2h-header);
     z-index: 1000;
     position: relative;
   }
