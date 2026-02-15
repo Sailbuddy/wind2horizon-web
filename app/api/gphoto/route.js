@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-const VERSION = "gphoto-2026-01-03-photo-ref-02";
+const VERSION = "gphoto-2026-01-03-photo-ref-03"; // bumped
 const PHOTOS_ATTRIBUTE_ID = 17;
 const DEFAULT_MAX_PHOTOS = 10;
 
@@ -165,7 +165,7 @@ export async function GET(request) {
   const diag = sp.get("diag") === "1";
   const key = getGoogleKey();
 
-  // ✅ NEW: direct photo reference mode
+  // ✅ direct photo reference mode
   const photo_reference = sp.get("photo_reference") || "";
   const place_id = sp.get("place_id") || "";
 
@@ -180,6 +180,12 @@ export async function GET(request) {
     ? clampInt(sp.get("maxPhotos"), 1, 50, DEFAULT_MAX_PHOTOS)
     : DEFAULT_MAX_PHOTOS;
 
+  const chooseRef = (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    const p = arr[Math.min(index, arr.length - 1)];
+    return p?.photo_reference || null;
+  };
+
   if (!key) {
     return NextResponse.json(
       {
@@ -193,7 +199,7 @@ export async function GET(request) {
   }
 
   // =========================================================
-  // ✅ MODE A) photo_reference direct fetch (no Supabase needed)
+  // ✅ MODE A) photo_reference direct fetch (+ heal on 400)
   // =========================================================
   if (photo_reference) {
     const res = await fetchGooglePhoto({
@@ -203,7 +209,114 @@ export async function GET(request) {
       key,
     });
 
+    // --- Error handling for Mode A
     if (!res.ok) {
+      // ✅ NEW: auto-heal on invalid/expired photo_reference (typically 400)
+      // Only if we have place_id to refetch photos via Place Details.
+      if (res.status === 400 && place_id) {
+        const snap = await fetchPlacePhotosSnapshot({
+          placeId: place_id,
+          key,
+          maxPhotos,
+        });
+
+        if (snap.ok && Array.isArray(snap.photos) && snap.photos.length > 0) {
+          // Persist refreshed snapshot if possible
+          const db = await loadPhotosFromSupabase({ placeId: place_id });
+          const locationId = db.ok ? db.location_id : null;
+
+          if (locationId) {
+            await upsertPhotosToSupabase({ locationId, photos: snap.photos });
+          }
+
+          const healedRef = chooseRef(snap.photos);
+
+          if (healedRef) {
+            const retry = await fetchGooglePhoto({
+              photo_reference: healedRef,
+              maxwidth,
+              maxheight,
+              key,
+            });
+
+            if (retry.ok) {
+              if (diag) {
+                return NextResponse.json(
+                  {
+                    ok: true,
+                    version: VERSION,
+                    mode: "photo_reference+heal",
+                    place_id,
+                    original_reference: photo_reference,
+                    healed_reference: healedRef,
+                    refreshed_count: snap.photos.length,
+                    upstream: {
+                      status: retry.status,
+                      contentType: retry.contentType,
+                      url: retry.url,
+                    },
+                  },
+                  { status: 200, headers: { "x-w2h-gphoto-version": VERSION } }
+                );
+              }
+
+              return new NextResponse(retry.arrayBuffer, {
+                status: 200,
+                headers: {
+                  "Content-Type": retry.contentType || "image/jpeg",
+                  "Cache-Control": "public, max-age=86400",
+                  "x-w2h-gphoto-version": VERSION,
+                  "x-w2h-gphoto-healed": "1",
+                },
+              });
+            }
+
+            // Heal happened, retry failed → return retry status (not forced 502)
+            return NextResponse.json(
+              {
+                ok: false,
+                version: VERSION,
+                mode: "photo_reference+heal",
+                place_id,
+                original_reference: photo_reference,
+                healed_reference: healedRef,
+                refreshed_count: snap.photos.length,
+                retry_upstream: {
+                  status: retry.status,
+                  contentType: retry.contentType,
+                  url: retry.url,
+                  bodySnippetHead: retry.bodySnippet?.slice(0, 250) || "",
+                },
+              },
+              {
+                status: retry.status || 502,
+                headers: { "x-w2h-gphoto-version": VERSION },
+              }
+            );
+          }
+        }
+
+        // Heal attempt failed → return original upstream (400) to caller
+        return NextResponse.json(
+          {
+            ok: false,
+            version: VERSION,
+            mode: "photo_reference",
+            place_id,
+            photo_reference,
+            reason: "Upstream 400 and heal attempt failed (no usable refreshed photos).",
+            upstream: {
+              status: res.status,
+              contentType: res.contentType,
+              url: res.url,
+              bodySnippetHead: res.bodySnippet?.slice(0, 250) || "",
+            },
+          },
+          { status: 400, headers: { "x-w2h-gphoto-version": VERSION } }
+        );
+      }
+
+      // Default: pass-through upstream status (do NOT force 502)
       return NextResponse.json(
         {
           ok: false,
@@ -217,7 +330,10 @@ export async function GET(request) {
             bodySnippetHead: res.bodySnippet?.slice(0, 250) || "",
           },
         },
-        { status: 502, headers: { "x-w2h-gphoto-version": VERSION } }
+        {
+          status: res.status || 502,
+          headers: { "x-w2h-gphoto-version": VERSION },
+        }
       );
     }
 
@@ -269,12 +385,6 @@ export async function GET(request) {
   let photos = db.ok ? db.photos : null;
   let locationId = db.ok ? db.location_id : null;
 
-  const chooseRef = (arr) => {
-    if (!Array.isArray(arr) || arr.length === 0) return null;
-    const p = arr[Math.min(index, arr.length - 1)];
-    return p?.photo_reference || null;
-  };
-
   // 1a) Wenn DB Photos hat -> direkt versuchen
   const dbRef = chooseRef(photos);
   if (dbRef) {
@@ -296,7 +406,11 @@ export async function GET(request) {
             used_reference: dbRef,
             photos_count: photos.length,
             db_updated_at: db.updated_at,
-            upstream: { status: res.status, contentType: res.contentType, url: res.url },
+            upstream: {
+              status: res.status,
+              contentType: res.contentType,
+              url: res.url,
+            },
           },
           { status: 200, headers: { "x-w2h-gphoto-version": VERSION } }
         );
@@ -329,7 +443,10 @@ export async function GET(request) {
           },
           hint: "Upstream error is not 400. No heal performed.",
         },
-        { status: 502, headers: { "x-w2h-gphoto-version": VERSION } }
+        {
+          status: res.status || 502,
+          headers: { "x-w2h-gphoto-version": VERSION },
+        }
       );
     }
     // -> fällt durch in Heal
@@ -383,8 +500,7 @@ export async function GET(request) {
         version: VERSION,
         mode: "heal",
         place_id,
-        reason:
-          "Location not found in Supabase (cannot store refreshed snapshot).",
+        reason: "Location not found in Supabase (cannot store refreshed snapshot).",
       },
       { status: 404, headers: { "x-w2h-gphoto-version": VERSION } }
     );
@@ -421,7 +537,7 @@ export async function GET(request) {
           bodySnippetHead: retry.bodySnippet?.slice(0, 250) || "",
         },
       },
-      { status: 502, headers: { "x-w2h-gphoto-version": VERSION } }
+      { status: retry.status || 502, headers: { "x-w2h-gphoto-version": VERSION } }
     );
   }
 
