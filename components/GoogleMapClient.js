@@ -2678,13 +2678,13 @@ useEffect(() => {
 
   return (
 
-  <>
-    <div className="w2h-header">
-      {/* optional: hier Logo/Title */}
-    </div>
+    <div className="w2h-page">
+      <div className="w2h-header">
+        {/* optional: hier Logo/Title */}
+     </div>
 
-    <div className="w2h-map-wrap">
-      <div ref={mapRef} className="w2h-map" />
+      <div className="w2h-map-wrap">
+        <div ref={mapRef} className="w2h-map" />
       <div
         className="w2h-region-panel"
         style={{
@@ -3016,7 +3016,7 @@ useEffect(() => {
         </div>
       ) : null}
 
-      
+      </div>  {/* ✅ schließt w2h-map-wrap */}
 
 
 
@@ -3056,19 +3056,25 @@ useEffect(() => {
       ) : null}
 
 <style jsx>{`
+  
+  .w2h-page {
+    height: 100vh;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
   .w2h-header {
+    flex: 0 0 70px;
     height: 70px;
     background: #1f6aa2;
-    display: flex;
-    align-items: center;
-    padding: 0 16px;
     z-index: 1000;
     position: relative;
   }
 
   .w2h-map-wrap {
     position: relative;
-    height: 100vh;
+    flex: 1 1 auto;
     width: 100%;
     overflow: hidden;
   }
@@ -3295,6 +3301,5 @@ useEffect(() => {
 `}</style>
 
 </div>
-</>
 );
 }
