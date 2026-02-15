@@ -2901,7 +2901,7 @@ useEffect(() => {
                 position: 'absolute',
                 top: 10,
                 left: '50%',
-                transform: 'translateX(-50%)',
+                transform: 'translateX(-50%)',  
                 zIndex: 10,
                 width: 360,
                 maxWidth: '92vw',
@@ -3133,6 +3133,7 @@ useEffect(() => {
           .w2h-searchbar input { width: 100%; min-width: 0; }
           .w2h-lang { display: flex; gap: 6px; }
           .w2h-lang button { padding: 6px 8px; font-size: 12px; }
+          .w2h-searchbar input {font-size: 16px;  /* verhindert iOS Auto-Zoom */ line-height: 1.2; }
         }
 
 `}</style>
