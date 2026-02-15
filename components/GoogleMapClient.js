@@ -6,6 +6,7 @@ import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
 import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
+import { useCallback } from 'react'; // falls noch nicht drin
 
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
@@ -19,6 +20,28 @@ const INFO_VISIBILITY_MAX = 1;
 // ✅ Smoke-Test: zeigt dynamische Werte auch ohne attribute_definitions (Fallback-Label)
 // Zusätzlich: übersteuert show_in_infowindow-Filter (zeigt auch wenn false)
 const DYNAMIC_SMOKE_TEST = false;
+
+const handleLayerInit = useCallback((initialMap) => {
+  layerState.current = new Map(initialMap);
+  applyLayerVisibility();
+}, []); // applyLayerVisibility ist eine function declaration -> stabil
+
+const handleLayerToggle = useCallback((catKey, visible, meta) => {
+  const affected =
+    meta && Array.isArray(meta.affected_category_ids)
+      ? meta.affected_category_ids
+      : [catKey];
+
+  for (const k of affected) layerState.current.set(String(k), visible);
+  if (!searchMode.active) applyLayerVisibility();
+}, [searchMode.active]); // nutzt searchMode.active
+
+const handleLayerToggleAll = useCallback((visible) => {
+  const updated = new Map();
+  layerState.current.forEach((_v, key) => updated.set(key, visible));
+  layerState.current = updated;
+  if (!searchMode.active) applyLayerVisibility();
+}, [searchMode.active]);
 
 // ✅ Visibility-Tier (Paywall-Ready)
 // 0 = Free, 1 = Plus, 2 = Pro (Beispiel)
@@ -2804,26 +2827,11 @@ useEffect(() => {
               {/* Layer Panel Button */}
               <LayerPanel
                 lang={lang}
-                onInit={(initialMap) => {
-                  layerState.current = new Map(initialMap);
-                  applyLayerVisibility();
-                }}
-                onToggle={(catKey, visible, meta) => {
-                  const affected =
-                    meta && Array.isArray(meta.affected_category_ids)
-                      ? meta.affected_category_ids
-                      : [catKey];
-
-                  for (const k of affected) layerState.current.set(String(k), visible);
-                  if (!searchMode.active) applyLayerVisibility();
-                }}
-                onToggleAll={(visible) => {
-                  const updated = new Map();
-                  layerState.current.forEach((_v, key) => updated.set(key, visible));
-                  layerState.current = updated;
-                  if (!searchMode.active) applyLayerVisibility();
-                }}
+                onInit={handleLayerInit}
+                onToggle={handleLayerToggle}
+                onToggleAll={handleLayerToggleAll}
               />
+
             </div>
           </div>
         </div>
