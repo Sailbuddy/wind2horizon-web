@@ -3086,9 +3086,9 @@ useEffect(() => {
           .w2h-lang { display: flex; gap: 6px; }
           .w2h-lang button { padding: 6px 8px; font-size: 12px; }
         }
-}
 
-      <style jsx global>{`
+`}</style>
+    <style jsx global>{`
         .gm-style .w2h-iw {
           max-width: 340px;
           font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
