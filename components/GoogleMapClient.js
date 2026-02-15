@@ -592,6 +592,30 @@ useEffect(() => {
   }
 
   // ------------------------------
+  //Sprachauswahl zur Weiterleitung auf die jeweilige Seite
+  // ------------------------------
+  
+  const goLang = (code) => {
+  // gleiche Seite, nur Sprach-Prefix tauschen: /de, /en, /it, /hr
+  const path = window.location.pathname || '/';
+  const parts = path.split('/').filter(Boolean);
+
+  // Wenn bereits /de|/en|/it|/hr vorne steht -> ersetzen, sonst vorne einfügen
+  const supported = new Set(['de', 'en', 'it', 'hr']);
+  if (parts.length > 0 && supported.has(parts[0])) {
+    parts[0] = code;
+  } else {
+    parts.unshift(code);
+  }
+
+  const newPath = '/' + parts.join('/') + window.location.search + window.location.hash;
+
+  // harter Redirect (robust in allen Umgebungen)
+  window.location.href = newPath;
+};
+
+
+  // ------------------------------
   // ✅ Lightbox + WindModal + KiReportModal
   // ------------------------------
   function Lightbox({ gallery: g, onClose }) {
