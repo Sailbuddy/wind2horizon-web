@@ -3080,17 +3080,56 @@ useEffect(() => {
         }
 
         @media (max-width: 640px) {
-          .w2h-header-inner {
-            gap: 8px;
-          }
-          .w2h-searchbar {
-            width: 100%;
-          }
-          .w2h-region-panel select {
-            width: 160px;
-          }
+          .w2h-header {
+           height: auto;
+           padding: 10px 10px 12px;
+        }   
+  
+
+        .w2h-header-inner {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          grid-template-areas:
+          "left right"
+          "mid  mid";
+          gap: 10px;
+          align-items: center;
         }
-      `}</style>
+
+        .w2h-header-left  { grid-area: left; }
+        .w2h-header-right { grid-area: right; }
+        .w2h-header-mid   { grid-area: mid; }
+
+        .w2h-region-panel {
+          max-width: 220px;
+        }
+
+        .w2h-region-panel select {
+          width: 100%;
+          max-width: 220px;
+        }
+
+        .w2h-searchbar {
+          width: 100%;
+          max-width: none;
+          padding: 8px 10px;
+        }
+
+        .w2h-searchbar input {
+          width: 100%;
+          min-width: 0;
+        }
+
+        .w2h-lang {
+         display: flex;
+         gap: 6px;
+        }
+
+        .w2h-lang button {
+          padding: 6px 8px;
+          font-size: 12px;
+  }
+}
 
       <style jsx global>{`
         .gm-style .w2h-iw {
