@@ -1539,7 +1539,7 @@ useEffect(() => {
     const firstThumb = userThumb || pickFirstThumb(googlePhotos, row);
     const totalPhotos = googlePhotos.length + userCount;
     const btnPhotos = totalPhotos
-      ? `<button id="phbtn-${row.id}" class="iw-btn" style="background:#6b7280;">🖼️ ${label('photos', langCode)} (${totalPhotos})</button>`
+      ? `<button id="phbtn-${row.id}" class="iw-btn">🖼️ ${label('photos', langCode)} (${totalPhotos})</button>`
       : '';
 
     const dirHref = `https://www.google.com/maps/dir/?api=1&destination=${row.lat},${row.lng}`;
