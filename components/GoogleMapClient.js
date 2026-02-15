@@ -2678,6 +2678,11 @@ useEffect(() => {
 
   return (
 
+  <>
+    <div className="w2h-header">
+      {/* optional: hier Logo/Title */}
+    </div>
+
     <div className="w2h-map-wrap">
       <div ref={mapRef} className="w2h-map" />
       <div
@@ -3291,4 +3296,5 @@ useEffect(() => {
 
 </div>
 );
+</>
 }
