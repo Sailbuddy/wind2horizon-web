@@ -2674,637 +2674,408 @@ useEffect(() => {
   // ------------------------------
   // ✅ UI: Search Results Panel
   // ------------------------------
-  const resultPanelTitle = `${label('searchResults', lang)}${searchMode.active ? ` (${searchMode.results.length})` : ''}`;
+  const resultPanelTitle = `${label('searchResults', lang)}${
+    searchMode.active ? ` (${searchMode.results.length})` : ''
+  }`;
 
   return (
+    <>
+      <div className="w2h-page">
+        {/* ================= HEADER ================= */}
+        <div className="w2h-header">
+          <div className="w2h-header-inner">
+            {/* LEFT: Region */}
+            <div className="w2h-header-left">
+              <div className="w2h-region-panel">
+                <div style={{ marginBottom: 4, fontWeight: 600, color: '#fff' }}>
+                  Region
+                </div>
 
-    <div className="w2h-page">
-      <div className="w2h-header">
-        {/* optional: hier Logo/Title */}
-     </div>
+                <select
+                  value={selectedRegion}
+                  onChange={(e) => {
+                    const slug = e.target.value;
+                    setRegionMode('manual');
+                    setSelectedRegion(slug);
 
-      <div className="w2h-map-wrap">
-        <div ref={mapRef} className="w2h-map" />
-      <div
-        className="w2h-region-panel"
-        style={{
-            position: 'absolute',
-            top: 10,
-            left: 10,
-            zIndex: 50,
-          background: 'rgba(255,255,255,0.92)',
-          borderRadius: 12,
-          padding: '6px 8px',
-          boxShadow: '0 4px 12px rgba(0,0,0,.12)',
-          fontSize: 12,
-        }}
-      >
-        <div style={{ marginBottom: 4, fontWeight: 600 }}>Region</div>
-        <select
-          value={selectedRegion}
-          onChange={(e) => {
-            const slug = e.target.value;
-            setRegionMode('manual');
-            setSelectedRegion(slug);
+                    if (searchMode.active) clearSearchMode();
+                    if (!mapObj.current || !window.google) return;
 
-            // Bei Regionwechsel: Search Focus aufheben
-            if (searchMode.active) clearSearchMode();
+                    if (slug === 'all') {
+                      mapObj.current.setCenter({ lat: 45.6, lng: 13.8 });
+                      mapObj.current.setZoom(7);
+                      return;
+                    }
 
-            if (!mapObj.current || !window.google) return;
+                    const r = regions.find((x) => x.slug === slug);
+                    if (r) {
+                      const b = boundsToLatLngBounds(r);
+                      setTimeout(() => {
+                        try {
+                          mapObj.current.fitBounds(b, 40);
+                        } catch (err) {
+                          console.warn('[w2h] fitBounds failed', err);
+                        }
+                      }, 0);
+                    }
+                  }}
+                >
+                  <option value="all">{allLabel(lang)}</option>
+                  {regions.map((r) => (
+                    <option key={r.slug} value={r.slug}>
+                      {pickRegionName(r, lang)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-            if (slug === 'all') {
-              mapObj.current.setCenter({ lat: 45.6, lng: 13.8 });
-              mapObj.current.setZoom(7);
-              return;
-            }
+            {/* CENTER: Search */}
+            <div className="w2h-header-mid">
+              <div className="w2h-searchbar">
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={label('searchPlaceholder', lang)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSearch();
+                    if (e.key === 'Escape') {
+                      setSearchQuery('');
+                      if (searchMode.active) clearSearchMode();
+                    }
+                  }}
+                />
 
-            const r = regions.find((x) => x.slug === slug);
-            if (r) {
-              const b = boundsToLatLngBounds(r);
-              setTimeout(() => {
-                try {
-                  mapObj.current.fitBounds(b, 40);
-                } catch (err) {
-                  console.warn('[w2h] fitBounds failed', err);
-                }
-              }, 0);
-            }
-          }}
-          style={{
-            width: '100%',
-            fontSize: 12,
-            padding: '3px 6px',
-            borderRadius: 8,
-            border: '1px solid #d1d5db',
-            marginBottom: 4,
-          }}
-        >
-          <option value="all">{allLabel(lang)}</option>
-          {regions.map((r) => (
-            <option key={r.slug} value={r.slug}>
-              {pickRegionName(r, lang)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={() => {
-            if (searchMode.active) clearSearchMode();
-            setRegionMode('auto');
-            setLocateErr('');
-            requestAndApplyGeolocation({ reason: 'button', alsoSetAutoRegion: true, showAccuracy: true });
-          }}
-          style={{
-            width: '100%',
-            fontSize: 11,
-            padding: '3px 6px',
-            borderRadius: 8,
-            border: '1px solid #e5e7eb',
-            background: '#f3f4f6',
-            cursor: 'pointer',
-          }}
-        >
-          Auto (mein Standort)
-        </button>
-      </div>
+                <button type="button" onClick={handleSearch}>
+                  {label('searchButton', lang)}
+                </button>
 
-      {/* Top Right Bar: Search + Categories */}
-<div
-  className="w2h-searchbar"
-  style={{
-    position: 'absolute',
-    top: 10,
-    right: 20,
-    zIndex: 10,
-    background: 'rgba(255,255,255,0.92)',
-    borderRadius: 12,
-    padding: '8px 10px',
-    boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-    display: 'flex',
-    gap: 8,
-    alignItems: 'center',
-    maxWidth: 520,
-  }}
->
-  <input
-    value={searchQuery}
-    onChange={(e) => setSearchQuery(e.target.value)}
-    placeholder={label('searchPlaceholder', lang)}
-    onKeyDown={(e) => {
-      if (e.key === 'Enter') handleSearch();
-      if (e.key === 'Escape') {
-        setSearchQuery('');
-        if (searchMode.active) clearSearchMode();
-      }
-    }}
-    style={{
-      width: 260,
-      maxWidth: '52vw',
-      padding: '8px 10px',
-      borderRadius: 10,
-      border: '1px solid #d1d5db',
-      fontSize: 13,
-      outline: 'none',
-      background: '#fff',
-    }}
-  />
+                {searchMode.active ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      clearSearchMode();
+                    }}
+                    title={label('resetSearch', lang)}
+                  >
+                    ✕
+                  </button>
+                ) : null}
+              </div>
+            </div>
 
-  <button
-    type="button"
-    onClick={handleSearch}
-    style={{
-      padding: '8px 12px',
-      borderRadius: 10,
-      border: 'none',
-      cursor: 'pointer',
-      background: '#1a73e8',
-      color: '#fff',
-      fontSize: 13,
-      fontWeight: 800,
-      whiteSpace: 'nowrap',
-    }}
-  >
-    {label('searchButton', lang)}
-  </button>
+            {/* RIGHT: Language + Layer Button */}
+            <div className="w2h-header-right">
+              {/* Language Switch */}
+              <div className="w2h-lang">
+                <button type="button" onClick={() => goLang('de')}>DE</button>
+                <button type="button" onClick={() => goLang('en')}>EN</button>
+                <button type="button" onClick={() => goLang('it')}>IT</button>
+                <button type="button" onClick={() => goLang('hr')}>HR</button>
+              </div>
 
-  {searchMode.active ? (
-    <button
-      type="button"
-      onClick={() => {
-        setSearchQuery('');
-        clearSearchMode();
-      }}
-      style={{
-        padding: '8px 10px',
-        borderRadius: 10,
-        border: '1px solid #d1d5db',
-        cursor: 'pointer',
-        background: '#fff',
-        color: '#111',
-        fontSize: 13,
-        fontWeight: 800,
-        whiteSpace: 'nowrap',
-      }}
-      title={label('resetSearch', lang)}
-    >
-      ✕
-    </button>
-  ) : null}
+              {/* Layer Panel Button */}
+              <LayerPanel
+                lang={lang}
+                onInit={(initialMap) => {
+                  layerState.current = new Map(initialMap);
+                  applyLayerVisibility();
+                }}
+                onToggle={(catKey, visible, meta) => {
+                  const affected =
+                    meta && Array.isArray(meta.affected_category_ids)
+                      ? meta.affected_category_ids
+                      : [catKey];
 
-  {/* Kategorien/Layers nur 1x hier */}
-  <div style={{ marginLeft: 4 }}>
-    <LayerPanel
-      lang={lang}
-      onInit={(initialMap) => {
-        layerState.current = new Map(initialMap);
-        applyLayerVisibility();
-      }}
-      onToggle={(catKey, visible, meta) => {
-        const affected =
-          meta && Array.isArray(meta.affected_category_ids)
-            ? meta.affected_category_ids
-            : [catKey];
+                  for (const k of affected) layerState.current.set(String(k), visible);
+                  if (!searchMode.active) applyLayerVisibility();
+                }}
+                onToggleAll={(visible) => {
+                  const updated = new Map();
+                  layerState.current.forEach((_v, key) => updated.set(key, visible));
+                  layerState.current = updated;
+                  if (!searchMode.active) applyLayerVisibility();
+                }}
+              />
+            </div>
+          </div>
+        </div>
 
-        for (const k of affected) layerState.current.set(String(k), visible);
-        if (!searchMode.active) applyLayerVisibility();
-      }}
-      onToggleAll={(visible) => {
-        const updated = new Map();
-        layerState.current.forEach((_v, key) => updated.set(key, visible));
-        layerState.current = updated;
-        if (!searchMode.active) applyLayerVisibility();
-      }}
-    />
-  </div>
- </div> 
+        {/* ================= MAP ================= */}
+        <div className="w2h-map-wrap">
+          <div ref={mapRef} className="w2h-map" />
 
-      {/* ✅ Locate Button (dezentes Floating UI) */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 14,
-          bottom: 18,
-          zIndex: 10,
-          display: 'grid',
-          gap: 6,
-          alignItems: 'start',
-        }}
-      >
-        <button
-          type="button"
-          onClick={async () => {
-            setLocateErr('');
-            setLocateBusy(true);
-            try {
-              const ok = await requestAndApplyGeolocation({ reason: 'button', alsoSetAutoRegion: true, showAccuracy: true });
-              if (!ok) setLocateErr('Geolocation nicht verfügbar.');
-            } finally {
-              setTimeout(() => setLocateBusy(false), 350);
-            }
-          }}
-          title="Meinen Standort verwenden"
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 9999,
-            border: '1px solid rgba(0,0,0,.12)',
-            background: 'rgba(255,255,255,0.92)',
-            boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-            cursor: 'pointer',
-            display: 'grid',
-            placeItems: 'center',
-            fontSize: 16,
-            lineHeight: 1,
-            opacity: locateBusy ? 0.7 : 1,
-          }}
-        >
-          ⦿
-        </button>
-
-        {locateErr ? (
+          {/* Locate Button */}
           <div
             style={{
-              maxWidth: 220,
-              fontSize: 11,
-              color: '#7c2d12',
-              background: 'rgba(255,247,237,0.95)',
-              border: '1px solid #fed7aa',
-              borderRadius: 10,
-              padding: '6px 8px',
-              boxShadow: '0 6px 18px rgba(0,0,0,.10)',
+              position: 'absolute',
+              left: 14,
+              bottom: 18,
+              zIndex: 10,
             }}
           >
-            {locateErr}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Search Results Panel */}
-      {searchMode.active ? (
-        <div
-          className="w2h-search-panel"
-          style={{
-            position: 'absolute',
-            top: 58,
-            right: 20,
-            zIndex: 10,
-            width: 360,
-            maxWidth: '92vw',
-            maxHeight: '70vh',
-            overflow: 'auto',
-            background: 'rgba(255,255,255,0.96)',
-            borderRadius: 14,
-            padding: 12,
-            boxShadow: '0 10px 28px rgba(0,0,0,.18)',
-            border: '1px solid rgba(0,0,0,.06)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>{resultPanelTitle}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{searchMode.query}</div>
-          </div>
-
-          {searchMode.message ? (
-            <div
+            <button
+              type="button"
+              onClick={async () => {
+                setLocateErr('');
+                setLocateBusy(true);
+                try {
+                  const ok = await requestAndApplyGeolocation({
+                    reason: 'button',
+                    alsoSetAutoRegion: true,
+                    showAccuracy: true,
+                  });
+                  if (!ok) setLocateErr('Geolocation nicht verfügbar.');
+                } finally {
+                  setTimeout(() => setLocateBusy(false), 350);
+                }
+              }}
+              title="Meinen Standort verwenden"
               style={{
-                marginTop: 10,
-                padding: '10px 10px',
-                borderRadius: 10,
-                background: '#fff7ed',
-                border: '1px solid #fed7aa',
-                color: '#7c2d12',
-                fontSize: 12,
-                lineHeight: 1.35,
+                width: 40,
+                height: 40,
+                borderRadius: 9999,
+                border: '1px solid rgba(0,0,0,.12)',
+                background: 'rgba(255,255,255,0.92)',
+                boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+                cursor: 'pointer',
+                display: 'grid',
+                placeItems: 'center',
+                fontSize: 16,
+                lineHeight: 1,
+                opacity: locateBusy ? 0.7 : 1,
               }}
             >
-              {searchMode.message}
-              {searchMode.matchedCategories && searchMode.matchedCategories.length ? (
-                <div style={{ marginTop: 6, color: '#9a3412' }}>Hinweis: Aktiviere die Kategorie im Layer-Menü, um Ergebnisse zu sehen.</div>
-              ) : null}
-            </div>
-          ) : null}
+              ⦿
+            </button>
 
-          {searchMode.results && searchMode.results.length ? (
-            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-              {searchMode.results.map(({ row, score }) => {
-                const catName = row.categories ? pickCategoryName(row.categories, lang) : '';
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => openResult(row)}
-                    style={{
-                      textAlign: 'left',
-                      border: '1px solid #e5e7eb',
-                      background: '#fff',
-                      borderRadius: 12,
-                      padding: '10px 10px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>{pickName(row, lang)}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af' }}>#{row.id}</div>
-                    </div>
-                    {catName ? <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{catName}</div> : null}
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{Number.isFinite(score) ? `Score: ${score}` : ''}</div>
-                  </button>
-                );
-              })}
+            {locateErr ? (
+              <div
+                style={{
+                  marginTop: 6,
+                  maxWidth: 220,
+                  fontSize: 11,
+                  color: '#7c2d12',
+                  background: 'rgba(255,247,237,0.95)',
+                  border: '1px solid #fed7aa',
+                  borderRadius: 10,
+                  padding: '6px 8px',
+                  boxShadow: '0 6px 18px rgba(0,0,0,.10)',
+                }}
+              >
+                {locateErr}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Search Result Panel */}
+          {searchMode.active ? (
+            <div
+              className="w2h-search-panel"
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 20,
+                zIndex: 10,
+                width: 360,
+                maxWidth: '92vw',
+                maxHeight: '70vh',
+                overflow: 'auto',
+                background: 'rgba(255,255,255,0.96)',
+                borderRadius: 14,
+                padding: 12,
+                boxShadow: '0 10px 28px rgba(0,0,0,.18)',
+                border: '1px solid rgba(0,0,0,.06)',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                {resultPanelTitle}
+              </div>
+
+              {searchMode.results?.map(({ row, score }) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => openResult(row)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    border: '1px solid #e5e7eb',
+                    background: '#fff',
+                    borderRadius: 12,
+                    padding: '10px 10px',
+                    cursor: 'pointer',
+                    marginBottom: 8,
+                  }}
+                >
+                  <div style={{ fontWeight: 800, fontSize: 13 }}>
+                    {pickName(row, lang)}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                    {Number.isFinite(score) ? `Score: ${score}` : ''}
+                  </div>
+                </button>
+              ))}
             </div>
           ) : null}
         </div>
-      ) : null}
 
-      </div>  {/* ✅ schließt w2h-map-wrap */}
+        {/* Modals */}
+        <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
+        <WindModal modal={windModal} onClose={() => setWindModal(null)} />
+        {kiModal ? (
+          <KiReportModal modal={kiModal} onClose={() => setKiModal(null)} />
+        ) : null}
+      </div>
 
+      {/* ✅ styles MUST be inside the same return parent (Fragment) */}
+      <style jsx>{`
+        :global(:root) {
+          --w2h-header: #39d0fa;
+          --w2h-header-h: 70px;
+        }
 
+        .w2h-page {
+          height: 100vh;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+        }
 
-      <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
-      <WindModal modal={windModal} onClose={() => setWindModal(null)} />
+        .w2h-header {
+          flex: 0 0 var(--w2h-header-h);
+          height: var(--w2h-header-h);
+          background: var(--w2h-header);
+          z-index: 1000;
+          position: relative;
+        }
 
-      {/* ✅ Lazy-Render: KiReportModal existiert nur wenn wirklich geöffnet */}
-      {kiModal ? (
-        <KiReportModal
-          modal={kiModal}
-          onClose={() => setKiModal(null)}
-          onRefresh={async () => {
-            if (!kiModal?.locationId) return;
+        .w2h-header-inner {
+          height: 100%;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 0 12px;
+        }
 
-            setKiModal((prev) => ({ ...(prev || {}), loading: true, error: '' }));
-            try {
-              const data = await refreshKiReport({ locationId: kiModal.locationId, langCode: lang });
-              const reportObj = data.report_json || data.report || data;
-              const createdAt = data.created_at || reportObj?.created_at || null;
+        .w2h-header-left {
+          flex: 0 0 auto;
+        }
 
-              setKiModal((prev) => ({
-                ...(prev || {}),
-                loading: false,
-                error: '',
-                report: reportObj,
-                createdAt,
-              }));
-            } catch (e) {
-              setKiModal((prev) => ({
-                ...(prev || {}),
-                loading: false,
-                error: e?.message || 'Aktualisieren fehlgeschlagen.',
-              }));
-            }
-          }}
-        />
-      ) : null}
+        .w2h-header-mid {
+          flex: 1 1 auto;
+          display: flex;
+          justify-content: center;
+        }
 
-<style jsx>{`
-  
-  :global(:root) {
-    --w2h-header: #39d0fa; /* TODO: hier Wind2Horizon-Blau eintragen */
-    --w2h-header-h: 70px;
-  }
+        .w2h-header-right {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
 
-  .w2h-page {
-    height: 100vh;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-  }
+        .w2h-region-panel select {
+          width: 210px;
+          font-size: 12px;
+          padding: 6px 8px;
+          border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.25);
+          background: rgba(255, 255, 255, 0.95);
+          outline: none;
+        }
 
-  .w2h-header {
-    flex: 0 0 var(--w2h-header-h);
-    height: var(--w2h-header-h);
-    background: var(--w2h-header);
-    z-index: 1000;
-    position: relative;
-  }
+        .w2h-searchbar {
+          width: min(720px, 60vw);
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.96);
+          border-radius: 12px;
+          padding: 8px 10px;
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+        }
 
-  .w2h-map-wrap {
-    position: relative;
-    flex: 1 1 auto;
-    width: 100%;
-    overflow: hidden;
-  }
+        .w2h-searchbar input {
+          width: 100%;
+          padding: 10px;
+          border-radius: 10px;
+          border: 1px solid #ddd;
+          font-size: 14px;
+          outline: none;
+        }
 
-  .w2h-map {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 0;
-  }
+        .w2h-searchbar button {
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: none;
+          cursor: pointer;
+          background: #1a73e8;
+          color: #fff;
+          font-size: 14px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
 
-  .w2h-topbar {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    right: 72px;
-    z-index: 9999;
-    display: flex;
-    gap: 10px;
-    align-items: flex-start;
-    pointer-events: none;
-  }
-  .w2h-topbar > * {
-    pointer-events: auto;
-  }
+        .w2h-lang button {
+          padding: 8px 10px;
+          border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          background: rgba(255, 255, 255, 0.12);
+          color: #fff;
+          cursor: pointer;
+          font-weight: 800;
+          font-size: 12px;
+        }
 
-  .w2h-region-panel {
-    min-width: 210px;
-    max-width: 320px;
-  }
+        .w2h-lang button:hover {
+          background: rgba(255, 255, 255, 0.18);
+        }
 
-  .w2h-searchbar {
-    flex: 1;
-    min-width: 240px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    background: rgba(255,255,255,0.96);
-    border-radius: 10px;
-    padding: 10px 12px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-  }
+        .w2h-map-wrap {
+          position: relative;
+          flex: 1 1 auto;
+          width: 100%;
+          overflow: hidden;
+        }
 
-  .w2h-searchbar input {
-    width: 100%;
-    padding: 10px;
-    border-radius: 8px;
-    border: 1px solid #ddd;
-    font-size: 14px;
-    outline: none;
-  }
+        .w2h-map {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          z-index: 0;
+        }
 
-  .w2h-searchbar button {
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: none;
-    cursor: pointer;
-    background: #1a73e8;
-    color: #fff;
-    font-size: 14px;
-  }
+        @media (max-width: 900px) {
+          .w2h-searchbar {
+            width: min(720px, 46vw);
+          }
+        }
 
-  @media (max-width: 640px) {
-    .w2h-topbar {
-      right: 72px;
-      left: 10px;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .w2h-region-panel {
-      max-width: none;
-      min-width: 0;
-    }
-    .w2h-searchbar {
-      min-width: 0;
-    }
-    .w2h-search-panel {
-      top: 74px !important;
-      right: 72px !important;
-      width: min(92vw, 360px) !important;
-      max-height: 62vh !important;
-    }
-  }
-`}</style>
+        @media (max-width: 640px) {
+          .w2h-header-inner {
+            gap: 8px;
+          }
+          .w2h-searchbar {
+            width: 100%;
+          }
+          .w2h-region-panel select {
+            width: 160px;
+          }
+        }
+      `}</style>
 
-<style jsx global>{`
-  .gm-style .w2h-iw {
-    max-width: 340px;
-    font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    color: #1a1a1a;
-  }
-  .gm-style .w2h-iw .iw-hd {
-    display: grid;
-    grid-template-columns: 22px 1fr;
-    gap: 8px;
-    align-items: center;
-    margin-bottom: 6px;
-  }
-  .gm-style .w2h-iw .iw-ic img {
-    width: 20px;
-    height: 20px;
-    display: block;
-  }
-  .gm-style .w2h-iw .iw-title {
-    font-weight: 700;
-    font-size: 14px;
-  }
-  .gm-style .w2h-iw .iw-id {
-    font-weight: 400;
-    font-size: 11px;
-    color: #9ca3af;
-    margin-left: 4px;
-  }
-  .gm-style .w2h-iw .iw-row {
-    margin: 6px 0;
-  }
-  .gm-style .w2h-iw .iw-desc {
-    color: #444;
-    white-space: normal;
-  }
-  .gm-style .w2h-iw .iw-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-  .gm-style .w2h-iw .iw-btn {
-    display: inline-block;
-    padding: 6px 10px;
-    border-radius: 8px;
-    background: #1f6aa2;
-    color: #fff;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-    border: none;
-  }
-  .gm-style .w2h-iw .iw-btn:hover {
-    filter: brightness(0.95);
-  }
-  .gm-style .w2h-iw .iw-btn-wind {
-    background: #0ea5e9;
-  }
-  .gm-style .w2h-iw .iw-btn-ki {
-    background: #111827;
-  }
-  .gm-style .w2h-iw .iw-btn-ki:hover {
-    filter: brightness(1.05);
-  }
-  .gm-style .w2h-iw .iw-rating {
-    font-size: 13px;
-    color: #f39c12;
-  }
-  .gm-style .w2h-iw .iw-price {
-    font-size: 13px;
-    color: #27ae60;
-  }
-  .gm-style .w2h-iw .iw-open {
-    font-size: 13px;
-  }
-  .gm-style .w2h-iw .iw-hours {
-    padding-left: 16px;
-    margin: 4px 0;
-  }
+      <style jsx global>{`
+        .gm-style .w2h-iw {
+          max-width: 340px;
+          font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          color: #1a1a1a;
+        }
+      `}</style>
+    </>
+  );
 
-  .gm-style .w2h-iw .iw-block {
-    border: 1px solid #eef2f7;
-    background: #ffffff;
-    border-radius: 12px;
-    padding: 10px;
-  }
-  .gm-style .w2h-iw .iw-block-hd {
-    font-weight: 900;
-    font-size: 12px;
-    letter-spacing: 0.2px;
-    color: #111;
-    margin-bottom: 6px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .gm-style .w2h-iw .iw-block-bd {
-    display: block;
-  }
-
-  .gm-style .w2h-iw .iw-dyn {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid #eee;
-    display: grid;
-    gap: 10px;
-  }
-  .gm-style .w2h-iw .iw-dyn-block {
-    display: grid;
-    gap: 6px;
-  }
-  .gm-style .w2h-iw .iw-dyn-group {
-    font-weight: 800;
-    font-size: 12px;
-    letter-spacing: 0.2px;
-    color: #111;
-    margin-top: 2px;
-  }
-  .gm-style .w2h-iw .iw-dyn-row {
-    display: grid;
-    grid-template-columns: 1fr 1.2fr;
-    gap: 10px;
-    align-items: start;
-  }
-  .gm-style .w2h-iw .iw-dyn-k {
-    font-weight: 600;
-    color: #111;
-  }
-  .gm-style .w2h-iw .iw-dyn-v {
-    color: #374151;
-    word-break: break-word;
-  }
-  .gm-style .w2h-iw .iw-dyn-v a {
-    color: #1f6aa2;
-    text-decoration: underline;
-  }
-`}</style>
-
-</div>
-);
 }
