@@ -597,12 +597,12 @@ useEffect(() => {
   // ------------------------------
   
   const goLang = (code) => {
-  // gleiche Seite, nur Sprach-Prefix tauschen: /de, /en, /it, /hr
+  // gleiche Seite, nur Sprach-Prefix tauschen: /de, /en, /it, /fr, /hr
   const path = window.location.pathname || '/';
   const parts = path.split('/').filter(Boolean);
 
   // Wenn bereits /de|/en|/it|/hr vorne steht -> ersetzen, sonst vorne einfügen
-  const supported = new Set(['de', 'en', 'it', 'hr']);
+  const supported = new Set(['de', 'en', 'it', 'fr', 'hr']);
   if (parts.length > 0 && supported.has(parts[0])) {
     parts[0] = code;
   } else {
@@ -2797,6 +2797,7 @@ useEffect(() => {
                 <button type="button" onClick={() => goLang('de')}>DE</button>
                 <button type="button" onClick={() => goLang('en')}>EN</button>
                 <button type="button" onClick={() => goLang('it')}>IT</button>
+                <button type="button" onClick={() => goLang('fr')}>FR</button>
                 <button type="button" onClick={() => goLang('hr')}>HR</button>
               </div>
 
