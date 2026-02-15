@@ -2913,9 +2913,56 @@ useEffect(() => {
                 border: '1px solid rgba(0,0,0,.06)',
               }}
             >
-              <div style={{ fontWeight: 800, marginBottom: 8 }}>
+              <div
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 2,
+                  background: 'rgba(255,255,255,0.96)',
+                  paddingBottom: 8,
+                  marginBottom: 8,
+                  borderBottom: '1px solid rgba(0,0,0,.06)',
+                }}
+              >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+             }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 13 }}>
                 {resultPanelTitle}
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  clearSearchMode();
+         }}
+              aria-label={label('resetSearch', lang)}
+              title={label('resetSearch', lang)}
+                style={{
+                width: 30,
+                height: 30,
+                borderRadius: 10,
+                border: '1px solid rgba(0,0,0,.12)',
+                background: '#fff',
+                cursor: 'pointer',
+                fontSize: 16,
+                fontWeight: 900,
+                lineHeight: 1,
+                display: 'grid',
+                placeItems: 'center',
+          }}
+    >
+      ✕
+    </button>
+  </div>
+</div>
+
 
               {searchMode.results?.map(({ row, score }) => (
                 <button
