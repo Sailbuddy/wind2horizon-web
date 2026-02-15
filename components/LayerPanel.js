@@ -30,6 +30,13 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
   // "All categories" checkbox indeterminate
   const allRef = useRef(null);
 
+    // ✅ Stabil: onInit-Callback über Ref, damit Kategorien-Load nicht bei jedem Parent-Render neu läuft
+  const onInitRef = useRef(onInit);
+  useEffect(() => {
+    onInitRef.current = onInit;
+  }, [onInit]);
+
+
   // Label je Sprache
   const label = useMemo(() => {
     switch (lang) {
@@ -109,13 +116,13 @@ export default function LayerPanel({ lang = 'de', onToggle, onInit, onToggleAll 
 
       setState(m);
       setCats(cleaned);
-      onInit && onInit(m);
+      onInitRef.current && onInitRef.current(m);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [onInit]);
+  }, []);
 
   // Übersetzung für den Namen im Panel
   const t = (c) =>
