@@ -1920,102 +1920,123 @@ useEffect(() => {
   }
 
   function handleSearch() {
-    const raw = searchQuery.trim();
-    if (!raw || !mapObj.current || !locationsRef.current.length) return;
+  const raw = searchQuery.trim();
+  if (!raw || !mapObj.current || !locationsRef.current.length) return;
 
-    const qNorm = normalizeTextForSearch(raw);
-    if (!qNorm) return;
+  const qNorm = normalizeTextForSearch(raw);
+  if (!qNorm) return;
 
-    const tokens = qNorm.split(' ').filter((t) => t.length >= 2);
-    if (!tokens.length) return;
+  const tokens = qNorm.split(' ').filter((t) => t.length >= 2);
+  if (!tokens.length) return;
 
-    // Kategorie-Hits + Gruppen-Erweiterung
-    const catHits = detectCategoriesFromQuery(` ${qNorm} `);
-    const catIds = catHits.map((h) => h.id);
-    const groupExpandedCatIds = catIds.length ? getGroupMembers(catIds) : [];
-
-    // Tier-Block (Paywall)
-    const tierBlocked = groupExpandedCatIds.filter((id) => !isCategoryAllowedByTier(id));
-    if (catIds.length && tierBlocked.length) {
-      setSearchMode({
-        active: true,
-        query: raw,
-        results: [],
-        message: `${label('paywalledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
-        matchedCategories: catHits,
-      });
-      exitSearchFocus();
-      return;
-    }
-
-    // Layer-Block (Deaktiviert)
-    if (catIds.length) {
-      const enabledAny = groupExpandedCatIds.some((id) => isLayerEnabled(id));
-      if (!enabledAny) {
-        setSearchMode({
-          active: true,
-          query: raw,
-          results: [],
-          message: `${label('disabledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
-          matchedCategories: catHits,
-        });
-        exitSearchFocus();
-        return;
-      }
-    }
-
-    const results = [];
-    for (const row of locationsRef.current) {
-      const meta = metaByLocRef.current.get(row.id) || {};
-      const hay = buildSearchHaystack(row, meta, lang);
-      if (!hay) continue;
-
-      if (catIds.length) {
-        const inCat = groupExpandedCatIds.includes(String(row.category_id));
-        if (!inCat) continue;
-      }
-
-      const nameHay = normalizeTextForSearch(
-        [
-          row.display_name,
-          row.name_de,
-          row.name_en,
-          row.name_it,
-          row.name_fr,
-          row.name_hr,
-          pickCategoryName(row.categories, lang),
-        ]
-          .filter(Boolean)
-          .join(' ')
-      );
-
-      const s = scoreMatch({ hay, tokens, nameHay });
-      if (s >= 0) results.push({ row, score: s });
-    }
-
-    results.sort((a, b) => b.score - a.score);
-    const limited = results.slice(0, 50);
-
-    if (!limited.length) {
-      const regionLabel =
-        selectedRegion === 'all'
-          ? allLabel(lang)
-          : pickRegionName(regions.find((r) => r.slug === selectedRegion) || { slug: selectedRegion }, lang);
-
-      setSearchMode({
-        active: true,
-        query: raw,
-        results: [],
-        message: `Keine Treffer. Tipp: Region prüfen (aktuell: ${regionLabel}) oder Query vereinfachen.`,
-        matchedCategories: catHits,
-      });
-      exitSearchFocus();
-      return;
-    }
-
-    setSearchMode({ active: true, query: raw, results: limited, message: '', matchedCategories: catHits });
-    enterSearchFocus(limited.map((x) => x.row));
+  // ✅ Aktive Layer-Kategorien (UI-Checkboxes) als Basisfilter
+  const activeLayerCatIds = new Set();
+  if (layerState?.current) {
+    layerState.current.forEach((isOn, catId) => {
+      if (isOn) activeLayerCatIds.add(String(catId));
+    });
   }
+
+  // Kategorie-Hits + Gruppen-Erweiterung (aus Query)
+  const catHits = detectCategoriesFromQuery(` ${qNorm} `);
+  const catIds = catHits.map((h) => h.id);
+  const groupExpandedCatIds = catIds.length ? getGroupMembers(catIds) : [];
+
+  // Tier-Block (Paywall)
+  const tierBlocked = groupExpandedCatIds.filter((id) => !isCategoryAllowedByTier(id));
+  if (catIds.length && tierBlocked.length) {
+    setSearchMode({
+      active: true,
+      query: raw,
+      results: [],
+      message: `${label('paywalledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
+      matchedCategories: catHits,
+    });
+    exitSearchFocus();
+    return;
+  }
+
+  // Layer-Block (Deaktiviert) – nur wenn Query explizite Kategorien enthält
+  if (catIds.length) {
+    const enabledAny = groupExpandedCatIds.some((id) => isLayerEnabled(id));
+    if (!enabledAny) {
+      setSearchMode({
+        active: true,
+        query: raw,
+        results: [],
+        message: `${label('disabledCat', lang)}: ${catHits.map((h) => h.name).join(', ')}`,
+        matchedCategories: catHits,
+      });
+      exitSearchFocus();
+      return;
+    }
+  }
+
+  const results = [];
+  for (const row of locationsRef.current) {
+    const meta = metaByLocRef.current.get(row.id) || {};
+    const hay = buildSearchHaystack(row, meta, lang);
+    if (!hay) continue;
+
+    // ✅ 1) Basisfilter: nur Kategorien, die im Layer-Panel aktiv sind
+    // (Wenn activeLayerCatIds leer wäre, lassen wir alles durch – sollte praktisch nicht passieren.)
+    const rowCatId = String(row.category_id);
+    if (activeLayerCatIds.size && !activeLayerCatIds.has(rowCatId)) continue;
+
+    // ✅ 2) Zusatzfilter: wenn Query Kategorie nennt, weiter einschränken (Intersection)
+    if (catIds.length) {
+      const inCat = groupExpandedCatIds.includes(rowCatId);
+      if (!inCat) continue;
+    }
+
+    const nameHay = normalizeTextForSearch(
+      [
+        row.display_name,
+        row.name_de,
+        row.name_en,
+        row.name_it,
+        row.name_fr,
+        row.name_hr,
+        pickCategoryName(row.categories, lang),
+      ]
+        .filter(Boolean)
+        .join(' ')
+    );
+
+    const s = scoreMatch({ hay, tokens, nameHay });
+    if (s >= 0) results.push({ row, score: s });
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  const limited = results.slice(0, 50);
+
+  if (!limited.length) {
+    const regionLabel =
+      selectedRegion === 'all'
+        ? allLabel(lang)
+        : pickRegionName(regions.find((r) => r.slug === selectedRegion) || { slug: selectedRegion }, lang);
+
+    // ✅ Hinweis: Layerfilter kann Ursache sein (nur wenn nicht "alle" aktiv sind)
+    const layerHint =
+      activeLayerCatIds.size && activeLayerCatIds.size < (layerState?.current?.size || activeLayerCatIds.size)
+        ? ' Tipp: Kategorie-Layer prüfen (evtl. sind passende Kategorien deaktiviert).'
+        : '';
+
+    setSearchMode({
+      active: true,
+      query: raw,
+      results: [],
+      message: `Keine Treffer. Tipp: Region prüfen (aktuell: ${regionLabel}) oder Query vereinfachen.${layerHint}`,
+      matchedCategories: catHits,
+    });
+    exitSearchFocus();
+    return;
+  }
+
+  setSearchMode({ active: true, query: raw, results: limited, message: '', matchedCategories: catHits });
+  enterSearchFocus(limited.map((x) => x.row));
+}
+
 
   // ✅ Geolocation: beim Boot (einmal) versuchen, unabhängig von Regions.
   useEffect(() => {
