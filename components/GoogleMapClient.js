@@ -51,6 +51,7 @@ function WindSwellRose({ size = 260, wind = {}, swell = {} }) {
   };
 
   const s = normBool(swell);
+  const w = normBool(wind);
 
   const arrow = (deg, r) => {
     const rad = ((deg - 90) * Math.PI) / 180; // 0° = Norden
