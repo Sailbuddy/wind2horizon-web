@@ -6,6 +6,8 @@ import LayerPanel from '@/components/LayerPanel';
 import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
 import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
+import WelcomeOverlay from './welcomeOverlay';
+
 
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
@@ -3025,6 +3027,9 @@ useEffect(() => {
         ) : null}
       </div>
 
+      {/* ✅ Overlay HIER einfügen */}
+      <WelcomeOverlay />
+
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
       <style jsx>{`
         :global(:root) {
@@ -3182,6 +3187,7 @@ useEffect(() => {
           .w2h-lang { display: flex; gap: 6px; }
           .w2h-lang button { padding: 6px 8px; font-size: 12px; }
         }  
+ 
 
 `}</style>
     <style jsx global>{`
