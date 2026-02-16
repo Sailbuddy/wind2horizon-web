@@ -15,7 +15,6 @@ export const viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: "#0ea5e9",
-  themeColor: "#0ea5e9",
 };
 
 const ALLOWED = new Set(["de", "en", "it", "fr", "hr"]);
