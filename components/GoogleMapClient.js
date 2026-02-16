@@ -8,10 +8,6 @@ import { svgToDataUrl } from '@/lib/utils';
 import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
 import WelcomeOverlay from './welcomeOverlay';
 
-// Overlay steuert Geolocation 
-const [mapLoaded, setMapLoaded] = useState(false); // ✅ NEU
-// Map ist geladen Status 
-const [welcomeClosed, setWelcomeClosed] = useState(false); // ✅ NEU
 
 
 // 🔧 Debug-Schalter
@@ -133,6 +129,8 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const iconCache = useRef(new Map()); // category_id -> google.maps.Icon
   const [booted, setBooted] = useState(false);
   const [locVersion, setLocVersion] = useState(0);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [welcomeClosed, setWelcomeClosed] = useState(false);
 
   // 🔹 Marker-Map & Locations für Suche
   const markerMapRef = useRef(new Map()); // location_id -> Marker
