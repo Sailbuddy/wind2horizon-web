@@ -3045,9 +3045,9 @@ useEffect(() => {
       </div>
 
       {/* ✅ Overlay nur anzeigen wenn Map geladen */}
-      {mapLoaded && !welcomeClosed ? (
+      {mapLoaded ? (
         <WelcomeOverlay onClose={() => setWelcomeClosed(true)} />
-      ) : null
+      ) : null}
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
       <style jsx>{`
