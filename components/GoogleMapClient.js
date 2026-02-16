@@ -7,6 +7,8 @@ import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
 import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
 import WelcomeOverlay from './welcomeOverlay';
+import { initFloatingTools } from '@/lib/w2h/ui/floatingTools';
+import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n';
 
 
 
@@ -2171,6 +2173,44 @@ useEffect(() => {
       }
     };
   }, [lang]);
+
+  const floatingCleanupRef = useRef(null);
+
+useEffect(() => {
+  if (!booted) return;
+  if (!mapObj.current) return;
+
+  // Bei Sprachwechsel alte FloatingTools entfernen
+  if (typeof floatingCleanupRef.current === 'function') {
+    floatingCleanupRef.current();
+    floatingCleanupRef.current = null;
+  }
+
+  const texts = floatingToolsTranslations?.[lang];
+
+  floatingCleanupRef.current = initFloatingTools({
+    mapContainer: mapRef.current,   // WICHTIG: Container, nicht mapObj
+    langCode: lang,
+    texts,
+    actions: {
+      onToggleBoraOverlay: () => {
+        console.log('toggle bora overlay');
+      },
+      onOpenBoraPage: () => {
+        window.open(`/${lang}/bora`, '_blank', 'noreferrer');
+      }
+    }
+  });
+
+  return () => {
+    if (typeof floatingCleanupRef.current === 'function') {
+      floatingCleanupRef.current();
+      floatingCleanupRef.current = null;
+    }
+  };
+
+}, [booted, lang]);
+
 
   // ✅ Regions laden (Supabase)
   useEffect(() => {
