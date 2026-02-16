@@ -3044,7 +3044,22 @@ useEffect(() => {
 
       {/* ✅ Overlay nur anzeigen wenn Map geladen */}
       {mapLoaded ? (
-        <WelcomeOverlay onClose={() => setWelcomeClosed(true)} />
+        <WelcomeOverlay
+          onClose={() => setWelcomeClosed(true)}
+          title={
+            <>
+              <div>
+                Wind
+                <span style={{ color: '#0284c7', fontWeight: 900 }}>2</span>
+                Horizon
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 400, opacity: 0.8 }}>
+                the best of seaside, at one spot
+              </div>
+            </>
+         }
+        />
+
       ) : null}
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}

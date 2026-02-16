@@ -5,14 +5,25 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 export default function WelcomeOverlay({
   storageKey = 'w2h_welcome_seen',
   version = 'v1',
-  title = 'wind2horizon     The best of seaside, at one spot',
+  title = (
+    <>
+      <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '0.04em' }}>
+        Wind
+        <span style={{ color: '#0284c7', fontWeight: 900 }}>2</span>
+        Horizon
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.78, marginTop: 4 }}>
+        the best of seaside, at one spot
+      </div>
+    </>
+  ),
   bullets = [
     'Interaktive Karte mit nautischem Fokus',
     'Wind- & Wetterinfos direkt am Ort',
     'Erlebnisse, Häfen und Tipps entlang der Adria',
   ],
   buttonLabel = 'Zur Karte',
-  onClose, // ✅ NEU
+  onClose,
 }) {
   const key = `${storageKey}_${version}`;
   const [open, setOpen] = useState(false);
@@ -90,7 +101,6 @@ export default function WelcomeOverlay({
       brand: {
         fontSize: '18px',
         letterSpacing: '0.08em',
-        textTransform: 'uppercase',
         fontWeight: 700,
         opacity: 0.92,
       },
