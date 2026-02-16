@@ -7,8 +7,8 @@ import { defaultMarkerSvg } from '@/components/DefaultMarkerSvg';
 import { svgToDataUrl } from '@/lib/utils';
 import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
 import WelcomeOverlay from './welcomeOverlay';
-import { initFloatingTools } from '@/lib/w2h/ui/floatingTools';
-import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n';
+import { initFloatingTools } from '@/lib/w2h/ui/floatingTools.js';
+import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n.js';
 
 
 
