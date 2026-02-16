@@ -8,6 +8,11 @@ import { svgToDataUrl } from '@/lib/utils';
 import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
 import WelcomeOverlay from './welcomeOverlay';
 
+// Overlay steuert Geolocation 
+const [mapLoaded, setMapLoaded] = useState(false); // ✅ NEU
+// Map ist geladen Status 
+const [welcomeClosed, setWelcomeClosed] = useState(false); // ✅ NEU
+
 
 // 🔧 Debug-Schalter
 const DEBUG_MARKERS = false; // true = einfache Kreis-Symbole statt SVG
@@ -2040,15 +2045,22 @@ useEffect(() => {
 }
 
 
-  // ✅ Geolocation: beim Boot (einmal) versuchen, unabhängig von Regions.
-  useEffect(() => {
-    if (!booted || !mapObj.current) return;
-    if (regionMode !== 'auto') return;
+ // ❌ Auto-Geolocation beim Boot deaktiviert (wird nach Welcome ausgelöst)
 
-    // Versuch sofort (Center + Marker). Auto-Region nur, falls regions schon da sind.
-    requestAndApplyGeolocation({ reason: 'auto', alsoSetAutoRegion: true, showAccuracy: true });
+
+  //Neuer Auto-Geolocation Trigger nach Overlay
+  useEffect(() => {
+    if (!mapLoaded) return;
+    if (regionMode !== 'auto') return;
+    if (!welcomeClosed) return;
+
+    requestAndApplyGeolocation({
+      reason: 'auto_after_welcome',
+      alsoSetAutoRegion: true,
+      showAccuracy: true,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booted, regionMode]);
+  }, [mapLoaded, regionMode, welcomeClosed]);
 
   // ✅ Sobald Regions geladen sind: wenn wir schon eine Position haben -> Region nachziehen
   useEffect(() => {
@@ -2077,6 +2089,11 @@ useEffect(() => {
           zoom: 7,
           clickableIcons: false,
           styles: GOOGLE_MAP_STYLE,
+        });
+
+        // Map idle Event setzen
+        window.google.maps.event.addListenerOnce(mapObj.current, 'idle', () => {
+        setMapLoaded(true);
         });
 
         infoWin.current = new google.maps.InfoWindow();
@@ -3027,8 +3044,10 @@ useEffect(() => {
         ) : null}
       </div>
 
-      {/* ✅ Overlay HIER einfügen */}
-      <WelcomeOverlay />
+      {/* ✅ Overlay nur anzeigen wenn Map geladen */}
+      {mapLoaded && !welcomeClosed ? (
+        <WelcomeOverlay onClose={() => setWelcomeClosed(true)} />
+      ) : null
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
       <style jsx>{`

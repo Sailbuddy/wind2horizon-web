@@ -5,28 +5,33 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 export default function WelcomeOverlay({
   storageKey = 'w2h_welcome_seen',
   version = 'v1',
-  title = 'wind2horizon',
+  title = 'wind2horizon     The best of seaside, at one spot',
   bullets = [
     'Interaktive Karte mit nautischem Fokus',
     'Wind- & Wetterinfos direkt am Ort',
     'Erlebnisse, Häfen und Tipps entlang der Adria',
   ],
   buttonLabel = 'Zur Karte',
+  onClose, // ✅ NEU
 }) {
   const key = `${storageKey}_${version}`;
   const [open, setOpen] = useState(false);
   const panelRef = useRef(null);
 
   // Nur einmal beim Mount prüfen (Browser-only)
-  useEffect(() => {
-    try {
-      const seen = window.localStorage.getItem(key);
-      if (seen !== '1') setOpen(true);
-    } catch {
-      // Wenn localStorage blockiert ist, zeigen wir es einmalig trotzdem
-      setOpen(true);
+    useEffect(() => {
+        try {
+            const seen = window.localStorage.getItem(key);
+
+            if (seen !== '1') {
+                setOpen(true);
+            } else {
+                onClose?.(); // sofort freigeben bei Wiederbesuch
+            }
+        } catch (err) {
+            setOpen(true);
     }
-  }, [key]);
+    }, [key, onClose]);
 
   // ESC schließen
   useEffect(() => {
@@ -48,6 +53,7 @@ export default function WelcomeOverlay({
       // ignore
     }
     setOpen(false);
+    onClose?.(); // ✅ NEU: Callback in Parent auslösen
   };
 
   const styles = useMemo(
