@@ -1110,7 +1110,57 @@ useEffect(() => {
       it: 'Cerca luogo o nome…',
       hr: 'Traži mjesto ili naziv…',
       fr: 'Rechercher un lieu ou un nom…',
+
   },
+
+      welcomeIntro: {
+      de: 'Willkommen an Bord. Ein kurzer Überblick – dann geht’s direkt zur Karte.',
+      en: 'Welcome aboard. A short overview – then straight to the map.',
+      it: 'Benvenuto a bordo. Una breve panoramica – poi direttamente alla mappa.',
+      hr: 'Dobrodošli na brod. Kratki pregled – zatim izravno na kartu.',
+      fr: 'Bienvenue à bord. Un bref aperçu – puis directement à la carte.',
+      },
+
+      welcomeBullet1: {
+      de: 'Interaktive Karte mit nautischem Fokus',
+      en: 'Interactive map with nautical focus',
+      it: 'Mappa interattiva con focus nautico',
+      hr: 'Interaktivna karta s nautičkim fokusom',
+      fr: 'Carte interactive avec focus nautique',
+      },
+
+      welcomeBullet2: {
+      de: 'Wind- & Wetterinfos direkt am Ort',
+      en: 'Wind & weather information directly on site',
+      it: 'Informazioni su vento e meteo direttamente sul posto',
+      hr: 'Podaci o vjetru i vremenu izravno na lokaciji',
+      fr: 'Informations vent et météo directement sur place',
+      },
+
+      welcomeBullet3: {
+      de: 'Erlebnisse, Häfen und Tipps entlang der Adria',
+      en: 'Experiences, harbors and tips along the Adriatic',
+      it: 'Esperienze, porti e consigli lungo l’Adriatico',
+      hr: 'Doživljaji, luke i savjeti duž Jadrana',
+      fr: 'Expériences, ports et conseils le long de l’Adriatique',
+      },
+
+      welcomeButton: {
+      de: 'Zur Karte',
+      en: 'To the map',
+      it: 'Alla mappa',
+      hr: 'Na kartu',
+      fr: 'Vers la carte',
+      },
+
+      close: {
+      de: 'Schließen',
+      en: 'Close',
+      it: 'Chiudi',
+      hr: 'Zatvori',
+      fr: 'Fermer',
+      },
+ 
       searchButton: {
       de: 'Suchen',
       en: 'Search',
@@ -3046,7 +3096,7 @@ useEffect(() => {
       {mapLoaded ? (
         <WelcomeOverlay
           onClose={() => setWelcomeClosed(true)}
-          title={
+          titleNode={
             <>
               <div>
                 Wind
@@ -3057,8 +3107,16 @@ useEffect(() => {
                 the best of seaside, at one spot
               </div>
             </>
-         }
+          }
+          introText={label('welcomeIntro', lang)}
+          bullets={[
+            label('welcomeBullet1', lang),
+            label('welcomeBullet2', lang),
+            label('welcomeBullet3', lang),
+          ]}
+          buttonLabel={label('welcomeToMap', lang)}
         />
+
 
       ) : null}
 

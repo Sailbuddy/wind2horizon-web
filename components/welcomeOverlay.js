@@ -5,7 +5,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 export default function WelcomeOverlay({
   storageKey = 'w2h_welcome_seen',
   version = 'v1',
-  title = (
+
+  // ✅ Brand darf default bleiben (EN)
+  titleNode = (
     <>
       <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '0.04em' }}>
         Wind
@@ -17,12 +19,11 @@ export default function WelcomeOverlay({
       </div>
     </>
   ),
-  bullets = [
-    'Interaktive Karte mit nautischem Fokus',
-    'Wind- & Wetterinfos direkt am Ort',
-    'Erlebnisse, Häfen und Tipps entlang der Adria',
-  ],
-  buttonLabel = 'Zur Karte',
+
+  // ✅ Diese Inhalte sollen von außen (i18n) kommen
+  introText = '',
+  bullets = [],
+  buttonLabel = '',
   onClose,
 }) {
   const key = `${storageKey}_${version}`;
@@ -192,10 +193,12 @@ export default function WelcomeOverlay({
       <div ref={panelRef} style={styles.panel}>
         <div style={styles.header}>
           <div style={styles.brandWrap}>
-            <div style={styles.brand}>{title}</div>
-            <div style={styles.sub}>
-              Willkommen an Bord. Ein kurzer Überblick – dann geht’s direkt zur Karte.
-            </div>
+            <div style={styles.brand}>{titleNode}</div>
+            {introText ? (
+                <div style={styles.sub}>
+                    {introText}
+                </div>
+            ) : null}
           </div>
 
           <button type="button" style={styles.closeBtn} onClick={close} aria-label="Schließen">
