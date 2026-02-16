@@ -3033,7 +3033,8 @@ useEffect(() => {
         }
 
         .w2h-page {
-          height: 100vh;
+          height: 100dvh;     /* iOS korrekt */
+          min-height: 100dvh;
           width: 100%;
           display: flex;
           flex-direction: column;
@@ -3053,6 +3054,7 @@ useEffect(() => {
           align-items: center;
           gap: 12px;
           padding: 0 12px;
+          min-width: 0;           /* wichtig: erlaubt Schrumpfen in iOS Safari */
         }
 
         .w2h-header-left {
@@ -3063,6 +3065,7 @@ useEffect(() => {
           flex: 1 1 auto;
           display: flex;
           justify-content: center;
+          min-width: 0;           /* wichtig */
         }
 
         .w2h-header-right {
@@ -3083,7 +3086,9 @@ useEffect(() => {
         }
 
         .w2h-searchbar {
-          width: min(720px, 60vw);
+          width: 100%;
+          max-width: 720px; 
+          min-width: 0;           /* wichtig: input darf kleiner werden */
           display: flex;
           gap: 8px;
           align-items: center;
@@ -3158,6 +3163,25 @@ useEffect(() => {
           .w2h-lang button { padding: 6px 8px; font-size: 12px; }
           .w2h-searchbar input {font-size: 16px;  /* verhindert iOS Auto-Zoom */ line-height: 1.2; }
         }
+        @media (max-height: 480px) and (orientation: landscape) {
+          .w2h-header { height: auto; padding: 10px 10px 12px; }
+          .w2h-header-inner {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            grid-template-areas: "left right" "mid mid";
+            gap: 10px;
+            align-items: center;
+       }
+          .w2h-header-left { grid-area: left; }
+          .w2h-header-right { grid-area: right; }
+          .w2h-header-mid { grid-area: mid; }
+          .w2h-region-panel { max-width: 220px; }
+          .w2h-region-panel select { width: 100%; max-width: 220px; }
+          .w2h-searchbar { width: 100%; max-width: none; padding: 8px 10px; }
+          .w2h-searchbar input { width: 100%; min-width: 0; font-size: 16px; line-height: 1.2; }
+          .w2h-lang { display: flex; gap: 6px; }
+          .w2h-lang button { padding: 6px 8px; font-size: 12px; }
+        }  
 
 `}</style>
     <style jsx global>{`
