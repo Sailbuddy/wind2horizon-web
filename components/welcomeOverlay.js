@@ -25,25 +25,50 @@ export default function WelcomeOverlay({
   bullets = [],
   buttonLabel = '',
   onClose,
+
+  // ✅ NEU: Sprachumschaltung (für /de /en /it /fr /hr)
+  showLangSwitch = true,
+  currentLang = 'de',
+  supportedLangs = ['de', 'en', 'it', 'fr', 'hr'],
+
+  // ✅ NEU: Übersetzter Label-Getter für Accessibility (z.B. label('close', lang))
+  // Wenn nicht übergeben, fallen wir auf Default zurück.
+  label = (key, _lang) => {
+    if (key === 'close') return 'Close';
+    if (key === 'language') return 'Language';
+    return '';
+  },
 }) {
   const key = `${storageKey}_${version}`;
   const [open, setOpen] = useState(false);
   const panelRef = useRef(null);
 
-  // Nur einmal beim Mount prüfen (Browser-only)
-    useEffect(() => {
-        try {
-            const seen = window.localStorage.getItem(key);
+  const goLang = (code) => {
+    const path = window.location.pathname || '/';
+    const parts = path.split('/').filter(Boolean);
 
-            if (seen !== '1') {
-                setOpen(true);
-            } else {
-                onClose?.(); // sofort freigeben bei Wiederbesuch
-            }
-        } catch (err) {
-            setOpen(true);
+    const supported = new Set(supportedLangs);
+    if (parts.length > 0 && supported.has(parts[0])) parts[0] = code;
+    else parts.unshift(code);
+
+    window.location.href =
+      '/' + parts.join('/') + window.location.search + window.location.hash;
+  };
+
+  // Nur einmal beim Mount prüfen (Browser-only)
+  useEffect(() => {
+    try {
+      const seen = window.localStorage.getItem(key);
+
+      if (seen !== '1') {
+        setOpen(true);
+      } else {
+        onClose?.(); // sofort freigeben bei Wiederbesuch
+      }
+    } catch (err) {
+      setOpen(true);
     }
-    }, [key, onClose]);
+  }, [key, onClose]);
 
   // ESC schließen
   useEffect(() => {
@@ -65,7 +90,7 @@ export default function WelcomeOverlay({
       // ignore
     }
     setOpen(false);
-    onClose?.(); // ✅ NEU: Callback in Parent auslösen
+    onClose?.(); // ✅ Callback in Parent auslösen
   };
 
   const styles = useMemo(
@@ -173,6 +198,17 @@ export default function WelcomeOverlay({
         cursor: 'pointer',
         minWidth: '140px',
       },
+
+      // optional: stylischerer Lang-Button
+      langBtn: {
+        padding: '6px 8px',
+        borderRadius: 10,
+        border: '1px solid rgba(255,255,255,.18)',
+        color: '#fff',
+        fontWeight: 800,
+        fontSize: 12,
+        cursor: 'pointer',
+      },
     }),
     []
   );
@@ -191,19 +227,46 @@ export default function WelcomeOverlay({
       }}
     >
       <div ref={panelRef} style={styles.panel}>
+        {/* ✅ EINMAL Header (nicht doppelt) */}
         <div style={styles.header}>
           <div style={styles.brandWrap}>
             <div style={styles.brand}>{titleNode}</div>
-            {introText ? (
-                <div style={styles.sub}>
-                    {introText}
-                </div>
-            ) : null}
+
+            {introText ? <div style={styles.sub}>{introText}</div> : null}
           </div>
 
-          <button type="button" style={styles.closeBtn} onClick={close} aria-label="Schließen">
-            ✕
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {showLangSwitch ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                {supportedLangs.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => goLang(c)}
+                    style={{
+                      ...styles.langBtn,
+                      background:
+                        c === currentLang ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.10)',
+                    }}
+                    aria-label={`${label('language', currentLang)} ${c.toUpperCase()}`}
+                    title={c.toUpperCase()}
+                  >
+                    {c.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              style={styles.closeBtn}
+              onClick={close}
+              aria-label={label('close', currentLang)} // ✅ HIER
+              title={label('close', currentLang)}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <div style={styles.body}>

@@ -3114,7 +3114,11 @@ useEffect(() => {
             label('welcomeBullet2', lang),
             label('welcomeBullet3', lang),
           ]}
-          buttonLabel={label('welcomeToMap', lang)}
+          buttonLabel={label('welcomeButton', lang)}   // ⚠️ dein Key heißt welcomeButton (nicht welcomeToMap)
+          showLangSwitch={true}
+          currentLang={lang}
+          supportedLangs={['de', 'en', 'it', 'fr', 'hr']}
+          label={label} // ✅ WICHTIG: für aria-label close/language
         />
 
 
