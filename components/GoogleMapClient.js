@@ -2197,7 +2197,7 @@ useEffect(() => {
         console.log('toggle bora overlay');
       },
       onOpenBoraPage: () => {
-        window.open(`/${lang}/bora`, '_blank', 'noreferrer');
+        window.open('https://bora.wind2horizon.com/', '_blank', 'noreferrer');
       }
     }
   });
