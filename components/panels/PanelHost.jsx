@@ -80,15 +80,10 @@ export default function PanelHost({ open, title, onClose, children }) {
           max-height: min(86vh, 760px);
           overflow: hidden;
 
-          border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.22);
-
-          /* ✅ milchig / glassy */
-          background: rgba(255, 255, 255, 0.78);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.30);
+          /* ✅ Außenbereich transparent -> Map bleibt sichtbar */
+          background: transparent;
+          border: 0;
+          box-shadow: none;
         }
 
         .w2h-modal-head {
@@ -123,16 +118,19 @@ export default function PanelHost({ open, title, onClose, children }) {
           height: 36px;
           border-radius: 12px;
           border: 1px solid rgba(0, 0, 0, 0.12);
-          background: rgba(255, 255, 255, 0.65);
+          background: rgba(255, 255, 255, 0.85);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
           cursor: pointer;
           font-weight: 900;
         }
 
         .w2h-modal-body {
-          padding: 14px;
-          overflow: auto;
-          max-height: calc(min(86vh, 760px) - 54px);
+          padding: 0;              /* ✅ kein milchiger Rand */
+          overflow: auto;          /* Scroll bleibt */
+          max-height: min(86vh, 760px);
         }
+
 
         @media (max-width: 640px) {
           .w2h-modal {
