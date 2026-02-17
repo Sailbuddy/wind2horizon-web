@@ -10,7 +10,12 @@ function levelBadge(level, minDelta) {
   const base = "inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold";
   if (level === 'storm') return <span className={`${base} bg-red-100 text-red-700`}>Stark (≤ −8) • min {minDelta} hPa</span>;
   if (level === 'bora')  return <span className={`${base} bg-red-50 text-red-700`}>Bora (≤ −4) • min {minDelta} hPa</span>;
-  if (level === 'watch') return <span className={`${base} bg-amber-50 text-amber-700`}>Achtung (< 0) • min {minDelta} hPa</span>;
+  if (level === 'watch')
+    return (
+      <span className={`${base} bg-amber-50 text-amber-700`}>
+        Achtung (&lt; 0) • min {minDelta} hPa
+      </span>
+    );
   return <span className={`${base} bg-slate-100 text-slate-700`}>Keine Bora • min {minDelta} hPa</span>;
 }
 
