@@ -1207,6 +1207,8 @@ useEffect(() => {
     // 3) Fallback: Key zurückgeben (Debug sichtbar)
     return key;
 
+    } // ✅ label() endet hier
+
 
   const DAY_OUTPUT = {
     de: ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'],
