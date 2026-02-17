@@ -53,7 +53,7 @@ export default function BoraChart({ title, labels, data }) {
             legend: { display: false },
             annotation: {
               annotations: {
-                line0: { type: 'line', yMin: 0, yMax: 0, borderColor: '#ffffff', borderWidth: 1 },
+                line0: { type: 'line', yMin: 0, yMax: 0, borderColor: '#0284c7', borderWidth: 2 },
                 line4: { type: 'line', yMin: -4, yMax: -4, borderColor: '#f59e0b', borderWidth: 2 },
                 line8: { type: 'line', yMin: -8, yMax: -8, borderColor: '#ef4444', borderWidth: 2 },
               },
