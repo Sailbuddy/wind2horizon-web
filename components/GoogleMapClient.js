@@ -11,7 +11,7 @@ import { initFloatingTools } from '@/lib/w2h/ui/floatingTools.js';
 import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n.js';
 import PanelHost from '@/components/panels/PanelHost';
 import BoraPanel from '@/components/panels/BoraPanel';
-import { boraTexts } from '@/lib/w2h/i18n/boraTexts';
+import { boraTexts } from '@/lib/i18n/boraTexts';
 
 
 
