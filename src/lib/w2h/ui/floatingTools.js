@@ -272,28 +272,13 @@ export function initFloatingTools(options = {}) {
         return;
       }
 
-      // --- CHANGE: Bora icon opens the REAL Bora overlay (PanelHost) ---
+ 
       if (tool.id === 'bora') {
-        // Close any open floating panel (keeps UX clean)
+       console.log('BORA BUTTON CLICKED');
         setOpen(false);
-        // Fire app callback (GoogleMapClient -> setActivePanel('bora'))
         actions.onOpenBoraOverlay?.();
-        // Generic hook (optional)
-        actions.onAction?.('bora-open-overlay');
-        return;
-      }
-
-      // Normal tool kinds
-      if (tool.kind === 'panel') openTool(tool);
-
-      if (tool.kind === 'link' && tool.href) {
-        window.open(tool.href, '_blank', 'noreferrer');
-      }
-
-      if (tool.kind === 'action' && typeof tool.onClick === 'function') {
-        tool.onClick({ langCode, texts });
-      }
-    }
+      return;
+  }
 
     btn.addEventListener('click', handleActivate);
     btn.addEventListener('keydown', (e) => {
