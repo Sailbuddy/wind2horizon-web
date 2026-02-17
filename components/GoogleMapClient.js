@@ -3168,14 +3168,14 @@ useEffect(() => {
 
       ) : null}
 
-      {/* ✅ Bora Panel Overlay */}
-      <PanelHost
-        open={activePanel === 'bora'}
-        title="Bora"
-        onClose={() => setActivePanel(null)}
-      >
+        {/* ✅ Bora Panel Overlay */}
+        <PanelHost
+          open={activePanel === 'bora'}
+          title={label?.('boraTitle', lang) ?? 'Bora'}
+          onClose={() => setActivePanel(null)}
+        >
         <BoraPanel lang={lang} label={label} />
-      </PanelHost>
+        </PanelHost>
 
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
