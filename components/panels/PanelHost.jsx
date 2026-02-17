@@ -76,14 +76,19 @@ export default function PanelHost({ open, title, onClose, children }) {
 
         .w2h-modal {
           position: relative;
-          width: min(980px, 94vw);
+
+          /* ✅ kleiner, mit freien Rändern */
+          width: min(920px, 86vw);
           max-height: min(86vh, 760px);
           overflow: hidden;
 
-          /* ✅ Außenbereich transparent -> Map bleibt sichtbar */
-          background: transparent;
-          border: 0;
-          box-shadow: none;
+          /* ✅ milchiger Glas-Container zurück */
+          border-radius: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.38);
+          background: rgba(255, 255, 255, 0.72);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.30);
         }
 
         .w2h-modal-head {
@@ -126,15 +131,15 @@ export default function PanelHost({ open, title, onClose, children }) {
         }
 
         .w2h-modal-body {
-          padding: 0;              /* ✅ kein milchiger Rand */
-          overflow: auto;          /* Scroll bleibt */
+          padding: 14px 14px 16px 14px;
+          overflow: auto;
           max-height: min(86vh, 760px);
         }
 
 
         @media (max-width: 640px) {
           .w2h-modal {
-            width: min(96vw, 980px);
+            width: 94vw;
             max-height: 88vh;
             border-radius: 16px;
           }
