@@ -2,70 +2,50 @@
 
 import { useEffect, useRef } from 'react';
 
-/**
- * PanelHost (W2H)
- * - Supports BOTH APIs:
- *   A) <PanelHost open={boolean} title="..." onClose={fn}>...</PanelHost>
- *   B) <PanelHost activePanel={string|null} onClose={fn}>...</PanelHost>
- *
- * Behavior:
- * - ESC closes
- * - Click backdrop closes
- * - High z-index above Google Maps
- */
-export default function PanelHost(props) {
-  const { onClose, children } = props;
-
-  // Backward/forward compatible "isOpen"
-  const isOpen =
-    typeof props.open === 'boolean'
-      ? props.open
-      : Boolean(props.activePanel); // old API: activePanel truthy => open
-
-  const title = props.title || null;
-
+export default function PanelHost({ open, title, onClose, children }) {
   const overlayRef = useRef(null);
 
-  // ESC closes (only when open)
+  // ESC schließt
   useEffect(() => {
-    if (!isOpen) return;
-
+    if (!open) return;
     const onKey = (e) => {
       if (e.key === 'Escape') onClose?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [open, onClose]);
 
-  // Click outside (backdrop) closes
-  const onBackdropMouseDown = (e) => {
+  // Klick außerhalb (Backdrop) schließt
+  const onBackdropDown = (e) => {
     if (e.target === overlayRef.current) onClose?.();
   };
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
     <>
       <div
         ref={overlayRef}
-        onMouseDown={onBackdropMouseDown}
+        onMouseDown={onBackdropDown}
+        onTouchStart={onBackdropDown}
         className="w2h-modal-overlay"
         role="dialog"
         aria-modal="true"
-        aria-label={title || 'Panel'}
       >
-        <div className="w2h-modal">
-          <button
-            type="button"
-            className="w2h-modal-x"
-            onClick={() => onClose?.()}
-            aria-label="Close"
-            title="Close"
-          >
-            ✕
-          </button>
+        <div className="w2h-modal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="w2h-modal-head">
+            <div className="w2h-modal-title">{title}</div>
 
-          {title ? <div className="w2h-modal-title">{title}</div> : null}
+            <button
+              type="button"
+              className="w2h-modal-x"
+              onClick={() => onClose?.()}
+              aria-label="Close"
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
 
           <div className="w2h-modal-body">{children}</div>
         </div>
@@ -75,73 +55,94 @@ export default function PanelHost(props) {
         .w2h-modal-overlay {
           position: fixed;
           inset: 0;
-          /* Google Maps kann brutal hohe Layer haben -> wir gehen drüber */
-          z-index: 99999;
+          z-index: 2000;
 
           display: grid;
           place-items: center;
           padding: 14px;
 
-          /* hochwertig, durchscheinend */
-          background: rgba(2, 6, 23, 0.25);
-          backdrop-filter: blur(6px);
-          -webkit-backdrop-filter: blur(6px);
+          /* ✅ Backdrop transparent */
+          background: transparent;
+
+          /* OPTIONAL: wenn du minimal blur willst, setz auf blur(1px) + rgba unten
+             (aktuell AUS, weil du "durchsichtig" willst)
+          */
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+
+          /* Overlay fängt Klicks ab -> Klick außerhalb schließt */
+          pointer-events: auto;
         }
 
         .w2h-modal {
           position: relative;
           width: min(980px, 94vw);
-          max-height: min(88vh, 820px);
+          max-height: min(86vh, 760px);
           overflow: hidden;
 
           border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.35);
-          background: rgba(255, 255, 255, 0.18);
-          box-shadow: 0 20px 70px rgba(0, 0, 0, 0.35);
+          border: 1px solid rgba(255, 255, 255, 0.22);
 
-          /* Glas-Effekt */
-          backdrop-filter: blur(14px);
-          -webkit-backdrop-filter: blur(14px);
+          /* ✅ milchig / glassy */
+          background: rgba(255, 255, 255, 0.78);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.30);
+        }
+
+        .w2h-modal-head {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+
+          padding: 10px 10px 8px 14px;
+
+          /* milchig header (nicht hart weiß) */
+          background: rgba(255, 255, 255, 0.55);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+
+          border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        .w2h-modal-title {
+          font-weight: 800;
+          font-size: 14px;
+          letter-spacing: 0.2px;
+          opacity: 0.9;
         }
 
         .w2h-modal-x {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          z-index: 3;
-
           width: 36px;
           height: 36px;
           border-radius: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.35);
-          background: rgba(255, 255, 255, 0.55);
+          border: 1px solid rgba(0, 0, 0, 0.12);
+          background: rgba(255, 255, 255, 0.65);
           cursor: pointer;
           font-weight: 900;
         }
 
-        .w2h-modal-title {
-          padding: 14px 54px 0 16px;
-          font-weight: 800;
-          letter-spacing: 0.2px;
-          font-size: 14px;
-          color: rgba(15, 23, 42, 0.9);
-          text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
-        }
-
         .w2h-modal-body {
-          padding: 12px 14px 16px 14px;
+          padding: 14px;
           overflow: auto;
-          max-height: min(88vh, 820px);
+          max-height: calc(min(86vh, 760px) - 54px);
         }
 
         @media (max-width: 640px) {
           .w2h-modal {
             width: min(96vw, 980px);
-            max-height: 90vh;
+            max-height: 88vh;
             border-radius: 16px;
           }
           .w2h-modal-body {
             padding: 12px;
+            max-height: calc(88vh - 54px);
           }
         }
       `}</style>
