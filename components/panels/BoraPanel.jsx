@@ -83,24 +83,14 @@ export default function BoraPanel({ lang, label }) {
     [lang, label]
   );
 
-  const LegendBlock = () => (
-    <div className="w2h-legend-card">
-      <div className="w2h-legend-line">
-        <span className="w2h-legend-bar w2h-legend-bar-0" />
-        <span className="w2h-legend-text w2h-legend-0">0 = {t.leg0}</span>
+  const renderLegend = () => (
+     <div className="w2h-legend-card">
+      <div className="w2h-legend-line w2h-legend-0">0 = {t.leg0}</div>
+      <div className="w2h-legend-line w2h-legend-4">−4 hPa – {t.leg4}</div>
+       <div className="w2h-legend-line w2h-legend-8">−8 hPa – {t.leg8}</div>
       </div>
-
-      <div className="w2h-legend-line">
-        <span className="w2h-legend-bar w2h-legend-bar-4" />
-        <span className="w2h-legend-text w2h-legend-4">−4 hPa – {t.leg4}</span>
-      </div>
-
-      <div className="w2h-legend-line">
-        <span className="w2h-legend-bar w2h-legend-bar-8" />
-        <span className="w2h-legend-text w2h-legend-8">−8 hPa – {t.leg8}</span>
-      </div>
-    </div>
   );
+
 
   return (
     <div className="w2h-bora-wrap">
@@ -122,7 +112,7 @@ export default function BoraPanel({ lang, label }) {
       {/* Woche */}
       <section className="w2h-section">
         <BoraChart title={t.week} labels={charts?.week?.labels || []} data={charts?.week?.data || []} />
-        <LegendBlock />
+        {renderLegend()}
       </section>
 
       {/* LiveWind */}
@@ -138,7 +128,7 @@ export default function BoraPanel({ lang, label }) {
       {/* 48h */}
       <section className="w2h-section">
         <BoraChart title={t.h48} labels={charts?.h48?.labels || []} data={charts?.h48?.data || []} />
-        <LegendBlock />
+        {renderLegend()}
       </section>
 
       <style jsx>{`
