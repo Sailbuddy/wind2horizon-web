@@ -2192,18 +2192,16 @@ useEffect(() => {
 
   const texts = floatingToolsTranslations?.[lang];
 
-  floatingCleanupRef.current = initFloatingTools({
-    mapContainer: mapRef.current,   // WICHTIG: Container, nicht mapObj
-    langCode: lang,
-    texts,
-    actions: {
-      onToggleBoraOverlay: () => {
-      setActivePanel((p) => (p === 'bora' ? null : 'bora'));
-    },
-      onOpenBoraPage: () => {
-      // keine Unterseite – gleicher Effekt wie Toggle
-      setActivePanel((p) => (p === 'bora' ? null : 'bora'));
-    },
+    floatingCleanupRef.current = initFloatingTools({
+      mapContainer: mapRef.current,   // WICHTIG: Container, nicht mapObj
+      langCode: lang,
+      texts,
+      actions: {
+        onOpenBoraOverlay: () => {
+          setActivePanel((p) => (p === 'bora' ? null : 'bora'));
+        },
+      },
+    });
 },
   });
 
