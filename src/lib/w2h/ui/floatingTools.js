@@ -15,7 +15,7 @@ function ensureStyles() {
 
   const css = `
   .w2h-floatdock{
-    position:absolute; right:14px; bottom:130px;
+    position:absolute; right:14px; bottom:135px;
     display:flex; flex-direction:column; gap:10px;
     z-index: 50;
     pointer-events:auto;
