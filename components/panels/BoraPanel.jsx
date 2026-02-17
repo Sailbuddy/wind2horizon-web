@@ -70,11 +70,32 @@ export default function BoraPanel({ lang, label }) {
       p2: label('boraP2', lang),
       p3: label('boraP3', lang),
       note: label('boraNote', lang),
+
       week: label('boraWeek', lang) || 'Wochenprognose',
       h48: label('bora48h', lang) || 'Detailansicht der nächsten 48 Stunden',
       liveTitle: label('boraLiveTitle', lang) || 'Aktuell vor Ort – Triest',
+
+      // ✅ Legende (i18n)
+      leg0: label('boraLegend0', lang) || 'keine Druckdifferenz',
+      leg4: label('boraLegend4', lang) || 'Bora möglich',
+      leg8: label('boraLegend8', lang) || 'Starke Bora',
     }),
     [lang, label]
+  );
+
+  const LegendBlock = () => (
+    <div className="w2h-legend-card">
+      <div className="w2h-legend-line w2h-legend-0">0 = {t.leg0}</div>
+      <div className="w2h-legend-line w2h-legend-4">−4 hPa – {t.leg4}</div>
+      <div className="w2h-legend-line w2h-legend-8">−8 hPa – {t.leg8}</div>
+
+      {/*
+        Falls du BoraLegend später komplett entfernen willst:
+        1) Import oben löschen
+        2) BoraLegend hier nicht mehr rendern
+        Aktuell lassen wir es draußen, weil du explizit die Zeilen färben willst.
+      */}
+    </div>
   );
 
   return (
@@ -97,9 +118,7 @@ export default function BoraPanel({ lang, label }) {
       {/* Woche */}
       <section className="w2h-section">
         <BoraChart title={t.week} labels={charts?.week?.labels || []} data={charts?.week?.data || []} />
-        <div className="w2h-legend-card">
-          <BoraLegend />
-        </div>
+        <LegendBlock />
       </section>
 
       {/* LiveWind */}
@@ -115,9 +134,7 @@ export default function BoraPanel({ lang, label }) {
       {/* 48h */}
       <section className="w2h-section">
         <BoraChart title={t.h48} labels={charts?.h48?.labels || []} data={charts?.h48?.data || []} />
-        <div className="w2h-legend-card">
-          <BoraLegend />
-        </div>
+        <LegendBlock />
       </section>
 
       <style jsx>{`
@@ -145,6 +162,44 @@ export default function BoraPanel({ lang, label }) {
           border-radius: 16px;
           padding: 10px 12px;
           box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
+        }
+
+        /* ✅ Legenden-Zeilen: Farbe + Linie */
+        .w2h-legend-line {
+          font-size: 13px;
+          font-weight: 650;
+          margin: 4px 0;
+        }
+
+        .w2h-legend-line::before {
+          content: '';
+          display: inline-block;
+          width: 26px;
+          height: 3px;
+          margin-right: 8px;
+          vertical-align: middle;
+          border-radius: 999px;
+        }
+
+        .w2h-legend-0 {
+          color: #0284c7; /* W2H Blau */
+        }
+        .w2h-legend-0::before {
+          background: #0284c7;
+        }
+
+        .w2h-legend-4 {
+          color: #f59e0b; /* Orange */
+        }
+        .w2h-legend-4::before {
+          background: #f59e0b;
+        }
+
+        .w2h-legend-8 {
+          color: #ef4444; /* Rot */
+        }
+        .w2h-legend-8::before {
+          background: #ef4444;
         }
 
         .w2h-section {
@@ -220,7 +275,7 @@ export default function BoraPanel({ lang, label }) {
           color: #b91c1c;
         }
         .w2h-badge-watch {
-          background: rgba(245, 158, 11, 0.10);
+          background: rgba(245, 158, 11, 0.1);
           color: #92400e;
         }
         .w2h-badge-none {
