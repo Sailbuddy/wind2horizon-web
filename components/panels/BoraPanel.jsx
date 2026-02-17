@@ -85,16 +85,20 @@ export default function BoraPanel({ lang, label }) {
 
   const LegendBlock = () => (
     <div className="w2h-legend-card">
-      <div className="w2h-legend-line w2h-legend-0">0 = {t.leg0}</div>
-      <div className="w2h-legend-line w2h-legend-4">−4 hPa – {t.leg4}</div>
-      <div className="w2h-legend-line w2h-legend-8">−8 hPa – {t.leg8}</div>
+      <div className="w2h-legend-line">
+        <span className="w2h-legend-bar w2h-legend-bar-0" />
+        <span className="w2h-legend-text w2h-legend-0">0 = {t.leg0}</span>
+      </div>
 
-      {/*
-        Falls du BoraLegend später komplett entfernen willst:
-        1) Import oben löschen
-        2) BoraLegend hier nicht mehr rendern
-        Aktuell lassen wir es draußen, weil du explizit die Zeilen färben willst.
-      */}
+      <div className="w2h-legend-line">
+        <span className="w2h-legend-bar w2h-legend-bar-4" />
+        <span className="w2h-legend-text w2h-legend-4">−4 hPa – {t.leg4}</span>
+      </div>
+
+      <div className="w2h-legend-line">
+        <span className="w2h-legend-bar w2h-legend-bar-8" />
+        <span className="w2h-legend-text w2h-legend-8">−8 hPa – {t.leg8}</span>
+      </div>
     </div>
   );
 
@@ -164,43 +168,35 @@ export default function BoraPanel({ lang, label }) {
           box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
         }
 
-        /* ✅ Legenden-Zeilen: Farbe + Linie */
+        /* ✅ Legenden-Zeilen: Farbe + Linie (robust ohne ::before) */
         .w2h-legend-line {
+          display: flex;
+          align-items: center;
+          gap: 10px;
           font-size: 13px;
           font-weight: 650;
-          margin: 4px 0;
+          margin: 6px 0;
         }
 
-        .w2h-legend-line::before {
-          content: '';
-          display: inline-block;
+        .w2h-legend-bar {
           width: 26px;
           height: 3px;
-          margin-right: 8px;
-          vertical-align: middle;
           border-radius: 999px;
+          flex: 0 0 auto;
         }
 
-        .w2h-legend-0 {
-          color: #0284c7; /* W2H Blau */
-        }
-        .w2h-legend-0::before {
-          background: #0284c7;
+        .w2h-legend-text {
+          display: inline-block;
         }
 
-        .w2h-legend-4 {
-          color: #f59e0b; /* Orange */
-        }
-        .w2h-legend-4::before {
-          background: #f59e0b;
-        }
+        /* Farben */
+        .w2h-legend-0 { color: #0284c7; }
+        .w2h-legend-4 { color: #f59e0b; }
+        .w2h-legend-8 { color: #ef4444; }
 
-        .w2h-legend-8 {
-          color: #ef4444; /* Rot */
-        }
-        .w2h-legend-8::before {
-          background: #ef4444;
-        }
+        .w2h-legend-bar-0 { background: #0284c7; }
+        .w2h-legend-bar-4 { background: #f59e0b; }
+        .w2h-legend-bar-8 { background: #ef4444; }
 
         .w2h-section {
           display: flex;
