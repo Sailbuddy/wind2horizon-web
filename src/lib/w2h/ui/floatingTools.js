@@ -2,21 +2,12 @@
 // Minimal-invasives Floating Tool Dock + Slide-In Panel (DOM-only)
 // i18n-clean: expects "texts" object injected from floatingTools.i18n.js
 //
-// Usage:
-//   import { initFloatingTools } from '@/lib/w2h/ui/floatingTools';
-//   import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n';
-//   const texts = floatingToolsTranslations[langCode];
-//   const ft = initFloatingTools({ mapContainer: mapDivRef.current, langCode, texts, actions });
-//
-// Notes:
-// - DOM-only, no framework dependencies
-// - Safe destroy() removes listeners
-// - "tools" can be overridden for custom tool sets
-//
 // CHANGE (Bora UX):
 // - Bora Floating Icon opens the REAL Bora overlay (PanelHost via callback)
 // - No Bora buttons inside this floating panel
 // - No "Bora-Warner" intermediate UI anymore
+
+const DEBUG_FLOATINGTOOLS = true; // <- bei Bedarf auf false setzen
 
 function ensureStyles() {
   const id = 'w2h-floatingtools-styles';
@@ -96,13 +87,11 @@ function resolveEl(elOrSelector) {
 
 /**
  * Builds default tools using injected i18n texts.
- * No hardcoded copy here; "texts" drives labels, titles, hints, button text.
- *
  * CHANGE:
  * - Bora is now a pure ACTION tool: click icon -> actions.onOpenBoraOverlay()
  * - no Bora panel render / no Bora buttons
  */
-function buildDefaultTools({ texts, langCode }) {
+function buildDefaultTools({ texts }) {
   const tx = texts || {};
   const safe = (k, fallback) => (typeof tx[k] === 'string' && tx[k].trim() ? tx[k] : fallback);
 
@@ -113,7 +102,6 @@ function buildDefaultTools({ texts, langCode }) {
       kind: 'action',
       label: safe('bora', 'Bora'),
       title: safe('boraTitle', 'Wind2Horizon'),
-      // Action is resolved centrally in initFloatingTools via actions.onOpenBoraOverlay
     },
     {
       id: 'seewetter',
@@ -170,8 +158,8 @@ export function initFloatingTools(options = {}) {
   const {
     mapContainer = '#map',
     langCode = 'de',
-    texts = null, // REQUIRED for real i18n; injected from floatingTools.i18n.js
-    tools = null, // if provided, overrides defaults
+    texts = null,
+    tools = null,
     actions = {}, // callbacks: onOpenBoraOverlay, onAction(actionKey)
   } = options;
 
@@ -193,6 +181,10 @@ export function initFloatingTools(options = {}) {
 
   const resolvedTools =
     Array.isArray(tools) && tools.length ? tools : buildDefaultTools({ texts, langCode });
+
+  if (DEBUG_FLOATINGTOOLS) {
+    console.log('[w2h] floatingTools init', { langCode, hasTexts: !!texts, tools: resolvedTools.map(t => t.id) });
+  }
 
   const dock = document.createElement('div');
   dock.className = 'w2h-floatdock';
@@ -237,7 +229,7 @@ export function initFloatingTools(options = {}) {
   function openTool(tool) {
     activeToolId = tool.id;
     titleEl.textContent = tool.title || 'Wind2Horizon';
-    body.innerHTML = typeof tool.render === 'function' ? tool.render({ langCode, texts }) : tool.render || '';
+    body.innerHTML = typeof tool.render === 'function' ? tool.render({ langCode, texts }) : (tool.render || '');
 
     setOpen(true);
 
@@ -266,20 +258,22 @@ export function initFloatingTools(options = {}) {
     function handleActivate() {
       const isOpen = panel.getAttribute('data-open') === '1';
 
-      // If same panel-tool active -> toggle close
-      if (tool.kind === 'panel' && activeToolId === tool.id && isOpen) {
+      if (DEBUG_FLOATINGTOOLS) {
+        console.log('[w2h] floatingTools click', { toolId: tool.id, kind: tool.kind, isOpen, activeToolId });
+      }
+
+      // Bora => open real overlay via callback only
+      if (tool.id === 'bora') {
+        if (DEBUG_FLOATINGTOOLS) console.log('[w2h] BORA BUTTON CLICKED -> actions.onOpenBoraOverlay()');
         setOpen(false);
+        actions.onOpenBoraOverlay?.();
+        actions.onAction?.('bora-open-overlay');
         return;
       }
 
-      // --- CHANGE: Bora icon opens the REAL Bora overlay (PanelHost) ---
-      if (tool.id === 'bora') {
-        // Close any open floating panel (keeps UX clean)
+      // If same panel-tool active -> toggle close
+      if (tool.kind === 'panel' && activeToolId === tool.id && isOpen) {
         setOpen(false);
-        // Fire app callback (GoogleMapClient -> setActivePanel('bora'))
-        actions.onOpenBoraOverlay?.();
-        // Generic hook (optional)
-        actions.onAction?.('bora-open-overlay');
         return;
       }
 
@@ -294,13 +288,6 @@ export function initFloatingTools(options = {}) {
         tool.onClick({ langCode, texts });
       }
     }
-    if (tool.id === 'bora') {
-  console.log('BORA BUTTON CLICKED');
-  setOpen(false);
-  actions.onOpenBoraOverlay?.();
-  return;
-}
-
 
     btn.addEventListener('click', handleActivate);
     btn.addEventListener('keydown', (e) => {
