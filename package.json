@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.1",
+    "chart.js": "^4.5.1",
+    "chartjs-plugin-annotation": "^3.1.0",
     "maplibre-gl": "3.6.2",
     "next": "^14.2.33",
     "openai": "^6.15.0",
