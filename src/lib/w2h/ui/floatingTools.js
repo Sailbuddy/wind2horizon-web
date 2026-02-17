@@ -23,7 +23,7 @@ function ensureStyles() {
   .w2h-fbtn{
     width:44px; height:44px; border-radius:14px;
     border:1px solid rgba(0,0,0,.12);
-    background:rgba(255,255,255,.102);
+    background:rgba(255,255,255,.202);
     box-shadow:0 6px 20px rgba(0,0,0,.18);
     display:flex; align-items:center; justify-content:center;
     cursor:pointer;
