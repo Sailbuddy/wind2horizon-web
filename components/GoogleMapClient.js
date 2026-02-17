@@ -2198,12 +2198,13 @@ useEffect(() => {
     texts,
     actions: {
       onToggleBoraOverlay: () => {
-        console.log('toggle bora overlay');
-      },
+      setActivePanel((p) => (p === 'bora' ? null : 'bora'));
+    },
       onOpenBoraPage: () => {
-        setActivePanel('bora');
-      }
-    }
+      // keine Unterseite – gleicher Effekt wie Toggle
+      setActivePanel((p) => (p === 'bora' ? null : 'bora'));
+    },
+},
   });
 
   return () => {
