@@ -2182,7 +2182,7 @@ useEffect(() => {
 
 useEffect(() => {
   if (!booted) return;
-  if (!mapObj.current) return;
+  if (!mapRef.current) return; // wichtig: Container prüfen, nicht mapObj
 
   // Bei Sprachwechsel alte FloatingTools entfernen
   if (typeof floatingCleanupRef.current === 'function') {
@@ -2192,17 +2192,15 @@ useEffect(() => {
 
   const texts = floatingToolsTranslations?.[lang];
 
-    floatingCleanupRef.current = initFloatingTools({
-      mapContainer: mapRef.current,   // WICHTIG: Container, nicht mapObj
-      langCode: lang,
-      texts,
-      actions: {
-        onOpenBoraOverlay: () => {
-          setActivePanel((p) => (p === 'bora' ? null : 'bora'));
-        },
+  floatingCleanupRef.current = initFloatingTools({
+    mapContainer: mapRef.current, // WICHTIG: Container, nicht mapObj
+    langCode: lang,
+    texts,
+    actions: {
+      onOpenBoraOverlay: () => {
+        setActivePanel((p) => (p === 'bora' ? null : 'bora'));
       },
-    });
-},
+    },
   });
 
   return () => {
@@ -2211,7 +2209,6 @@ useEffect(() => {
       floatingCleanupRef.current = null;
     }
   };
-
 }, [booted, lang]);
 
 
