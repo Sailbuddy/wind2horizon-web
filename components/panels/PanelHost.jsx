@@ -2,83 +2,108 @@
 
 import { useEffect, useRef } from 'react';
 
-export default function PanelHost({
-  open,
-  title,
-  onClose,
-  children,
-  closeOnBackdrop = true, // Desktop: true, Mobile: optional false
-}) {
-  const panelRef = useRef(null);
+export default function PanelHost({ activePanel, onClose, children }) {
+  const overlayRef = useRef(null);
 
-  // ESC + Scroll-Lock + Fokus
+  // ESC schließt
   useEffect(() => {
-    if (!open) return;
-
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const onKeyDown = (e) => {
+    const onKey = (e) => {
       if (e.key === 'Escape') onClose?.();
     };
-    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
-    // Fokus ins Panel
-    setTimeout(() => {
-      panelRef.current?.focus?.();
-    }, 0);
+  // Klick außerhalb (Backdrop) schließt
+  const onBackdropMouseDown = (e) => {
+    if (e.target === overlayRef.current) onClose?.();
+  };
 
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
+  if (!activePanel) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title || 'Panel'}
-    >
-      {/* Backdrop */}
+    <>
       <div
-        className="absolute inset-0 bg-slate-950/35 backdrop-blur-[4px]"
-        onClick={closeOnBackdrop ? onClose : undefined}
-      />
-
-      {/* Panel */}
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        className="
-          relative z-10
-          w-[92vw] max-w-[1100px]
-          h-[85vh] max-h-[900px]
-          rounded-2xl bg-white shadow-2xl
-          overflow-hidden
-          outline-none
-        "
+        ref={overlayRef}
+        onMouseDown={onBackdropMouseDown}
+        className="w2h-modal-overlay"
+        role="dialog"
+        aria-modal="true"
       >
-        {/* Topbar */}
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200 bg-white">
-          <div className="font-semibold text-slate-900">{title}</div>
+        <div className="w2h-modal">
           <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold"
+            type="button"
+            className="w2h-modal-x"
+            onClick={() => onClose?.()}
             aria-label="Close"
+            title="Close"
           >
             ✕
           </button>
-        </div>
 
-        {/* Content scroll */}
-        <div className="h-[calc(85vh-56px)] max-h-[calc(900px-56px)] overflow-auto">
-          {children}
+          <div className="w2h-modal-body">{children}</div>
         </div>
       </div>
-    </div>
+
+      <style jsx>{`
+        .w2h-modal-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 2000;
+          display: grid;
+          place-items: center;
+          padding: 14px;
+
+          /* Map bleibt erkennbar */
+          background: rgba(2, 6, 23, 0.25);
+          backdrop-filter: blur(2px);
+          -webkit-backdrop-filter: blur(2px);
+        }
+
+        .w2h-modal {
+          position: relative;
+          width: min(980px, 94vw);
+          max-height: min(86vh, 760px);
+          overflow: hidden;
+
+          border-radius: 18px;
+          border: 1px solid rgba(0, 0, 0, 0.10);
+          background: rgba(255, 255, 255, 0.92);
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.30);
+        }
+
+        .w2h-modal-x {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          z-index: 2;
+
+          width: 36px;
+          height: 36px;
+          border-radius: 12px;
+          border: 1px solid rgba(0, 0, 0, 0.12);
+          background: rgba(255, 255, 255, 0.9);
+          cursor: pointer;
+          font-weight: 900;
+        }
+
+        .w2h-modal-body {
+          padding: 14px 14px 16px 14px;
+          overflow: auto;
+          max-height: min(86vh, 760px);
+        }
+
+        @media (max-width: 640px) {
+          .w2h-modal {
+            width: min(96vw, 980px);
+            max-height: 88vh;
+            border-radius: 16px;
+          }
+          .w2h-modal-body {
+            padding: 12px;
+          }
+        }
+      `}</style>
+    </>
   );
 }
