@@ -138,6 +138,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [welcomeClosed, setWelcomeClosed] = useState(false);
   const [activePanel, setActivePanel] = useState(null);
 
+  useEffect(() => {
+  console.log('[w2h] activePanel changed →', activePanel);
+}, [activePanel]);
+
   // 🔹 Marker-Map & Locations für Suche
   const markerMapRef = useRef(new Map()); // location_id -> Marker
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
