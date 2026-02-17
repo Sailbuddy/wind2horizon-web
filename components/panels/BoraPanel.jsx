@@ -158,35 +158,43 @@ export default function BoraPanel({ lang, label }) {
           box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
         }
 
-        /* ✅ Legenden-Zeilen: Farbe + Linie (robust ohne ::before) */
-        .w2h-legend-line {
-          display: flex;
-          align-items: center;
-          gap: 10px;
+        /* ✅ Legend global fix */
+        :global(.w2h-legend-line) {
           font-size: 13px;
           font-weight: 650;
-          margin: 6px 0;
+          margin: 4px 0;
         }
 
-        .w2h-legend-bar {
+        :global(.w2h-legend-line)::before {
+          content: '';
+          display: inline-block;
           width: 26px;
           height: 3px;
+          margin-right: 8px;
+          vertical-align: middle;
           border-radius: 999px;
-          flex: 0 0 auto;
         }
 
-        .w2h-legend-text {
-          display: inline-block;
+        :global(.w2h-legend-0) {
+          color: #0284c7;
+        }
+        :global(.w2h-legend-0)::before {
+          background: #0284c7;
         }
 
-        /* Farben */
-        .w2h-legend-0 { color: #0284c7; }
-        .w2h-legend-4 { color: #f59e0b; }
-        .w2h-legend-8 { color: #ef4444; }
+        :global(.w2h-legend-4) {
+          color: #f59e0b;
+        }
+        :global(.w2h-legend-4)::before {
+          background: #f59e0b;
+        }
 
-        .w2h-legend-bar-0 { background: #0284c7; }
-        .w2h-legend-bar-4 { background: #f59e0b; }
-        .w2h-legend-bar-8 { background: #ef4444; }
+        :global(.w2h-legend-8) {
+          color: #ef4444;
+        }
+        :global(.w2h-legend-8)::before {
+          background: #ef4444;
+        }
 
         .w2h-section {
           display: flex;
