@@ -11,6 +11,8 @@ import { initFloatingTools } from '@/lib/w2h/ui/floatingTools.js';
 import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n.js';
 import PanelHost from '@/components/panels/PanelHost';
 import BoraPanel from '@/components/panels/BoraPanel';
+import { boraTexts } from '@/lib/w2h/i18n/boraTexts';
+
 
 
 
@@ -1190,8 +1192,21 @@ useEffect(() => {
       // ✅ Datenblock (immer sichtbar)
       dataBlock: { de: 'Daten', en: 'Data', it: 'Dati', hr: 'Podaci', fr: 'Données' },
     };
-    return (L[key] && (L[key][langCode] || L[key].en)) || key;
-  }
+    // 1) bestehende Inline-Labels (UI)
+    const hit = L[key] && (L[key][langCode] || L[key].en);
+    if (hit) return hit;
+
+    // 2) Bora-Texts (externes Dictionary)
+    const b =
+      (boraTexts?.[langCode] && boraTexts[langCode][key]) ||
+      (boraTexts?.en && boraTexts.en[key]) ||
+      (boraTexts?.de && boraTexts.de[key]);
+
+    if (typeof b === 'string' && b.trim()) return b;
+
+    // 3) Fallback: Key zurückgeben (Debug sichtbar)
+    return key;
+
 
   const DAY_OUTPUT = {
     de: ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'],
