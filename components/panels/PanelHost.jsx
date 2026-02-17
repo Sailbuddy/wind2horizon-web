@@ -77,12 +77,12 @@ export default function PanelHost({ open, title, onClose, children }) {
         .w2h-modal {
           position: relative;
 
-          /* ✅ kleiner, mit freien Rändern */
           width: min(920px, 86vw);
-          max-height: min(86vh, 760px);
-          overflow: hidden;
+          max-height: 86vh;
 
-          /* ✅ milchiger Glas-Container zurück */
+          display: flex;
+          flex-direction: column;
+
           border-radius: 18px;
           border: 1px solid rgba(255, 255, 255, 0.38);
           background: rgba(255, 255, 255, 0.72);
@@ -132,9 +132,12 @@ export default function PanelHost({ open, title, onClose, children }) {
 
         .w2h-modal-body {
           padding: 14px 14px 16px 14px;
-          overflow: auto;
-          max-height: min(86vh, 760px);
+
+          flex: 1;              /* nimmt Resthöhe */
+          overflow-y: auto;     /* sauber scrollen */
+          min-height: 0;        /* wichtig für flex overflow */
         }
+
 
 
         @media (max-width: 640px) {
