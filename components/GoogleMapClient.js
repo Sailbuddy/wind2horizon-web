@@ -9,6 +9,9 @@ import { hydrateUserPhotos } from '@/lib/w2h/userPhotosHydrate';
 import WelcomeOverlay from './welcomeOverlay';
 import { initFloatingTools } from '@/lib/w2h/ui/floatingTools.js';
 import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n.js';
+import PanelHost from '@/components/panels/PanelHost';
+import BoraPanel from '@/components/panels/BoraPanel';
+
 
 
 
@@ -133,6 +136,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [locVersion, setLocVersion] = useState(0);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [welcomeClosed, setWelcomeClosed] = useState(false);
+  const [activePanel, setActivePanel] = useState(null);
 
   // 🔹 Marker-Map & Locations für Suche
   const markerMapRef = useRef(new Map()); // location_id -> Marker
@@ -2197,7 +2201,7 @@ useEffect(() => {
         console.log('toggle bora overlay');
       },
       onOpenBoraPage: () => {
-        window.open('https://bora.wind2horizon.com/', '_blank', 'noreferrer');
+        setActivePanel('bora');
       }
     }
   });
@@ -3163,6 +3167,16 @@ useEffect(() => {
 
 
       ) : null}
+
+      {/* ✅ Bora Panel Overlay */}
+      <PanelHost
+        open={activePanel === 'bora'}
+        title="Bora"
+        onClose={() => setActivePanel(null)}
+      >
+        <BoraPanel lang={lang} label={label} />
+      </PanelHost>
+
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
       <style jsx>{`
