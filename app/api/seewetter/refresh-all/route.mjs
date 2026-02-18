@@ -1,4 +1,4 @@
-// app/api/seewetter/refresh-all/route.mjs
+// app/api/seewetter/refresh-all/route.js
 import * as cheerio from 'cheerio';
 import { list, put } from '@vercel/blob';
 
@@ -22,7 +22,7 @@ function isVercelCron(req) {
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) return true;
 
-  // lokal/dev immer erlauben
+  // Lokal/Preview erlauben
   if (process.env.NODE_ENV !== 'production') return true;
 
   return false;
@@ -37,11 +37,9 @@ function cleanText(s) {
 }
 
 function extractIssuedAtFromTitle(title) {
-  // Beispiele:
-  // de: "... vom 18.02.2026 um 12"
-  // en/it/hr können auch ähnlich sein – daher ist bodyText-fallback wichtig
+  // Beispiel: "... vom 18.02.2026 um 06"
   try {
-    const m = title.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4})\s+um\s+(\d{1,2})/i);
+    const m = (title || '').match(/vom\s+(\d{2})\.(\d{2})\.(\d{4})\s+um\s+(\d{1,2})/i);
     if (!m) return null;
     const dd = Number(m[1]);
     const mm = Number(m[2]);
@@ -54,13 +52,14 @@ function extractIssuedAtFromTitle(title) {
 }
 
 function extractIssuedAtFromBodyText(fullText) {
-  // Robuster Fallback, falls Title/Hx nicht "vom ... um ..." enthält
+  // Robuster Fallback, falls title/h4 den Zeitstempel nicht enthält
   try {
+    const t = fullText || '';
     const m =
-      fullText.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bum\s+(\d{1,2})/i) ||
-      fullText.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bat\s+(\d{1,2})/i) ||
-      fullText.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\balle\s+(\d{1,2})/i) ||
-      fullText.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bu\s+(\d{1,2})/i);
+      t.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bum\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bat\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\balle\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bu\s+(\d{1,2})/i);
 
     if (!m) return null;
 
@@ -82,28 +81,26 @@ function normalizeForFind(s) {
 }
 
 function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
-  const text = fullText;
+  const text = fullText || '';
 
-  // frühesten Startmarker finden
   let startIndex = -1;
   let startLen = 0;
   let usedStart = '';
 
-  for (const sm of startMarkers) {
-    const idx = text.toLowerCase().indexOf(sm.toLowerCase());
+  for (const sm of startMarkers || []) {
+    const idx = text.toLowerCase().indexOf(String(sm).toLowerCase());
     if (idx !== -1 && (startIndex === -1 || idx < startIndex)) {
       startIndex = idx;
-      startLen = sm.length;
+      startLen = String(sm).length;
       usedStart = sm;
     }
   }
 
   if (startIndex === -1) return { usedStart: '', text: '' };
 
-  // nächstes Marker-Ende finden
   let endIndex = text.length;
-  for (const nm of nextMarkers) {
-    const idx = text.toLowerCase().indexOf(nm.toLowerCase(), startIndex + startLen);
+  for (const nm of nextMarkers || []) {
+    const idx = text.toLowerCase().indexOf(String(nm).toLowerCase(), startIndex + startLen);
     if (idx !== -1 && idx < endIndex) endIndex = idx;
   }
 
@@ -121,36 +118,20 @@ const MARKERS = {
   en: {
     warning: ['Warning'],
     synopsis: ['Synopsis'],
-    forecast_12h: [
-      'Weather forecast for the Adriatic for the first 12 hours',
-      'Weather forecast for the first 12 hours',
-      'Weather forecast for the Adriatic for the next 12 hours',
-    ],
-    outlook_12h: [
-      'Weather forecast for the next 12 hours',
-      'Outlook for the next 12 hours',
-      'Outlook for the Adriatic for the next 12 hours',
-    ],
+    forecast_12h: ['Weather forecast for the Adriatic for the first 12 hours', 'Weather forecast for the first 12 hours'],
+    outlook_12h: ['Weather forecast for the next 12 hours', 'Outlook for the next 12 hours', 'Weather outlook for the next 12 hours'],
   },
   it: {
     warning: ["L'avvertimento", 'L’avvertimento', 'Avvertimento'],
-    synopsis: ['La situazione meteorologica', 'Situazione meteorologica'],
-    forecast_12h: [
-      "La previsione del tempo per l'Adriatico per le prime 12 ore",
-      'per le prime 12 ore',
-      'Prime 12 ore',
-    ],
-    outlook_12h: [
-      'La previsione del tempo per le prossime 12 ore',
-      'per le prossime 12 ore',
-      'Prossime 12 ore',
-    ],
+    synopsis: ['La situazione meteorologica'],
+    forecast_12h: ["La previsione del tempo per l'Adriatico per le prime 12 ore", 'per le prime 12 ore', 'Previsione per le prime 12 ore'],
+    outlook_12h: ["La previsione del tempo per le prossime 12 ore", 'per le prossime 12 ore', 'Tendenza per le prossime 12 ore'],
   },
   hr: {
     warning: ['Upozorenje', 'Upozorenja'],
-    synopsis: ['Stanje', 'Sinopsa', 'Sinopsis'],
-    forecast_12h: ['Vremenska prognoza za Jadran za prvih 12 sati', 'za prvih 12 sati', 'Prvih 12 sati'],
-    outlook_12h: ['Vremenska prognoza za daljnjih 12 sati', 'za daljnjih 12 sati', 'Daljnjih 12 sati'],
+    synopsis: ['Stanje', 'Sinopsis'],
+    forecast_12h: ['Vremenska prognoza za Jadran za prvih 12 sati', 'za prvih 12 sati'],
+    outlook_12h: ['Vremenska prognoza za daljnjih 12 sati', 'za daljnjih 12 sati'],
   },
 };
 
@@ -161,26 +142,26 @@ function extractSectionsFromHtml(html, lang) {
   // Root: Bericht-Container (sehr spezifisch)
   const root =
     $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
-      : $('#primary').first().length ? $('#primary').first()
-        : $('#main-content').first().length ? $('#main-content').first()
-          : $('body');
+    : $('#primary').first().length ? $('#primary').first()
+    : $('#main-content').first().length ? $('#main-content').first()
+    : $('body');
 
   const bodyText = normalizeForFind($('body').text() || '');
 
   if (DEBUG) {
-    console.log('[seewetter] root length:', root.length);
-    console.log('[seewetter] first h4:', cleanText(root.find('h4').first().text()));
-    console.log('[seewetter] first h5:', cleanText(root.find('h5').first().text()));
+    const rootTest = $('#primary .glavni__content').first();
+    console.log('[seewetter] rootTest length:', rootTest.length);
+    console.log('[seewetter] rootTest h4:', cleanText(rootTest.find('h4').first().text()));
+    console.log('[seewetter] rootTest first h5:', cleanText(rootTest.find('h5').first().text()));
   }
 
-  // ---- Title robust: bevorzugt h4, sonst h1/title/body ----
-  // (Bugfix) root muss VOR titleFromH4 definiert sein -> ist jetzt so
-  const h4WithDate = root.find('h4').toArray().map(el => $(el)).find($el => {
+  // ---- Title robust: bevorzugt h4 (mit Datum), sonst h1/title/body ----
+  const h4WithDate = root.find('h4').toArray().map((el) => $(el)).find(($el) => {
     const t = cleanText($el.text());
     return /\b\d{2}\.\d{2}\.\d{4}\b/.test(t);
   });
 
-  const titleFromH4 = cleanText((h4WithDate ? h4WithDate.text() : root.find('h4').first().text()));
+  const titleFromH4 = cleanText(h4WithDate ? h4WithDate.text() : root.find('h4').first().text());
   const titleFromH1 = cleanText(root.find('h1').first().text());
   const titleFromTitle = cleanText($('title').text());
 
@@ -188,7 +169,7 @@ function extractSectionsFromHtml(html, lang) {
     titleFromH4 ||
     titleFromH1 ||
     titleFromTitle ||
-    (bodyText.toLowerCase().includes('seewetterbericht') ? bodyText.slice(0, 140) : 'Sea weather report');
+    (bodyText.toLowerCase().includes('seewetterbericht') ? bodyText.slice(0, 140) : 'Sea Weather Split');
 
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
@@ -222,10 +203,14 @@ function extractSectionsFromHtml(html, lang) {
     if (text) rawSections.push({ label, text });
   });
 
-  // ---- Sanity Check: erkenne "DHMZ Portal" Fake-Sections ----
-  const looksLikePortal =
-    rawSections.some(s => /warning systems|remote sensing|air quality|hydrological/i.test(s.label || '')) ||
-    ((/croatian meteorological/i.test(title)) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(title));
+  // ---- Sanity Check: erkenne DHMZ Portal-Sections (Fehlinhalt) ----
+  const portalLabelHit = rawSections.some(s =>
+    /warning systems|remote sensing|air quality|hydrological/i.test(String(s.label || ''))
+  );
+  const portalTitleHit =
+    /croatian meteorological/i.test(title) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(title);
+
+  const looksLikePortal = portalLabelHit || portalTitleHit;
 
   // Wenn Primary nicht plausibel ist → Fallback erzwingen
   if (rawSections.length < 2 || looksLikePortal) {
@@ -262,7 +247,7 @@ function mapToBlocks(rawSections) {
   for (const sec of rawSections) {
     const h = norm(sec.label);
 
-    if (!blocks.warning && (h.includes('warn') || h.includes('warning') || h.includes('avverten') || h.includes('upozor'))) {
+    if (!blocks.warning && (h.includes('warn') || h.includes('warning') || h.includes('avvert') || h.includes('upozor'))) {
       blocks.warning = { label: sec.label, text: sec.text };
       continue;
     }
@@ -273,6 +258,7 @@ function mapToBlocks(rawSections) {
       h.includes('situaz') ||
       h.includes('sinops') ||
       h.includes('sinop') ||
+      h.includes('stanje') ||
       h.includes('vremensk')
     )) {
       blocks.synopsis = { label: sec.label, text: sec.text };
@@ -284,8 +270,8 @@ function mapToBlocks(rawSections) {
       (h.includes('forecast') && h.includes('12')) ||
       (h.includes('previs') && h.includes('12')) ||
       (h.includes('progno') && h.includes('12')) ||
-      (h.includes('sljede') && h.includes('12')) ||
-      (h.includes('prvih') && h.includes('12'))
+      (h.includes('prvih') && h.includes('12')) ||
+      (h.includes('first') && h.includes('12'))
     )) {
       blocks.forecast_12h = { label: sec.label, text: sec.text };
       continue;
@@ -295,15 +281,16 @@ function mapToBlocks(rawSections) {
       (h.includes('aussicht') && h.includes('12')) ||
       (h.includes('outlook') && h.includes('12')) ||
       (h.includes('tenden') && h.includes('12')) ||
-      (h.includes('izgled') && h.includes('12')) ||
-      (h.includes('success') && h.includes('12')) ||
-      (h.includes('daljnjih') && h.includes('12'))
+      (h.includes('prossime') && h.includes('12')) ||
+      (h.includes('daljnjih') && h.includes('12')) ||
+      (h.includes('next') && h.includes('12'))
     )) {
       blocks.outlook_12h = { label: sec.label, text: sec.text };
       continue;
     }
   }
 
+  // fallback: nimm die ersten vier Sections, wenn Mapping schwach war
   const nonNullCount = Object.values(blocks).filter(Boolean).length;
   if (nonNullCount < 2 && rawSections.length >= 2) {
     const pick = (i, key) => {
@@ -354,7 +341,6 @@ async function refreshOneLang(lang, force = false) {
   const { title, issuedAt, rawSections } = extractSectionsFromHtml(html, lang);
   const blocks = mapToBlocks(rawSections);
 
-  // (Bugfix) existingIssuedAt nicht doppelt deklarieren
   const existingIssuedAt = await getExistingIssuedAt(lang);
 
   const shouldWrite =
@@ -386,7 +372,6 @@ async function refreshOneLang(lang, force = false) {
     updated: shouldWrite,
     issuedAt: payload.issuedAt,
     existingIssuedAt,
-    title: payload.title,
   };
 }
 
