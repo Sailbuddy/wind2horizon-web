@@ -12,9 +12,6 @@ const URLS = {
 const BLOB_PREFIX = 'seewetter/';
 
 function isVercelCron(req) {
-  // Vercel Cron setzt typischerweise einen Header. Je nach Plattform-Version:
-  // - x-vercel-cron: 1
-  // Wir akzeptieren zusätzlich optional einen Token für manuelle Tests.
   const cronHeader = req.headers.get('x-vercel-cron');
   if (cronHeader) return true;
 
@@ -22,7 +19,6 @@ function isVercelCron(req) {
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) return true;
 
-  // DEV: lokal erlauben (optional)
   if (process.env.NODE_ENV !== 'production') return true;
 
   return false;
@@ -51,25 +47,117 @@ function extractIssuedAtFromTitle(title) {
   }
 }
 
-// Headings+Text bis zum nächsten Heading
-function extractSectionsFromHtml(html) {
+function extractIssuedAtFromBodyText(fullText) {
+  // Robuster Fallback, falls title/h1 nicht den "vom ... um ..." enthält
+  // Greift z.B. "vom 18.02.2026 um 06" oder "18.02.2026 ... at 06" usw.
+  try {
+    const m =
+      fullText.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bum\s+(\d{1,2})/i) ||
+      fullText.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bat\s+(\d{1,2})/i) ||
+      fullText.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\balle\s+(\d{1,2})/i) ||
+      fullText.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bu\s+(\d{1,2})/i);
+
+    if (!m) return null;
+
+    const dd = Number(m[1]);
+    const mm = Number(m[2]);
+    const yyyy = Number(m[3]);
+    const hh = Number(m[4]);
+    return new Date(Date.UTC(yyyy, mm - 1, dd, hh, 0, 0)).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+// ----------
+// Text-basierte Block-Extraktion (Fallback, wenn h2/h3 nicht vorhanden)
+// ----------
+function normalizeForFind(s) {
+  return cleanText(s).replace(/\s+/g, ' ').trim();
+}
+
+function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
+  const text = fullText;
+
+  // finde den frühesten Startmarker, der vorkommt
+  let startIndex = -1;
+  let startLen = 0;
+  let usedStart = '';
+
+  for (const sm of startMarkers) {
+    const idx = text.toLowerCase().indexOf(sm.toLowerCase());
+    if (idx !== -1 && (startIndex === -1 || idx < startIndex)) {
+      startIndex = idx;
+      startLen = sm.length;
+      usedStart = sm;
+    }
+  }
+
+  if (startIndex === -1) return { usedStart: '', text: '' };
+
+  // finde nächstes Marker-Ende
+  let endIndex = text.length;
+  for (const nm of nextMarkers) {
+    const idx = text.toLowerCase().indexOf(nm.toLowerCase(), startIndex + startLen);
+    if (idx !== -1 && idx < endIndex) endIndex = idx;
+  }
+
+  const body = text.slice(startIndex + startLen, endIndex);
+  return { usedStart, text: cleanText(body) };
+}
+
+const MARKERS = {
+  de: {
+    warning: ['Warnung'],
+    synopsis: ['Die Wetterlage', 'Wetterlage'],
+    forecast_12h: ['Wettervorhersage für die Adria für die nächsten 12 Stunden', 'Wettervorhersage'],
+    outlook_12h: ['Wetteraussicht für die Adria für die weiteren 12 Stunden', 'Wetteraussicht'],
+  },
+  en: {
+    warning: ['Warning'],
+    synopsis: ['Synopsis', 'Weather situation'],
+    forecast_12h: ['Forecast for the Adriatic for the next 12 hours', 'Forecast for the next 12 hours', 'Forecast'],
+    outlook_12h: ['Outlook for the Adriatic for the further 12 hours', 'Outlook for the further 12 hours', 'Outlook'],
+  },
+  it: {
+    warning: ['Avvertenza', 'Avvertenze'],
+    synopsis: ['Situazione meteorologica', 'Situazione'],
+    forecast_12h: ["Previsione del tempo per l'Adriatico per le prossime 12 ore", 'Previsione per le prossime 12 ore', 'Previsione'],
+    outlook_12h: ["Tendenza del tempo per l'Adriatico per le successive 12 ore", 'Tendenza per le successive 12 ore', 'Tendenza'],
+  },
+  hr: {
+    warning: ['Upozorenje', 'Upozorenja'],
+    synopsis: ['Sinopsa', 'Sinopsis', 'Vrijeme', 'Vremenska situacija'],
+    forecast_12h: ['Prognoza za sljedećih 12 sati', 'Prognoza', 'Vremenska prognoza'],
+    outlook_12h: ['Izgledi za sljedećih 12 sati', 'Izgledi', 'Tendencija', 'Izgled'],
+  },
+};
+
+// Headings+Text bis zum nächsten Heading (Primary) + Text-Fallback (Secondary)
+function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
 
+  // 1) Title: h1/title + Fallback aus Body-Text
+  const bodyText = normalizeForFind($('body').text() || '');
+  const titleFromH1 = cleanText($('h1').first().text());
+  const titleFromTitle = cleanText($('title').text());
   const title =
-    cleanText($('h1').first().text()) ||
-    cleanText($('title').text()) ||
-    'Seewetterbericht Split';
+    titleFromH1 ||
+    titleFromTitle ||
+    (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Seewetterbericht Split');
 
-  const issuedAt = extractIssuedAtFromTitle(title);
+  // 2) issuedAt: aus title, sonst aus bodyText
+  const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
+  // 3) Primary: h2/h3 Parsing wie bisher
   const root =
     $('#content').first().length ? $('#content').first()
     : $('main').first().length ? $('main').first()
     : $('body');
 
   const headings = root.find('h2, h3');
-
   const rawSections = [];
+
   headings.each((i, el) => {
     const label = cleanText($(el).text());
     if (!label) return;
@@ -81,7 +169,6 @@ function extractSectionsFromHtml(html) {
       const tag = (n[0]?.tagName || '').toLowerCase();
       if (tag === 'h2' || tag === 'h3') break;
 
-      // Text sammeln
       if (tag === 'p' || tag === 'div' || tag === 'span') {
         const t = cleanText(n.text());
         if (t) parts.push(t);
@@ -97,10 +184,30 @@ function extractSectionsFromHtml(html) {
     if (text) rawSections.push({ label, text });
   });
 
+  // 4) Secondary: Text-Fallback, wenn Headings nix liefern
+  // Heuristik: wenn <2 Sections, dann ist das h2/h3 Modell vermutlich leer/ungeeignet
+  if (rawSections.length < 2) {
+    const m = MARKERS[lang] || MARKERS.de;
+
+    const w = extractBlockByMarkers(bodyText, m.warning, [...m.synopsis, ...m.forecast_12h, ...m.outlook_12h]);
+    const s = extractBlockByMarkers(bodyText, m.synopsis, [...m.forecast_12h, ...m.outlook_12h]);
+    const f = extractBlockByMarkers(bodyText, m.forecast_12h, [...m.outlook_12h]);
+    const o = extractBlockByMarkers(bodyText, m.outlook_12h, []);
+
+    const fallbackSections = [];
+    if (w.text) fallbackSections.push({ label: w.usedStart || 'Warning', text: w.text });
+    if (s.text) fallbackSections.push({ label: s.usedStart || 'Synopsis', text: s.text });
+    if (f.text) fallbackSections.push({ label: f.usedStart || 'Forecast', text: f.text });
+    if (o.text) fallbackSections.push({ label: o.usedStart || 'Outlook', text: o.text });
+
+    // Wenn sogar das leer ist, geben wir zumindest rawSections leer zurück – mapToBlocks fällt dann auf leer
+    return { title, issuedAt, rawSections: fallbackSections };
+  }
+
   return { title, issuedAt, rawSections };
 }
 
-// Keyword-Mapping -> feste Blocks
+// Keyword-Mapping -> feste Blocks (bleibt wie gehabt)
 function mapToBlocks(rawSections) {
   const blocks = {
     warning: null,
@@ -114,47 +221,46 @@ function mapToBlocks(rawSections) {
   for (const sec of rawSections) {
     const h = norm(sec.label);
 
-    // 1) Warnung
     if (!blocks.warning && (h.includes('warn') || h.includes('warning') || h.includes('avverten') || h.includes('upozor'))) {
       blocks.warning = { label: sec.label, text: sec.text };
       continue;
     }
 
-    // 2) Wetterlage / Synopsis
     if (!blocks.synopsis && (
       h.includes('wetterlage') ||
       h.includes('synopsis') ||
-      h.includes('situaz') ||     // it: situazione
-      h.includes('sinops')        // hr/it variants
+      h.includes('situaz') ||
+      h.includes('sinops') ||
+      h.includes('sinop') ||
+      h.includes('vremensk')
     )) {
       blocks.synopsis = { label: sec.label, text: sec.text };
       continue;
     }
 
-    // 3) Vorhersage nächste 12h
     if (!blocks.forecast_12h && (
       (h.includes('vorhersage') && h.includes('12')) ||
       (h.includes('forecast') && h.includes('12')) ||
-      (h.includes('previs') && h.includes('12')) ||   // it: previsione
-      (h.includes('progno') && h.includes('12'))      // hr: prognoza
+      (h.includes('previs') && h.includes('12')) ||
+      (h.includes('progno') && h.includes('12')) ||
+      (h.includes('sljede') && h.includes('12'))
     )) {
       blocks.forecast_12h = { label: sec.label, text: sec.text };
       continue;
     }
 
-    // 4) Aussicht weitere 12h
     if (!blocks.outlook_12h && (
       (h.includes('aussicht') && h.includes('12')) ||
       (h.includes('outlook') && h.includes('12')) ||
-      (h.includes('tenden') && h.includes('12')) ||   // mögliche Varianten
-      (h.includes('izgled') && h.includes('12'))      // hr: izgled (falls)
+      (h.includes('tenden') && h.includes('12')) ||
+      (h.includes('izgled') && h.includes('12')) ||
+      (h.includes('success') && h.includes('12'))
     )) {
       blocks.outlook_12h = { label: sec.label, text: sec.text };
       continue;
     }
   }
 
-  // Fallback: wenn Mapping nicht 100% greift, nimm die ersten vier in Reihenfolge
   const nonNullCount = Object.values(blocks).filter(Boolean).length;
   if (nonNullCount < 2 && rawSections.length >= 2) {
     const pick = (i, key) => {
@@ -166,7 +272,6 @@ function mapToBlocks(rawSections) {
     pick(3, 'outlook_12h');
   }
 
-  // Immer Objekte liefern (auch wenn leer), damit Client stabil bleibt
   for (const k of Object.keys(blocks)) {
     if (!blocks[k]) blocks[k] = { label: '', text: '' };
   }
@@ -202,12 +307,14 @@ async function refreshOneLang(lang) {
   }
 
   const html = await res.text();
-  const { title, issuedAt, rawSections } = extractSectionsFromHtml(html);
+
+  // ✅ HIER: lang in extractor geben
+  const { title, issuedAt, rawSections } = extractSectionsFromHtml(html, lang);
   const blocks = mapToBlocks(rawSections);
 
   const existingIssuedAt = await getExistingIssuedAt(lang);
 
-  // Wenn issuedAt fehlt (ungewöhnlich), behandeln wir als "update", damit wir wenigstens Inhalt haben
+  // Wenn issuedAt fehlt, behandeln wir als update, damit wir wenigstens Inhalt haben
   const isNew = !existingIssuedAt || !issuedAt || issuedAt !== existingIssuedAt;
 
   const payload = {
@@ -223,7 +330,6 @@ async function refreshOneLang(lang) {
     await put(pathname, JSON.stringify(payload, null, 2), {
       access: 'public',
       contentType: 'application/json; charset=utf-8',
-      // addRandomSuffix: false // (je nach SDK-Version optional; pathname reicht als Identifier)
     });
   }
 
