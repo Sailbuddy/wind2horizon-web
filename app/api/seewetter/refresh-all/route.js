@@ -142,24 +142,30 @@ const MARKERS = {
 // Headings+Text bis zum nächsten Heading (Primary) + Text-Fallback (Secondary)
 function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
+  const rootTest = $('#primary .glavni__content').first();
+    console.log('[seewetter] rootTest length:', rootTest.length);
+    console.log('[seewetter] rootTest h4:', cleanText(rootTest.find('h4').first().text()));
+    console.log('[seewetter] rootTest first h5:', cleanText(rootTest.find('h5').first().text()));
 
   // 1) Title: h1/title + Fallback aus Body-Text
   const bodyText = normalizeForFind($('body').text() || '');
-    const titleFromH1 = cleanText($('h1').first().text());
-  const titleFromTitle = cleanText($('title').text());
-  const title =
-    titleFromH4 ||
-    titleFromH1 ||
-    titleFromTitle ||
-    (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Seewetterbericht Split');
 
-  // 2) issuedAt: aus title, sonst aus bodyText
-  const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
+    const titleFromH4 = cleanText(root.find('h4').first().text()); // ✅ Berichtstitel
+    const titleFromH1 = cleanText(root.find('h1').first().text());
+    const titleFromTitle = cleanText($('title').text());
+
+    const title =
+        titleFromH4 ||
+        titleFromH1 ||
+        titleFromTitle ||
+        (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Seewetterbericht Split');
+
+    const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
     // 3) Root: Bericht-Container (sehr spezifisch)
     const root =
     $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
-    : $('#main-content #primary').first().length ? $('#main-content #primary').first()
+    : $('#primary').first().length ? $('#primary').first()
     : $('#main-content').first().length ? $('#main-content').first()
     : $('body');
  
