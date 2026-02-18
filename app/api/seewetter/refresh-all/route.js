@@ -1,4 +1,4 @@
-// app/api/seewetter/refresh-all/route.js
+// app/api/seewetter/refresh-all/route.mjs
 import * as cheerio from 'cheerio';
 import { list, put } from '@vercel/blob';
 
@@ -22,6 +22,7 @@ function isVercelCron(req) {
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) return true;
 
+  // lokal/dev immer erlauben
   if (process.env.NODE_ENV !== 'production') return true;
 
   return false;
@@ -36,7 +37,9 @@ function cleanText(s) {
 }
 
 function extractIssuedAtFromTitle(title) {
-  // Beispiel: "... vom 18.02.2026 um 06"
+  // Beispiele:
+  // de: "... vom 18.02.2026 um 12"
+  // en/it/hr können auch ähnlich sein – daher ist bodyText-fallback wichtig
   try {
     const m = title.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4})\s+um\s+(\d{1,2})/i);
     if (!m) return null;
@@ -51,7 +54,7 @@ function extractIssuedAtFromTitle(title) {
 }
 
 function extractIssuedAtFromBodyText(fullText) {
-  // Robuster Fallback, falls title/h1 nicht den "vom ... um ..." enthält
+  // Robuster Fallback, falls Title/Hx nicht "vom ... um ..." enthält
   try {
     const m =
       fullText.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bum\s+(\d{1,2})/i) ||
@@ -81,6 +84,7 @@ function normalizeForFind(s) {
 function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
   const text = fullText;
 
+  // frühesten Startmarker finden
   let startIndex = -1;
   let startLen = 0;
   let usedStart = '';
@@ -96,6 +100,7 @@ function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
 
   if (startIndex === -1) return { usedStart: '', text: '' };
 
+  // nächstes Marker-Ende finden
   let endIndex = text.length;
   for (const nm of nextMarkers) {
     const idx = text.toLowerCase().indexOf(nm.toLowerCase(), startIndex + startLen);
@@ -119,41 +124,57 @@ const MARKERS = {
     forecast_12h: [
       'Weather forecast for the Adriatic for the first 12 hours',
       'Weather forecast for the first 12 hours',
+      'Weather forecast for the Adriatic for the next 12 hours',
     ],
     outlook_12h: [
       'Weather forecast for the next 12 hours',
       'Outlook for the next 12 hours',
+      'Outlook for the Adriatic for the next 12 hours',
     ],
   },
   it: {
-    warning: ["L'avvertimento", 'L’avvertimento'],
-    synopsis: ['La situazione meteorologica'],
-    forecast_12h: ["La previsione del tempo per l'Adriatico per le prime 12 ore", 'per le prime 12 ore'],
-    outlook_12h: ["La previsione del tempo per le prossime 12 ore", 'per le prossime 12 ore'],
+    warning: ["L'avvertimento", 'L’avvertimento', 'Avvertimento'],
+    synopsis: ['La situazione meteorologica', 'Situazione meteorologica'],
+    forecast_12h: [
+      "La previsione del tempo per l'Adriatico per le prime 12 ore",
+      'per le prime 12 ore',
+      'Prime 12 ore',
+    ],
+    outlook_12h: [
+      'La previsione del tempo per le prossime 12 ore',
+      'per le prossime 12 ore',
+      'Prossime 12 ore',
+    ],
   },
   hr: {
     warning: ['Upozorenje', 'Upozorenja'],
-    synopsis: ['Stanje'],
-    forecast_12h: ['Vremenska prognoza za Jadran za prvih 12 sati', 'za prvih 12 sati'],
-    outlook_12h: ['Vremenska prognoza za daljnjih 12 sati', 'za daljnjih 12 sati'],
+    synopsis: ['Stanje', 'Sinopsa', 'Sinopsis'],
+    forecast_12h: ['Vremenska prognoza za Jadran za prvih 12 sati', 'za prvih 12 sati', 'Prvih 12 sati'],
+    outlook_12h: ['Vremenska prognoza za daljnjih 12 sati', 'za daljnjih 12 sati', 'Daljnjih 12 sati'],
   },
 };
 
 // Headings+Text bis zum nächsten Heading (Primary) + Text-Fallback (Secondary)
-function extractSectionsFromHtml(html, lang) {function extractSectionsFromHtml(html, lang) {
+function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
 
   // Root: Bericht-Container (sehr spezifisch)
   const root =
     $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
-    : $('#primary').first().length ? $('#primary').first()
-    : $('#main-content').first().length ? $('#main-content').first()
-    : $('body');
+      : $('#primary').first().length ? $('#primary').first()
+        : $('#main-content').first().length ? $('#main-content').first()
+          : $('body');
 
   const bodyText = normalizeForFind($('body').text() || '');
 
+  if (DEBUG) {
+    console.log('[seewetter] root length:', root.length);
+    console.log('[seewetter] first h4:', cleanText(root.find('h4').first().text()));
+    console.log('[seewetter] first h5:', cleanText(root.find('h5').first().text()));
+  }
+
   // ---- Title robust: bevorzugt h4, sonst h1/title/body ----
-  // Zusätzliche Robustheit: nimm ein h4, das ein Datum enthält, falls vorhanden
+  // (Bugfix) root muss VOR titleFromH4 definiert sein -> ist jetzt so
   const h4WithDate = root.find('h4').toArray().map(el => $(el)).find($el => {
     const t = cleanText($el.text());
     return /\b\d{2}\.\d{2}\.\d{4}\b/.test(t);
@@ -167,7 +188,7 @@ function extractSectionsFromHtml(html, lang) {function extractSectionsFromHtml(h
     titleFromH4 ||
     titleFromH1 ||
     titleFromTitle ||
-    (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Sea Weather Split');
+    (bodyText.toLowerCase().includes('seewetterbericht') ? bodyText.slice(0, 140) : 'Sea weather report');
 
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
@@ -204,7 +225,7 @@ function extractSectionsFromHtml(html, lang) {function extractSectionsFromHtml(h
   // ---- Sanity Check: erkenne "DHMZ Portal" Fake-Sections ----
   const looksLikePortal =
     rawSections.some(s => /warning systems|remote sensing|air quality|hydrological/i.test(s.label || '')) ||
-    /croatian meteorological/i.test(title) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(title);
+    ((/croatian meteorological/i.test(title)) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(title));
 
   // Wenn Primary nicht plausibel ist → Fallback erzwingen
   if (rawSections.length < 2 || looksLikePortal) {
@@ -227,8 +248,7 @@ function extractSectionsFromHtml(html, lang) {function extractSectionsFromHtml(h
   return { title, issuedAt, rawSections };
 }
 
-
-// Keyword-Mapping -> feste Blocks (bleibt wie gehabt)
+// Keyword-Mapping -> feste Blocks
 function mapToBlocks(rawSections) {
   const blocks = {
     warning: null,
@@ -264,7 +284,8 @@ function mapToBlocks(rawSections) {
       (h.includes('forecast') && h.includes('12')) ||
       (h.includes('previs') && h.includes('12')) ||
       (h.includes('progno') && h.includes('12')) ||
-      (h.includes('sljede') && h.includes('12'))
+      (h.includes('sljede') && h.includes('12')) ||
+      (h.includes('prvih') && h.includes('12'))
     )) {
       blocks.forecast_12h = { label: sec.label, text: sec.text };
       continue;
@@ -275,7 +296,8 @@ function mapToBlocks(rawSections) {
       (h.includes('outlook') && h.includes('12')) ||
       (h.includes('tenden') && h.includes('12')) ||
       (h.includes('izgled') && h.includes('12')) ||
-      (h.includes('success') && h.includes('12'))
+      (h.includes('success') && h.includes('12')) ||
+      (h.includes('daljnjih') && h.includes('12'))
     )) {
       blocks.outlook_12h = { label: sec.label, text: sec.text };
       continue;
@@ -332,41 +354,40 @@ async function refreshOneLang(lang, force = false) {
   const { title, issuedAt, rawSections } = extractSectionsFromHtml(html, lang);
   const blocks = mapToBlocks(rawSections);
 
+  // (Bugfix) existingIssuedAt nicht doppelt deklarieren
   const existingIssuedAt = await getExistingIssuedAt(lang);
 
-  // ✅ Force überschreibt immer (zum Debuggen/Neu-Parsen)
-  const existingIssuedAt = await getExistingIssuedAt(lang);
+  const shouldWrite =
+    force ||
+    !existingIssuedAt ||
+    !issuedAt ||
+    issuedAt !== existingIssuedAt;
 
-const shouldWrite =
-  force ||
-  !existingIssuedAt ||
-  !issuedAt ||
-  issuedAt !== existingIssuedAt;
+  const payload = {
+    sourceUrl,
+    title,
+    issuedAt: issuedAt || null,
+    fetchedAt: new Date().toISOString(),
+    blocks,
+  };
 
-const payload = {
-  sourceUrl,
-  title,
-  issuedAt: issuedAt || null,
-  fetchedAt: new Date().toISOString(),
-  blocks,
-};
+  if (shouldWrite) {
+    const pathname = `${BLOB_PREFIX}${lang}.json`;
+    await put(pathname, JSON.stringify(payload, null, 2), {
+      access: 'public',
+      contentType: 'application/json; charset=utf-8',
+      allowOverwrite: true,
+    });
+  }
 
-if (shouldWrite) {
-  const pathname = `${BLOB_PREFIX}${lang}.json`;
-  await put(pathname, JSON.stringify(payload, null, 2), {
-    access: 'public',
-    contentType: 'application/json; charset=utf-8',
-    allowOverwrite: true,
-  });
-}
-
-return {
-  lang,
-  ok: true,
-  updated: shouldWrite,
-  issuedAt: payload.issuedAt,
-  existingIssuedAt,
-};
+  return {
+    lang,
+    ok: true,
+    updated: shouldWrite,
+    issuedAt: payload.issuedAt,
+    existingIssuedAt,
+    title: payload.title,
+  };
 }
 
 export async function GET(req) {
