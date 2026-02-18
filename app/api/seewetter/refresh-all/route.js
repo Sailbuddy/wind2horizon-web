@@ -145,9 +145,11 @@ function extractSectionsFromHtml(html, lang) {
 
   // 1) Title: h1/title + Fallback aus Body-Text
   const bodyText = normalizeForFind($('body').text() || '');
+  const titleFromH4 = cleanText($('h4').first().text());
   const titleFromH1 = cleanText($('h1').first().text());
   const titleFromTitle = cleanText($('title').text());
   const title =
+    titleFromH4 ||
     titleFromH1 ||
     titleFromTitle ||
     (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Seewetterbericht Split');
@@ -155,40 +157,41 @@ function extractSectionsFromHtml(html, lang) {
   // 2) issuedAt: aus title, sonst aus bodyText
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
-  // 3) Primary: h2/h3 Parsing wie bisher
-  const root =
-    $('#content').first().length ? $('#content').first()
-    : $('main').first().length ? $('main').first()
-    : $('body');
+   // 3) Primary: h2/h3 Parsing wie bisher
+   const root =
+     $('#content').first().length ? $('#content').first()
+     : $('main').first().length ? $('main').first()
+     : $('body');
+ 
+   const headings = root.find('h2, h3, h4');
+   const rawSections = [];
+ 
+   headings.each((i, el) => {
+     const label = cleanText($(el).text());
+     if (!label) return;
+ 
+     let n = $(el).next();
+     const parts = [];
+ 
+     while (n && n.length) {
+       const tag = (n[0]?.tagName || '').toLowerCase();
+       if (tag === 'h2' || tag === 'h3' || tag === 'h4') break;
+ 
+       if (tag === 'p' || tag === 'div' || tag === 'span') {
+         const t = cleanText(n.text());
+         if (t) parts.push(t);
+       } else if (tag === 'ul' || tag === 'ol') {
+         const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
+         if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
+       }
+ 
+       n = n.next();
+     }
+ 
+     const text = cleanText(parts.join('\n\n'));
+     if (text) rawSections.push({ label, text });
+   });
 
-  const headings = root.find('h2, h3, h4');
-  const rawSections = [];
-
-  headings.each((i, el) => {
-    const label = cleanText($(el).text());
-    if (!label) return;
-
-    let n = $(el).next();
-    const parts = [];
-
-    while (n && n.length) {
-      const tag = (n[0]?.tagName || '').toLowerCase();
-      if (tag === 'h2' || tag === 'h3' || tag === 'h4') break;
-
-      if (tag === 'p' || tag === 'div' || tag === 'span') {
-        const t = cleanText(n.text());
-        if (t) parts.push(t);
-      } else if (tag === 'ul' || tag === 'ol') {
-        const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
-        if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
-      }
-
-      n = n.next();
-    }
-
-    const text = cleanText(parts.join('\n\n'));
-    if (text) rawSections.push({ label, text });
-  });
 
   // 4) Secondary: Text-Fallback, wenn Headings nix liefern
   // Heuristik: wenn <2 Sections, dann ist das h2/h3 Modell vermutlich leer/ungeeignet
