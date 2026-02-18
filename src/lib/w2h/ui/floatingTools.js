@@ -104,24 +104,16 @@ function buildDefaultTools({ texts }) {
       title: safe('boraTitle', 'Wind2Horizon'),
     },
     {
-      id: 'seewetter',
-      icon: '🌊',
-      kind: 'panel',
-      label: safe('seaWeather', 'Sea'),
-      title: safe('seaWeatherTitle', 'Wind2Horizon'),
-      render: () => `
-        <div class="w2h-tool-section">
-          <p class="w2h-tool-text">${safe('seaWeatherHint', '')}</p>
-          <div class="w2h-tool-actions">
-            <a class="w2h-btn"
-               href="https://meteo.hr/prognoze_e.php?section=prognoze_specp&param=jadran&el=jadran_n"
-               target="_blank" rel="noreferrer">
-              ${safe('openOfficial', '')}
-            </a>
-          </div>
-        </div>
-      `,
+    id: 'seewetter',
+    icon: '🌊',
+    kind: 'action',   // 🔁 statt 'panel'
+    label: safe('seaWeather', 'Sea'),
+    title: safe('seaWeatherTitle', 'Wind2Horizon'),
+    onClick: () => {
+      actions?.openSeaWeather?.();   // 🔁 ruft dein großes Overlay auf
     },
+},
+
     {
       id: 'notfall',
       icon: '🚨',

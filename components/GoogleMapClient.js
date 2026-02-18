@@ -12,6 +12,7 @@ import { floatingToolsTranslations } from '@/lib/w2h/ui/floatingTools.i18n.js';
 import PanelHost from '@/components/panels/PanelHost';
 import BoraPanel from '@/components/panels/BoraPanel';
 import { boraTexts } from '@/lib/i18n/boraTexts';
+import SeaWeatherPanel from '@/components/panels/SeaWeatherPanel';
 
 
 
@@ -2292,6 +2293,9 @@ useEffect(() => {
       onOpenBoraOverlay: () => {
         setActivePanel((p) => (p === 'bora' ? null : 'bora'));
       },
+      openSeaWeather: () => {
+        setActivePanel((p) => (p === 'seewetter' ? null : 'seewetter'));
+      },
     },
   });
 
@@ -3336,6 +3340,16 @@ useEffect(() => {
         >
         <BoraPanel lang={lang} label={label} />
         </PanelHost>
+
+        {/* ✅ Seewetter Panel Overlay */}
+        <PanelHost
+          open={activePanel === 'seewetter'}
+          title={label?.('seaWeatherTitle', lang) ?? 'Seewetter'}
+          onClose={() => setActivePanel(null)}
+        >
+        <SeaWeatherPanel lang={lang} label={label} />
+        </PanelHost>
+
 
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
