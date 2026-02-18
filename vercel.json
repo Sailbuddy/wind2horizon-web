@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/seewetter/refresh-all",
+      "schedule": "*/10 3-6,9-12 * * *"
+    },
+    {
+      "path": "/api/seewetter/refresh-all",
+      "schedule": "0 */2 * * *"
+    }
+  ]
+}

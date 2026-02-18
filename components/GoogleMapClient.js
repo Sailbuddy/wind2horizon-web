@@ -139,6 +139,15 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [welcomeClosed, setWelcomeClosed] = useState(false);
   const [activePanel, setActivePanel] = useState(null);
+  const [seaWarning, setSeaWarning] = useState(null);
+  const [seaWarningClosed, setSeaWarningClosed] = useState(false);
+
+  function closeSeaWarning() {
+    if (seaWarning?.issuedAt) {
+      localStorage.setItem('w2h_sea_warning_issued', seaWarning.issuedAt);
+    }
+    setSeaWarningClosed(true);
+  }
 
   useEffect(() => {
   console.log('[w2h] activePanel changed →', activePanel);
@@ -238,6 +247,31 @@ useEffect(() => {
     }
     return res.json();
   }
+
+  // Load SeaWarning 
+  //------------------------------
+  
+  async function loadSeaWarning(lang) {
+    const l = (lang === 'fr') ? 'en' : lang;
+    const res = await fetch(`/api/seewetter?lang=${encodeURIComponent(l)}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data?.ok) return null;
+
+      const issuedAt = data?.issuedAt;
+      const warning = data?.blocks?.warning?.text?.trim();
+      const synopsis = data?.blocks?.synopsis?.text?.trim() || '';
+
+    if (!issuedAt || !warning) return null;
+
+    return {
+      issuedAt,
+      warning,
+      synopsis,
+      sourceUrl: data.sourceUrl,
+    };
+  }
+
+
 
   // ---------------------------------------------
   // Helpers: Google Photo Proxy + HTML escaper
@@ -2137,6 +2171,34 @@ useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapLoaded, regionMode, welcomeClosed]);
 
+  useEffect(() => {
+    if (!mapLoaded) return;
+    if (regionMode !== 'auto') return;
+    if (!welcomeClosed) return;
+
+    let alive = true;
+
+    (async () => {
+      try {
+        const lastSeen = localStorage.getItem('w2h_sea_warning_issued');
+
+        const sw = await loadSeaWarning(lang);
+        if (!alive || !sw) return;
+
+        // nur wenn neu
+        if (lastSeen === sw.issuedAt) return;
+
+        setSeaWarning(sw);
+        setSeaWarningClosed(false);
+      } catch (e) {
+        console.warn('[w2h] seewetter warning fetch failed', e);
+      }
+    })();
+
+  return () => { alive = false; };
+  }, [mapLoaded, regionMode, welcomeClosed, lang]);
+
+
   // ✅ Sobald Regions geladen sind: wenn wir schon eine Position haben -> Region nachziehen
   useEffect(() => {
     if (!booted || !mapObj.current) return;
@@ -2980,6 +3042,78 @@ useEffect(() => {
         {/* ================= MAP ================= */}
         <div className="w2h-map-wrap">
           <div ref={mapRef} className="w2h-map" />
+
+          {seaWarning && !seaWarningClosed && (
+            <div
+             style={{
+               position: 'absolute',
+               top: 14,
+               left: '50%',
+               transform: 'translateX(-50%)',
+               zIndex: 50,
+               width: 'min(640px, 92%)',
+               background: 'rgba(15, 23, 42, 0.96)',
+               border: '1px solid rgba(148, 163, 184, 0.25)',
+               borderRadius: 16,
+               padding: 12,
+               boxShadow: '0 18px 50px rgba(0,0,0,0.45)',
+               color: 'white',
+               pointerEvents: 'auto',
+             }}
+           >
+             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+               <div style={{ fontWeight: 900 }}>
+                 ⚠️ {lang === 'de' ? 'Warnung (Seewetter Split)' : 'Warning (Sea Weather Split)'}
+               </div>
+
+               <button
+                 onClick={closeSeaWarning}
+                 style={{
+                   background: 'rgba(255,255,255,0.10)',
+                   border: '1px solid rgba(255,255,255,0.15)',
+                   borderRadius: 10,
+                   padding: '6px 10px',
+                   color: 'white',
+                   cursor: 'pointer',
+                   fontWeight: 800,
+                 }}
+                 title="Schließen"
+               >
+                 ✕
+               </button>
+             </div>
+
+             <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.35, whiteSpace: 'pre-wrap' }}>
+               {seaWarning.warning}
+             </div>
+
+             {seaWarning.synopsis ? (
+               <div style={{ marginTop: 10, fontSize: 13, opacity: 0.88, whiteSpace: 'pre-wrap' }}>
+                 <b>{lang === 'de' ? 'Wetterlage:' : 'Synopsis:'}</b> {seaWarning.synopsis}
+               </div>
+             ) : null}
+
+             <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+               <button
+                 onClick={() => window.open(seaWarning.sourceUrl, '_blank', 'noopener,noreferrer')}
+                 style={{
+                   background: '#0284c7',
+                   border: 'none',
+                   borderRadius: 10,
+                   padding: '7px 10px',
+                   color: 'white',
+                   cursor: 'pointer',
+                   fontWeight: 900,
+                 }}
+                 title="Quelle in neuem Tab öffnen"
+               >
+                 ↗ Quelle öffnen
+               </button>
+             </div>
+           </div>
+         )}
+
+
 
           {/* Locate Button */}
           <div
