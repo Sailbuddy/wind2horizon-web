@@ -140,28 +140,26 @@ const MARKERS = {
 };
 
 // Headings+Text bis zum nächsten Heading (Primary) + Text-Fallback (Secondary)
-function extractSectionsFromHtml(html, lang) {
+function extractSectionsFromHtml(html, lang) {function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
 
-  // ✅ Root: Bericht-Container (sehr spezifisch)
+  // Root: Bericht-Container (sehr spezifisch)
   const root =
     $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
     : $('#primary').first().length ? $('#primary').first()
     : $('#main-content').first().length ? $('#main-content').first()
     : $('body');
 
-  // 1) Body-Text für Marker-Fallback + issuedAt fallback
   const bodyText = normalizeForFind($('body').text() || '');
 
-  // ✅ Debug optional, aber auf dem echten root
-  if (DEBUG) {
-    console.log('[seewetter] root length:', root.length);
-    console.log('[seewetter] root h4:', cleanText(root.find('h4').first().text()));
-    console.log('[seewetter] root first h5:', cleanText(root.find('h5').first().text()));
-  }
+  // ---- Title robust: bevorzugt h4, sonst h1/title/body ----
+  // Zusätzliche Robustheit: nimm ein h4, das ein Datum enthält, falls vorhanden
+  const h4WithDate = root.find('h4').toArray().map(el => $(el)).find($el => {
+    const t = cleanText($el.text());
+    return /\b\d{2}\.\d{2}\.\d{4}\b/.test(t);
+  });
 
-  // 2) Title: h4 (Berichtstitel) -> h1 -> <title> -> Body fallback
-  const titleFromH4 = cleanText(root.find('h4').first().text());
+  const titleFromH4 = cleanText((h4WithDate ? h4WithDate.text() : root.find('h4').first().text()));
   const titleFromH1 = cleanText(root.find('h1').first().text());
   const titleFromTitle = cleanText($('title').text());
 
@@ -169,11 +167,11 @@ function extractSectionsFromHtml(html, lang) {
     titleFromH4 ||
     titleFromH1 ||
     titleFromTitle ||
-    (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Seewetterbericht Split');
+    (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Sea Weather Split');
 
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
-  // 3) Primary Sections: h5 Überschriften + Text bis zum nächsten Heading
+  // ---- Primary Sections: h5 Parsing ----
   const headings = root.find('h5');
   const rawSections = [];
 
@@ -186,9 +184,7 @@ function extractSectionsFromHtml(html, lang) {
 
     while (n && n.length) {
       const tag = (n[0]?.tagName || '').toLowerCase();
-
-      // ✅ Stop bei jeder nächsten Überschrift, nicht nur h5
-      if (tag === 'h5' || tag === 'h4' || tag === 'h3' || tag === 'h2') break;
+      if (tag === 'h5') break;
 
       if (tag === 'p' || tag === 'div' || tag === 'span') {
         const t = cleanText(n.text());
@@ -205,8 +201,13 @@ function extractSectionsFromHtml(html, lang) {
     if (text) rawSections.push({ label, text });
   });
 
-  // 4) Secondary: Marker-Fallback, wenn Primary nix liefert
-  if (rawSections.length < 2) {
+  // ---- Sanity Check: erkenne "DHMZ Portal" Fake-Sections ----
+  const looksLikePortal =
+    rawSections.some(s => /warning systems|remote sensing|air quality|hydrological/i.test(s.label || '')) ||
+    /croatian meteorological/i.test(title) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(title);
+
+  // Wenn Primary nicht plausibel ist → Fallback erzwingen
+  if (rawSections.length < 2 || looksLikePortal) {
     const m = MARKERS[lang] || MARKERS.de;
 
     const w = extractBlockByMarkers(bodyText, m.warning, [...m.synopsis, ...m.forecast_12h, ...m.outlook_12h]);
@@ -225,6 +226,7 @@ function extractSectionsFromHtml(html, lang) {
 
   return { title, issuedAt, rawSections };
 }
+
 
 // Keyword-Mapping -> feste Blocks (bleibt wie gehabt)
 function mapToBlocks(rawSections) {
@@ -333,26 +335,38 @@ async function refreshOneLang(lang, force = false) {
   const existingIssuedAt = await getExistingIssuedAt(lang);
 
   // ✅ Force überschreibt immer (zum Debuggen/Neu-Parsen)
-  const isNew = force || !existingIssuedAt || !issuedAt || issuedAt !== existingIssuedAt;
+  const existingIssuedAt = await getExistingIssuedAt(lang);
 
-  const payload = {
-    sourceUrl,
-    title,
-    issuedAt: issuedAt || null,
-    fetchedAt: new Date().toISOString(),
-    blocks,
-  };
+const shouldWrite =
+  force ||
+  !existingIssuedAt ||
+  !issuedAt ||
+  issuedAt !== existingIssuedAt;
 
-  if (isNew) {
-    const pathname = `${BLOB_PREFIX}${lang}.json`;
-    await put(pathname, JSON.stringify(payload, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      allowOverwrite: true,
-    });
-  }
+const payload = {
+  sourceUrl,
+  title,
+  issuedAt: issuedAt || null,
+  fetchedAt: new Date().toISOString(),
+  blocks,
+};
 
-  return { lang, ok: true, updated: isNew, issuedAt: payload.issuedAt, existingIssuedAt };
+if (shouldWrite) {
+  const pathname = `${BLOB_PREFIX}${lang}.json`;
+  await put(pathname, JSON.stringify(payload, null, 2), {
+    access: 'public',
+    contentType: 'application/json; charset=utf-8',
+    allowOverwrite: true,
+  });
+}
+
+return {
+  lang,
+  ok: true,
+  updated: shouldWrite,
+  issuedAt: payload.issuedAt,
+  existingIssuedAt,
+};
 }
 
 export async function GET(req) {
