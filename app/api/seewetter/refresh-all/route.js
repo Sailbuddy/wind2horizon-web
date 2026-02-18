@@ -115,21 +115,27 @@ const MARKERS = {
   },
   en: {
     warning: ['Warning'],
-    synopsis: ['Synopsis', 'Weather situation'],
-    forecast_12h: ['Forecast for the Adriatic for the next 12 hours', 'Forecast for the next 12 hours', 'Forecast'],
-    outlook_12h: ['Outlook for the Adriatic for the further 12 hours', 'Outlook for the further 12 hours', 'Outlook'],
+    synopsis: ['Synopsis'],
+    forecast_12h: [
+    'Weather forecast for the Adriatic for the first 12 hours',
+    'Weather forecast for the first 12 hours',
+  ],
+    outlook_12h: [
+    'Weather forecast for the next 12 hours',
+    'Weather forecast for the next 12 hours',
+  ],
   },
   it: {
-    warning: ['Avvertenza', 'Avvertenze'],
-    synopsis: ['Situazione meteorologica', 'Situazione'],
-    forecast_12h: ["Previsione del tempo per l'Adriatico per le prossime 12 ore", 'Previsione per le prossime 12 ore', 'Previsione'],
-    outlook_12h: ["Tendenza del tempo per l'Adriatico per le successive 12 ore", 'Tendenza per le successive 12 ore', 'Tendenza'],
+    warning: ["L'avvertimento", 'L’avvertimento'],
+    synopsis: ['La situazione meteorologica'],
+    forecast_12h: ["La previsione del tempo per l'Adriatico per le prime 12 ore", 'per le prime 12 ore'],
+    outlook_12h: ["La previsione del tempo per le prossime 12 ore", 'per le prossime 12 ore'],
   },
   hr: {
     warning: ['Upozorenje', 'Upozorenja'],
-    synopsis: ['Sinopsa', 'Sinopsis', 'Vrijeme', 'Vremenska situacija'],
-    forecast_12h: ['Prognoza za sljedećih 12 sati', 'Prognoza', 'Vremenska prognoza'],
-    outlook_12h: ['Izgledi za sljedećih 12 sati', 'Izgledi', 'Tendencija', 'Izgled'],
+    synopsis: ['Stanje'],
+    forecast_12h: ['Vremenska prognoza za Jadran za prvih 12 sati', 'za prvih 12 sati'],
+    outlook_12h: ['Vremenska prognoza za daljnjih 12 sati', 'za daljnjih 12 sati'],
   },
 };
 
@@ -155,7 +161,7 @@ function extractSectionsFromHtml(html, lang) {
     : $('main').first().length ? $('main').first()
     : $('body');
 
-  const headings = root.find('h2, h3');
+  const headings = root.find('h2, h3, h4');
   const rawSections = [];
 
   headings.each((i, el) => {
@@ -167,7 +173,7 @@ function extractSectionsFromHtml(html, lang) {
 
     while (n && n.length) {
       const tag = (n[0]?.tagName || '').toLowerCase();
-      if (tag === 'h2' || tag === 'h3') break;
+      if (tag === 'h2' || tag === 'h3' || tag === 'h4') break;
 
       if (tag === 'p' || tag === 'div' || tag === 'span') {
         const t = cleanText(n.text());
