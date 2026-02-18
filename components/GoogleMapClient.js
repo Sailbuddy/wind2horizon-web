@@ -253,7 +253,16 @@ useEffect(() => {
   
   async function loadSeaWarning(lang) {
     const l = (lang === 'fr') ? 'en' : lang;
-    const res = await fetch(`/api/seewetter?lang=${encodeURIComponent(l)}`, { cache: 'no-store' });
+
+    const url = `/api/seewetter?lang=${encodeURIComponent(l)}&t=${Date.now()}`;
+
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache'
+      }
+    });
+
     const data = await res.json();
     if (!data?.ok) return null;
 
