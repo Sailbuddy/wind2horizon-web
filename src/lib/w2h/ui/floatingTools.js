@@ -111,7 +111,7 @@ function buildDefaultTools({ texts }) {
       title: safe('seaWeatherTitle', 'Wind2Horizon'),
       actionKey: 'openSeaWeather', // ✅ nur Kennung, kein actions-Aufruf hier
     },
-  },
+  
 
     {
       id: 'notfall',
