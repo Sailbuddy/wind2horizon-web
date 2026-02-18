@@ -104,15 +104,14 @@ function buildDefaultTools({ texts }) {
       title: safe('boraTitle', 'Wind2Horizon'),
     },
     {
-    id: 'seewetter',
-    icon: '🌊',
-    kind: 'action',   // 🔁 statt 'panel'
-    label: safe('seaWeather', 'Sea'),
-    title: safe('seaWeatherTitle', 'Wind2Horizon'),
-    onClick: () => {
-      actions?.openSeaWeather?.();   // 🔁 ruft dein großes Overlay auf
+      id: 'seewetter',
+      icon: '🌊',
+      kind: 'action',
+      label: safe('seaWeather', 'Sea'),
+      title: safe('seaWeatherTitle', 'Wind2Horizon'),
+      actionKey: 'openSeaWeather', // ✅ nur Kennung, kein actions-Aufruf hier
     },
-},
+  },
 
     {
       id: 'notfall',
@@ -262,6 +261,16 @@ export function initFloatingTools(options = {}) {
         actions.onAction?.('bora-open-overlay');
         return;
       }
+
+      // Seewetter => open real overlay via callback only
+      if (tool.id === 'seewetter') {
+        if (DEBUG_FLOATINGTOOLS) console.log('[w2h] SEEWETTER BUTTON CLICKED -> actions.openSeaWeather()');
+        setOpen(false);
+        actions.openSeaWeather?.();
+        actions.onAction?.('seewetter-open-overlay');
+        return;
+      }
+
 
       // If same panel-tool active -> toggle close
       if (tool.kind === 'panel' && activeToolId === tool.id && isOpen) {
