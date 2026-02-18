@@ -336,6 +336,7 @@ async function refreshOneLang(lang) {
     await put(pathname, JSON.stringify(payload, null, 2), {
       access: 'public',
       contentType: 'application/json; charset=utf-8',
+      allowOverwrite: true,
     });
   }
 
