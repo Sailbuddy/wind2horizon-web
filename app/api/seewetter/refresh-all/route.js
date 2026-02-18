@@ -145,8 +145,7 @@ function extractSectionsFromHtml(html, lang) {
 
   // 1) Title: h1/title + Fallback aus Body-Text
   const bodyText = normalizeForFind($('body').text() || '');
-  const titleFromH4 = cleanText($('h4').first().text());
-  const titleFromH1 = cleanText($('h1').first().text());
+    const titleFromH1 = cleanText($('h1').first().text());
   const titleFromTitle = cleanText($('title').text());
   const title =
     titleFromH4 ||
@@ -157,13 +156,14 @@ function extractSectionsFromHtml(html, lang) {
   // 2) issuedAt: aus title, sonst aus bodyText
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
-   // 3) Primary: h2/h3 Parsing wie bisher
-   const root =
-     $('#content').first().length ? $('#content').first()
-     : $('main').first().length ? $('main').first()
-     : $('body');
+    // 3) Root: Bericht-Container (sehr spezifisch)
+    const root =
+    $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
+    : $('#main-content #primary').first().length ? $('#main-content #primary').first()
+    : $('#main-content').first().length ? $('#main-content').first()
+    : $('body');
  
-   const headings = root.find('h2, h3, h4');
+   const headings = root.find('h5'); // ✅ die Abschnitte sind h5
    const rawSections = [];
  
    headings.each((i, el) => {
@@ -173,20 +173,20 @@ function extractSectionsFromHtml(html, lang) {
      let n = $(el).next();
      const parts = [];
  
-     while (n && n.length) {
-       const tag = (n[0]?.tagName || '').toLowerCase();
-       if (tag === 'h2' || tag === 'h3' || tag === 'h4') break;
- 
-       if (tag === 'p' || tag === 'div' || tag === 'span') {
-         const t = cleanText(n.text());
-         if (t) parts.push(t);
-       } else if (tag === 'ul' || tag === 'ol') {
-         const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
-         if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
-       }
- 
-       n = n.next();
-     }
+    while (n && n.length) {
+        const tag = (n[0]?.tagName || '').toLowerCase();
+        if (tag === 'h5') break;
+
+        if (tag === 'p' || tag === 'div' || tag === 'span') {
+            const t = cleanText(n.text());
+            if (t) parts.push(t);
+        } else if (tag === 'ul' || tag === 'ol') {
+            const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
+            if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
+        }
+
+        n = n.next();
+    }
  
      const text = cleanText(parts.join('\n\n'));
      if (text) rawSections.push({ label, text });
