@@ -11,6 +11,9 @@ const URLS = {
 
 const BLOB_PREFIX = 'seewetter/';
 
+// ✅ Debug-Schalter (bei Bedarf true setzen)
+const DEBUG = false;
+
 function isVercelCron(req) {
   const cronHeader = req.headers.get('x-vercel-cron');
   if (cronHeader) return true;
@@ -49,7 +52,6 @@ function extractIssuedAtFromTitle(title) {
 
 function extractIssuedAtFromBodyText(fullText) {
   // Robuster Fallback, falls title/h1 nicht den "vom ... um ..." enthält
-  // Greift z.B. "vom 18.02.2026 um 06" oder "18.02.2026 ... at 06" usw.
   try {
     const m =
       fullText.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bum\s+(\d{1,2})/i) ||
@@ -70,7 +72,7 @@ function extractIssuedAtFromBodyText(fullText) {
 }
 
 // ----------
-// Text-basierte Block-Extraktion (Fallback, wenn h2/h3 nicht vorhanden)
+// Text-basierte Block-Extraktion (Fallback, wenn Heading-Struktur nicht greift)
 // ----------
 function normalizeForFind(s) {
   return cleanText(s).replace(/\s+/g, ' ').trim();
@@ -79,7 +81,6 @@ function normalizeForFind(s) {
 function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
   const text = fullText;
 
-  // finde den frühesten Startmarker, der vorkommt
   let startIndex = -1;
   let startLen = 0;
   let usedStart = '';
@@ -95,7 +96,6 @@ function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
 
   if (startIndex === -1) return { usedStart: '', text: '' };
 
-  // finde nächstes Marker-Ende
   let endIndex = text.length;
   for (const nm of nextMarkers) {
     const idx = text.toLowerCase().indexOf(nm.toLowerCase(), startIndex + startLen);
@@ -117,13 +117,13 @@ const MARKERS = {
     warning: ['Warning'],
     synopsis: ['Synopsis'],
     forecast_12h: [
-    'Weather forecast for the Adriatic for the first 12 hours',
-    'Weather forecast for the first 12 hours',
-  ],
+      'Weather forecast for the Adriatic for the first 12 hours',
+      'Weather forecast for the first 12 hours',
+    ],
     outlook_12h: [
-    'Weather forecast for the next 12 hours',
-    'Weather forecast for the next 12 hours',
-  ],
+      'Weather forecast for the next 12 hours',
+      'Outlook for the next 12 hours',
+    ],
   },
   it: {
     warning: ["L'avvertimento", 'L’avvertimento'],
@@ -142,65 +142,70 @@ const MARKERS = {
 // Headings+Text bis zum nächsten Heading (Primary) + Text-Fallback (Secondary)
 function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
-  const rootTest = $('#primary .glavni__content').first();
-    console.log('[seewetter] rootTest length:', rootTest.length);
-    console.log('[seewetter] rootTest h4:', cleanText(rootTest.find('h4').first().text()));
-    console.log('[seewetter] rootTest first h5:', cleanText(rootTest.find('h5').first().text()));
 
-  // 1) Title: h1/title + Fallback aus Body-Text
-  const bodyText = normalizeForFind($('body').text() || '');
-
-    const titleFromH4 = cleanText(root.find('h4').first().text()); // ✅ Berichtstitel
-    const titleFromH1 = cleanText(root.find('h1').first().text());
-    const titleFromTitle = cleanText($('title').text());
-
-    const title =
-        titleFromH4 ||
-        titleFromH1 ||
-        titleFromTitle ||
-        (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Seewetterbericht Split');
-
-    const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
-
-    // 3) Root: Bericht-Container (sehr spezifisch)
-    const root =
+  // ✅ Root: Bericht-Container (sehr spezifisch)
+  const root =
     $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
     : $('#primary').first().length ? $('#primary').first()
     : $('#main-content').first().length ? $('#main-content').first()
     : $('body');
- 
-   const headings = root.find('h5'); // ✅ die Abschnitte sind h5
-   const rawSections = [];
- 
-   headings.each((i, el) => {
-     const label = cleanText($(el).text());
-     if (!label) return;
- 
-     let n = $(el).next();
-     const parts = [];
- 
+
+  // 1) Body-Text für Marker-Fallback + issuedAt fallback
+  const bodyText = normalizeForFind($('body').text() || '');
+
+  // ✅ Debug optional, aber auf dem echten root
+  if (DEBUG) {
+    console.log('[seewetter] root length:', root.length);
+    console.log('[seewetter] root h4:', cleanText(root.find('h4').first().text()));
+    console.log('[seewetter] root first h5:', cleanText(root.find('h5').first().text()));
+  }
+
+  // 2) Title: h4 (Berichtstitel) -> h1 -> <title> -> Body fallback
+  const titleFromH4 = cleanText(root.find('h4').first().text());
+  const titleFromH1 = cleanText(root.find('h1').first().text());
+  const titleFromTitle = cleanText($('title').text());
+
+  const title =
+    titleFromH4 ||
+    titleFromH1 ||
+    titleFromTitle ||
+    (bodyText.includes('Seewetterbericht') ? bodyText.slice(0, 140) : 'Seewetterbericht Split');
+
+  const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
+
+  // 3) Primary Sections: h5 Überschriften + Text bis zum nächsten Heading
+  const headings = root.find('h5');
+  const rawSections = [];
+
+  headings.each((i, el) => {
+    const label = cleanText($(el).text());
+    if (!label) return;
+
+    let n = $(el).next();
+    const parts = [];
+
     while (n && n.length) {
-        const tag = (n[0]?.tagName || '').toLowerCase();
-        if (tag === 'h5') break;
+      const tag = (n[0]?.tagName || '').toLowerCase();
 
-        if (tag === 'p' || tag === 'div' || tag === 'span') {
-            const t = cleanText(n.text());
-            if (t) parts.push(t);
-        } else if (tag === 'ul' || tag === 'ol') {
-            const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
-            if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
-        }
+      // ✅ Stop bei jeder nächsten Überschrift, nicht nur h5
+      if (tag === 'h5' || tag === 'h4' || tag === 'h3' || tag === 'h2') break;
 
-        n = n.next();
+      if (tag === 'p' || tag === 'div' || tag === 'span') {
+        const t = cleanText(n.text());
+        if (t) parts.push(t);
+      } else if (tag === 'ul' || tag === 'ol') {
+        const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
+        if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
+      }
+
+      n = n.next();
     }
- 
-     const text = cleanText(parts.join('\n\n'));
-     if (text) rawSections.push({ label, text });
-   });
 
+    const text = cleanText(parts.join('\n\n'));
+    if (text) rawSections.push({ label, text });
+  });
 
-  // 4) Secondary: Text-Fallback, wenn Headings nix liefern
-  // Heuristik: wenn <2 Sections, dann ist das h2/h3 Modell vermutlich leer/ungeeignet
+  // 4) Secondary: Marker-Fallback, wenn Primary nix liefert
   if (rawSections.length < 2) {
     const m = MARKERS[lang] || MARKERS.de;
 
@@ -215,7 +220,6 @@ function extractSectionsFromHtml(html, lang) {
     if (f.text) fallbackSections.push({ label: f.usedStart || 'Forecast', text: f.text });
     if (o.text) fallbackSections.push({ label: o.usedStart || 'Outlook', text: o.text });
 
-    // Wenn sogar das leer ist, geben wir zumindest rawSections leer zurück – mapToBlocks fällt dann auf leer
     return { title, issuedAt, rawSections: fallbackSections };
   }
 
@@ -306,7 +310,7 @@ async function getExistingIssuedAt(lang) {
   return j?.issuedAt || null;
 }
 
-async function refreshOneLang(lang) {
+async function refreshOneLang(lang, force = false) {
   const sourceUrl = URLS[lang];
 
   const res = await fetch(sourceUrl, {
@@ -323,14 +327,13 @@ async function refreshOneLang(lang) {
 
   const html = await res.text();
 
-  // ✅ HIER: lang in extractor geben
   const { title, issuedAt, rawSections } = extractSectionsFromHtml(html, lang);
   const blocks = mapToBlocks(rawSections);
 
   const existingIssuedAt = await getExistingIssuedAt(lang);
 
-  // Wenn issuedAt fehlt, behandeln wir als update, damit wir wenigstens Inhalt haben
-  const isNew = !existingIssuedAt || !issuedAt || issuedAt !== existingIssuedAt;
+  // ✅ Force überschreibt immer (zum Debuggen/Neu-Parsen)
+  const isNew = force || !existingIssuedAt || !issuedAt || issuedAt !== existingIssuedAt;
 
   const payload = {
     sourceUrl,
@@ -360,12 +363,16 @@ export async function GET(req) {
     });
   }
 
+  // ✅ /api/seewetter/refresh-all?force=1
+  const url = new URL(req.url);
+  const force = url.searchParams.get('force') === '1';
+
   const langs = ['de', 'en', 'it', 'hr'];
 
   const results = [];
   for (const lang of langs) {
     try {
-      results.push(await refreshOneLang(lang));
+      results.push(await refreshOneLang(lang, force));
     } catch (e) {
       results.push({ lang, ok: false, error: e?.message || 'unknown error' });
     }
@@ -375,6 +382,7 @@ export async function GET(req) {
   return new Response(JSON.stringify({
     ok: anyOk,
     refreshedAt: new Date().toISOString(),
+    force,
     results,
   }, null, 2), {
     status: anyOk ? 200 : 500,
