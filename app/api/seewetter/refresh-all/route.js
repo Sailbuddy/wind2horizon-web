@@ -19,17 +19,27 @@ const DEBUG = false;
 
 function isVercelCron(req) {
   const cronHeader = req.headers.get('x-vercel-cron');
-  if (cronHeader) return true;
-
+  const ua = req.headers.get('user-agent') || '';
   const auth = req.headers.get('authorization') || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) return true;
 
-  // Lokal/Preview erlauben
+  // 1️⃣ offizieller Cron Header
+  if (cronHeader) return true;
+
+  // 2️⃣ Vercel Cron User-Agent
+  if (ua.includes('vercel-cron')) return true;
+
+  // 3️⃣ Manuelles Triggern mit Token
+  if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) {
+    return true;
+  }
+
+  // 4️⃣ Preview / lokal
   if (process.env.NODE_ENV !== 'production') return true;
 
   return false;
 }
+
 
 function cleanText(s) {
   return (s || '')
