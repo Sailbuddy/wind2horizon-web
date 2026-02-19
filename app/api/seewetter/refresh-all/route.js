@@ -11,6 +11,9 @@ const URLS = {
 
 const BLOB_PREFIX = 'seewetter/';
 
+// optional: kleines Cron-Log (ein File, overwrite) – hilft sofort beim Debuggen ob Cron läuft
+const CRONLOG_PATH = `${BLOB_PREFIX}_cronlog.json`;
+
 // ✅ Debug-Schalter (bei Bedarf true setzen)
 const DEBUG = false;
 
@@ -37,10 +40,19 @@ function cleanText(s) {
 }
 
 function extractIssuedAtFromTitle(title) {
-  // Beispiel: "... vom 18.02.2026 um 06"
+  // Beispiel: "... vom 18.02.2026 um 06" / "on 18.02.2026 at 12" / "18.02.2026 alle 12" ...
   try {
-    const m = (title || '').match(/vom\s+(\d{2})\.(\d{2})\.(\d{4})\s+um\s+(\d{1,2})/i);
+    const t = String(title || '');
+
+    const m =
+      t.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4})\s+um\s+(\d{1,2})/i) ||
+      t.match(/on\s+(\d{2})\.(\d{2})\.(\d{4})\s+at\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bat\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\balle\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bu\s+(\d{1,2})/i);
+
     if (!m) return null;
+
     const dd = Number(m[1]);
     const mm = Number(m[2]);
     const yyyy = Number(m[3]);
@@ -54,12 +66,13 @@ function extractIssuedAtFromTitle(title) {
 function extractIssuedAtFromBodyText(fullText) {
   // Robuster Fallback, falls title/h4 den Zeitstempel nicht enthält
   try {
-    const t = fullText || '';
+    const t = String(fullText || '');
     const m =
-      t.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bum\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bat\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\balle\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bu\s+(\d{1,2})/i);
+      t.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bum\s+(\d{1,2})/i) ||
+      t.match(/on\s+(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bat\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bat\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\balle\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bu\s+(\d{1,2})/i);
 
     if (!m) return null;
 
@@ -81,14 +94,15 @@ function normalizeForFind(s) {
 }
 
 function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
-  const text = fullText || '';
+  const text = String(fullText || '');
 
   let startIndex = -1;
   let startLen = 0;
   let usedStart = '';
 
   for (const sm of startMarkers || []) {
-    const idx = text.toLowerCase().indexOf(String(sm).toLowerCase());
+    const needle = String(sm).toLowerCase();
+    const idx = text.toLowerCase().indexOf(needle);
     if (idx !== -1 && (startIndex === -1 || idx < startIndex)) {
       startIndex = idx;
       startLen = String(sm).length;
@@ -135,11 +149,21 @@ const MARKERS = {
   },
 };
 
+function isLikelyPortalGarbage({ title, rawSections }) {
+  const portalLabelHit = (rawSections || []).some((s) =>
+    /warning systems|remote sensing|air quality|hydrological/i.test(String(s?.label || ''))
+  );
+
+  const portalTitleHit =
+    /croatian meteorological/i.test(String(title || '')) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(String(title || ''));
+
+  return portalLabelHit || portalTitleHit;
+}
+
 // Headings+Text bis zum nächsten Heading (Primary) + Text-Fallback (Secondary)
 function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
 
-  // Root: Bericht-Container (sehr spezifisch)
   const root =
     $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
     : $('#primary').first().length ? $('#primary').first()
@@ -155,11 +179,12 @@ function extractSectionsFromHtml(html, lang) {
     console.log('[seewetter] rootTest first h5:', cleanText(rootTest.find('h5').first().text()));
   }
 
-  // ---- Title robust: bevorzugt h4 (mit Datum), sonst h1/title/body ----
-  const h4WithDate = root.find('h4').toArray().map((el) => $(el)).find(($el) => {
-    const t = cleanText($el.text());
-    return /\b\d{2}\.\d{2}\.\d{4}\b/.test(t);
-  });
+  // Title robust: bevorzugt h4 (mit Datum), sonst h1/title/body
+  const h4WithDate = root
+    .find('h4')
+    .toArray()
+    .map((el) => $(el))
+    .find(($el) => /\b\d{2}\.\d{2}\.\d{4}\b/.test(cleanText($el.text())));
 
   const titleFromH4 = cleanText(h4WithDate ? h4WithDate.text() : root.find('h4').first().text());
   const titleFromH1 = cleanText(root.find('h1').first().text());
@@ -173,7 +198,7 @@ function extractSectionsFromHtml(html, lang) {
 
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
-  // ---- Primary Sections: h5 Parsing ----
+  // Primary Sections: h5 Parsing
   const headings = root.find('h5');
   const rawSections = [];
 
@@ -192,8 +217,12 @@ function extractSectionsFromHtml(html, lang) {
         const t = cleanText(n.text());
         if (t) parts.push(t);
       } else if (tag === 'ul' || tag === 'ol') {
-        const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
-        if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
+        const items = n
+          .find('li')
+          .toArray()
+          .map((li) => cleanText($(li).text()))
+          .filter(Boolean);
+        if (items.length) parts.push(items.map((x) => `- ${x}`).join('\n'));
       }
 
       n = n.next();
@@ -203,14 +232,7 @@ function extractSectionsFromHtml(html, lang) {
     if (text) rawSections.push({ label, text });
   });
 
-  // ---- Sanity Check: erkenne DHMZ Portal-Sections (Fehlinhalt) ----
-  const portalLabelHit = rawSections.some(s =>
-    /warning systems|remote sensing|air quality|hydrological/i.test(String(s.label || ''))
-  );
-  const portalTitleHit =
-    /croatian meteorological/i.test(title) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(title);
-
-  const looksLikePortal = portalLabelHit || portalTitleHit;
+  const looksLikePortal = isLikelyPortalGarbage({ title, rawSections });
 
   // Wenn Primary nicht plausibel ist → Fallback erzwingen
   if (rawSections.length < 2 || looksLikePortal) {
@@ -244,47 +266,50 @@ function mapToBlocks(rawSections) {
 
   const norm = (s) => (s || '').toLowerCase();
 
-  for (const sec of rawSections) {
-    const h = norm(sec.label);
+  for (const sec of rawSections || []) {
+    const h = norm(sec?.label);
 
     if (!blocks.warning && (h.includes('warn') || h.includes('warning') || h.includes('avvert') || h.includes('upozor'))) {
       blocks.warning = { label: sec.label, text: sec.text };
       continue;
     }
 
-    if (!blocks.synopsis && (
-      h.includes('wetterlage') ||
-      h.includes('synopsis') ||
-      h.includes('situaz') ||
-      h.includes('sinops') ||
-      h.includes('sinop') ||
-      h.includes('stanje') ||
-      h.includes('vremensk')
-    )) {
+    if (
+      !blocks.synopsis &&
+      (h.includes('wetterlage') ||
+        h.includes('synopsis') ||
+        h.includes('situaz') ||
+        h.includes('sinops') ||
+        h.includes('sinop') ||
+        h.includes('stanje') ||
+        h.includes('vremensk'))
+    ) {
       blocks.synopsis = { label: sec.label, text: sec.text };
       continue;
     }
 
-    if (!blocks.forecast_12h && (
-      (h.includes('vorhersage') && h.includes('12')) ||
-      (h.includes('forecast') && h.includes('12')) ||
-      (h.includes('previs') && h.includes('12')) ||
-      (h.includes('progno') && h.includes('12')) ||
-      (h.includes('prvih') && h.includes('12')) ||
-      (h.includes('first') && h.includes('12'))
-    )) {
+    if (
+      !blocks.forecast_12h &&
+      ((h.includes('vorhersage') && h.includes('12')) ||
+        (h.includes('forecast') && h.includes('12')) ||
+        (h.includes('previs') && h.includes('12')) ||
+        (h.includes('progno') && h.includes('12')) ||
+        (h.includes('prvih') && h.includes('12')) ||
+        (h.includes('first') && h.includes('12')))
+    ) {
       blocks.forecast_12h = { label: sec.label, text: sec.text };
       continue;
     }
 
-    if (!blocks.outlook_12h && (
-      (h.includes('aussicht') && h.includes('12')) ||
-      (h.includes('outlook') && h.includes('12')) ||
-      (h.includes('tenden') && h.includes('12')) ||
-      (h.includes('prossime') && h.includes('12')) ||
-      (h.includes('daljnjih') && h.includes('12')) ||
-      (h.includes('next') && h.includes('12'))
-    )) {
+    if (
+      !blocks.outlook_12h &&
+      ((h.includes('aussicht') && h.includes('12')) ||
+        (h.includes('outlook') && h.includes('12')) ||
+        (h.includes('tenden') && h.includes('12')) ||
+        (h.includes('prossime') && h.includes('12')) ||
+        (h.includes('daljnjih') && h.includes('12')) ||
+        (h.includes('next') && h.includes('12')))
+    ) {
       blocks.outlook_12h = { label: sec.label, text: sec.text };
       continue;
     }
@@ -292,7 +317,7 @@ function mapToBlocks(rawSections) {
 
   // fallback: nimm die ersten vier Sections, wenn Mapping schwach war
   const nonNullCount = Object.values(blocks).filter(Boolean).length;
-  if (nonNullCount < 2 && rawSections.length >= 2) {
+  if (nonNullCount < 2 && (rawSections || []).length >= 2) {
     const pick = (i, key) => {
       if (!blocks[key] && rawSections[i]) blocks[key] = { label: rawSections[i].label, text: rawSections[i].text };
     };
@@ -312,7 +337,7 @@ function mapToBlocks(rawSections) {
 async function getExistingIssuedAt(lang) {
   const pathname = `${BLOB_PREFIX}${lang}.json`;
   const res = await list({ prefix: pathname, limit: 10 });
-  const exact = res.blobs?.find(b => b.pathname === pathname);
+  const exact = res.blobs?.find((b) => b.pathname === pathname);
   if (!exact?.url) return null;
 
   const r = await fetch(exact.url, { cache: 'no-store' });
@@ -321,13 +346,27 @@ async function getExistingIssuedAt(lang) {
   return j?.issuedAt || null;
 }
 
+function isPlausiblePayload(payload) {
+  // schützt davor, dass "Portal"-Schrott oder leere Blöcke gespeichert werden
+  const t = String(payload?.title || '');
+  const b = payload?.blocks || {};
+  const texts = [b.warning?.text, b.synopsis?.text, b.forecast_12h?.text, b.outlook_12h?.text]
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+
+  const hasEnoughText = texts.join('\n').length >= 80;
+  const portalish = /croatian meteorological/i.test(t);
+
+  return hasEnoughText && !portalish;
+}
+
 async function refreshOneLang(lang, force = false) {
   const sourceUrl = URLS[lang];
 
   const res = await fetch(sourceUrl, {
     headers: {
       'User-Agent': 'wind2horizon/1.0 (+https://wind2horizon.com)',
-      'Accept': 'text/html,application/xhtml+xml',
+      Accept: 'text/html,application/xhtml+xml',
     },
     cache: 'no-store',
   });
@@ -343,13 +382,8 @@ async function refreshOneLang(lang, force = false) {
 
   const existingIssuedAt = await getExistingIssuedAt(lang);
 
-  const shouldWrite =
-    force ||
-    !existingIssuedAt ||
-    !issuedAt ||
-    issuedAt !== existingIssuedAt;
-
-  const payload = {
+  // Standard: nur schreiben, wenn neu – ABER: wenn force=1, trotzdem nur schreiben, wenn plausibel
+  const candidate = {
     sourceUrl,
     title,
     issuedAt: issuedAt || null,
@@ -357,9 +391,16 @@ async function refreshOneLang(lang, force = false) {
     blocks,
   };
 
+  const plausible = isPlausiblePayload(candidate);
+
+  // ✅ WICHTIG: wenn du "immer überschreiben" willst, setze hier einfach true,
+  // aber ich empfehle: immer nur überschreiben, wenn plausibel.
+  const shouldWrite =
+    (force || !existingIssuedAt || !candidate.issuedAt || candidate.issuedAt !== existingIssuedAt) && plausible;
+
   if (shouldWrite) {
     const pathname = `${BLOB_PREFIX}${lang}.json`;
-    await put(pathname, JSON.stringify(payload, null, 2), {
+    await put(pathname, JSON.stringify(candidate, null, 2), {
       access: 'public',
       contentType: 'application/json; charset=utf-8',
       allowOverwrite: true,
@@ -370,9 +411,30 @@ async function refreshOneLang(lang, force = false) {
     lang,
     ok: true,
     updated: shouldWrite,
-    issuedAt: payload.issuedAt,
+    plausible,
+    issuedAt: candidate.issuedAt,
     existingIssuedAt,
+    title: candidate.title,
   };
+}
+
+async function writeCronLog({ force, results }) {
+  try {
+    const payload = {
+      ok: results?.some((r) => r?.ok),
+      refreshedAt: new Date().toISOString(),
+      force: !!force,
+      results,
+    };
+
+    await put(CRONLOG_PATH, JSON.stringify(payload, null, 2), {
+      access: 'public',
+      contentType: 'application/json; charset=utf-8',
+      allowOverwrite: true,
+    });
+  } catch {
+    // CronLog ist nur Diagnose – niemals den Refresh dadurch failen lassen
+  }
 }
 
 export async function GET(req) {
@@ -398,14 +460,24 @@ export async function GET(req) {
     }
   }
 
-  const anyOk = results.some(r => r.ok);
-  return new Response(JSON.stringify({
-    ok: anyOk,
-    refreshedAt: new Date().toISOString(),
-    force,
-    results,
-  }, null, 2), {
-    status: anyOk ? 200 : 500,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-  });
+  // immer Cron-Log schreiben (overwrite)
+  await writeCronLog({ force, results });
+
+  const anyOk = results.some((r) => r.ok);
+  return new Response(
+    JSON.stringify(
+      {
+        ok: anyOk,
+        refreshedAt: new Date().toISOString(),
+        force,
+        results,
+      },
+      null,
+      2
+    ),
+    {
+      status: anyOk ? 200 : 500,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }
+  );
 }
