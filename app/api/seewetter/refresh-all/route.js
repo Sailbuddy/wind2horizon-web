@@ -1,6 +1,6 @@
 // app/api/seewetter/refresh-all/route.js
 import * as cheerio from 'cheerio';
-import { list, put } from '@vercel/blob';
+import { put } from '@vercel/blob';
 
 const URLS = {
   de: 'https://meteo.hr/prognoze_e.php?section=prognoze_specp&param=jadran&el=jadran_n',
@@ -10,36 +10,19 @@ const URLS = {
 };
 
 const BLOB_PREFIX = 'seewetter/';
-
-// optional: kleines Cron-Log (ein File, overwrite) – hilft sofort beim Debuggen ob Cron läuft
-const CRONLOG_PATH = `${BLOB_PREFIX}_cronlog.json`;
-
-// ✅ Debug-Schalter (bei Bedarf true setzen)
 const DEBUG = false;
 
 function isVercelCron(req) {
   const cronHeader = req.headers.get('x-vercel-cron');
-  const ua = req.headers.get('user-agent') || '';
-  const auth = req.headers.get('authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-
-  // 1️⃣ offizieller Cron Header
   if (cronHeader) return true;
 
-  // 2️⃣ Vercel Cron User-Agent
-  if (ua.includes('vercel-cron')) return true;
+  const auth = req.headers.get('authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) return true;
 
-  // 3️⃣ Manuelles Triggern mit Token
-  if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) {
-    return true;
-  }
-
-  // 4️⃣ Preview / lokal
   if (process.env.NODE_ENV !== 'production') return true;
-
   return false;
 }
-
 
 function cleanText(s) {
   return (s || '')
@@ -50,19 +33,9 @@ function cleanText(s) {
 }
 
 function extractIssuedAtFromTitle(title) {
-  // Beispiel: "... vom 18.02.2026 um 06" / "on 18.02.2026 at 12" / "18.02.2026 alle 12" ...
   try {
-    const t = String(title || '');
-
-    const m =
-      t.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4})\s+um\s+(\d{1,2})/i) ||
-      t.match(/on\s+(\d{2})\.(\d{2})\.(\d{4})\s+at\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bat\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\balle\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bu\s+(\d{1,2})/i);
-
+    const m = (title || '').match(/vom\s+(\d{2})\.(\d{2})\.(\d{4})\s+um\s+(\d{1,2})/i);
     if (!m) return null;
-
     const dd = Number(m[1]);
     const mm = Number(m[2]);
     const yyyy = Number(m[3]);
@@ -74,15 +47,13 @@ function extractIssuedAtFromTitle(title) {
 }
 
 function extractIssuedAtFromBodyText(fullText) {
-  // Robuster Fallback, falls title/h4 den Zeitstempel nicht enthält
   try {
-    const t = String(fullText || '');
+    const t = fullText || '';
     const m =
-      t.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bum\s+(\d{1,2})/i) ||
-      t.match(/on\s+(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bat\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bat\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\balle\s+(\d{1,2})/i) ||
-      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,80}?\bu\s+(\d{1,2})/i);
+      t.match(/vom\s+(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bum\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bat\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\balle\s+(\d{1,2})/i) ||
+      t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,60}?\bu\s+(\d{1,2})/i);
 
     if (!m) return null;
 
@@ -96,23 +67,19 @@ function extractIssuedAtFromBodyText(fullText) {
   }
 }
 
-// ----------
-// Text-basierte Block-Extraktion (Fallback, wenn Heading-Struktur nicht greift)
-// ----------
 function normalizeForFind(s) {
   return cleanText(s).replace(/\s+/g, ' ').trim();
 }
 
 function extractBlockByMarkers(fullText, startMarkers, nextMarkers) {
-  const text = String(fullText || '');
+  const text = fullText || '';
 
   let startIndex = -1;
   let startLen = 0;
   let usedStart = '';
 
   for (const sm of startMarkers || []) {
-    const needle = String(sm).toLowerCase();
-    const idx = text.toLowerCase().indexOf(needle);
+    const idx = text.toLowerCase().indexOf(String(sm).toLowerCase());
     if (idx !== -1 && (startIndex === -1 || idx < startIndex)) {
       startIndex = idx;
       startLen = String(sm).length;
@@ -159,18 +126,6 @@ const MARKERS = {
   },
 };
 
-function isLikelyPortalGarbage({ title, rawSections }) {
-  const portalLabelHit = (rawSections || []).some((s) =>
-    /warning systems|remote sensing|air quality|hydrological/i.test(String(s?.label || ''))
-  );
-
-  const portalTitleHit =
-    /croatian meteorological/i.test(String(title || '')) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(String(title || ''));
-
-  return portalLabelHit || portalTitleHit;
-}
-
-// Headings+Text bis zum nächsten Heading (Primary) + Text-Fallback (Secondary)
 function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
 
@@ -189,12 +144,10 @@ function extractSectionsFromHtml(html, lang) {
     console.log('[seewetter] rootTest first h5:', cleanText(rootTest.find('h5').first().text()));
   }
 
-  // Title robust: bevorzugt h4 (mit Datum), sonst h1/title/body
-  const h4WithDate = root
-    .find('h4')
-    .toArray()
-    .map((el) => $(el))
-    .find(($el) => /\b\d{2}\.\d{2}\.\d{4}\b/.test(cleanText($el.text())));
+  const h4WithDate = root.find('h4').toArray().map((el) => $(el)).find(($el) => {
+    const t = cleanText($el.text());
+    return /\b\d{2}\.\d{2}\.\d{4}\b/.test(t);
+  });
 
   const titleFromH4 = cleanText(h4WithDate ? h4WithDate.text() : root.find('h4').first().text());
   const titleFromH1 = cleanText(root.find('h1').first().text());
@@ -208,7 +161,6 @@ function extractSectionsFromHtml(html, lang) {
 
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
 
-  // Primary Sections: h5 Parsing
   const headings = root.find('h5');
   const rawSections = [];
 
@@ -227,12 +179,8 @@ function extractSectionsFromHtml(html, lang) {
         const t = cleanText(n.text());
         if (t) parts.push(t);
       } else if (tag === 'ul' || tag === 'ol') {
-        const items = n
-          .find('li')
-          .toArray()
-          .map((li) => cleanText($(li).text()))
-          .filter(Boolean);
-        if (items.length) parts.push(items.map((x) => `- ${x}`).join('\n'));
+        const items = n.find('li').toArray().map(li => cleanText($(li).text())).filter(Boolean);
+        if (items.length) parts.push(items.map(x => `- ${x}`).join('\n'));
       }
 
       n = n.next();
@@ -242,9 +190,14 @@ function extractSectionsFromHtml(html, lang) {
     if (text) rawSections.push({ label, text });
   });
 
-  const looksLikePortal = isLikelyPortalGarbage({ title, rawSections });
+  const portalLabelHit = rawSections.some(s =>
+    /warning systems|remote sensing|air quality|hydrological/i.test(String(s.label || ''))
+  );
+  const portalTitleHit =
+    /croatian meteorological/i.test(title) && !/\b\d{2}\.\d{2}\.\d{4}\b/.test(title);
 
-  // Wenn Primary nicht plausibel ist → Fallback erzwingen
+  const looksLikePortal = portalLabelHit || portalTitleHit;
+
   if (rawSections.length < 2 || looksLikePortal) {
     const m = MARKERS[lang] || MARKERS.de;
 
@@ -265,7 +218,6 @@ function extractSectionsFromHtml(html, lang) {
   return { title, issuedAt, rawSections };
 }
 
-// Keyword-Mapping -> feste Blocks
 function mapToBlocks(rawSections) {
   const blocks = {
     warning: null,
@@ -276,58 +228,54 @@ function mapToBlocks(rawSections) {
 
   const norm = (s) => (s || '').toLowerCase();
 
-  for (const sec of rawSections || []) {
-    const h = norm(sec?.label);
+  for (const sec of rawSections) {
+    const h = norm(sec.label);
 
     if (!blocks.warning && (h.includes('warn') || h.includes('warning') || h.includes('avvert') || h.includes('upozor'))) {
       blocks.warning = { label: sec.label, text: sec.text };
       continue;
     }
 
-    if (
-      !blocks.synopsis &&
-      (h.includes('wetterlage') ||
-        h.includes('synopsis') ||
-        h.includes('situaz') ||
-        h.includes('sinops') ||
-        h.includes('sinop') ||
-        h.includes('stanje') ||
-        h.includes('vremensk'))
-    ) {
+    if (!blocks.synopsis && (
+      h.includes('wetterlage') ||
+      h.includes('synopsis') ||
+      h.includes('situaz') ||
+      h.includes('sinops') ||
+      h.includes('sinop') ||
+      h.includes('stanje') ||
+      h.includes('vremensk')
+    )) {
       blocks.synopsis = { label: sec.label, text: sec.text };
       continue;
     }
 
-    if (
-      !blocks.forecast_12h &&
-      ((h.includes('vorhersage') && h.includes('12')) ||
-        (h.includes('forecast') && h.includes('12')) ||
-        (h.includes('previs') && h.includes('12')) ||
-        (h.includes('progno') && h.includes('12')) ||
-        (h.includes('prvih') && h.includes('12')) ||
-        (h.includes('first') && h.includes('12')))
-    ) {
+    if (!blocks.forecast_12h && (
+      (h.includes('vorhersage') && h.includes('12')) ||
+      (h.includes('forecast') && h.includes('12')) ||
+      (h.includes('previs') && h.includes('12')) ||
+      (h.includes('progno') && h.includes('12')) ||
+      (h.includes('prvih') && h.includes('12')) ||
+      (h.includes('first') && h.includes('12'))
+    )) {
       blocks.forecast_12h = { label: sec.label, text: sec.text };
       continue;
     }
 
-    if (
-      !blocks.outlook_12h &&
-      ((h.includes('aussicht') && h.includes('12')) ||
-        (h.includes('outlook') && h.includes('12')) ||
-        (h.includes('tenden') && h.includes('12')) ||
-        (h.includes('prossime') && h.includes('12')) ||
-        (h.includes('daljnjih') && h.includes('12')) ||
-        (h.includes('next') && h.includes('12')))
-    ) {
+    if (!blocks.outlook_12h && (
+      (h.includes('aussicht') && h.includes('12')) ||
+      (h.includes('outlook') && h.includes('12')) ||
+      (h.includes('tenden') && h.includes('12')) ||
+      (h.includes('prossime') && h.includes('12')) ||
+      (h.includes('daljnjih') && h.includes('12')) ||
+      (h.includes('next') && h.includes('12'))
+    )) {
       blocks.outlook_12h = { label: sec.label, text: sec.text };
       continue;
     }
   }
 
-  // fallback: nimm die ersten vier Sections, wenn Mapping schwach war
   const nonNullCount = Object.values(blocks).filter(Boolean).length;
-  if (nonNullCount < 2 && (rawSections || []).length >= 2) {
+  if (nonNullCount < 2 && rawSections.length >= 2) {
     const pick = (i, key) => {
       if (!blocks[key] && rawSections[i]) blocks[key] = { label: rawSections[i].label, text: rawSections[i].text };
     };
@@ -344,39 +292,13 @@ function mapToBlocks(rawSections) {
   return blocks;
 }
 
-async function getExistingIssuedAt(lang) {
-  const pathname = `${BLOB_PREFIX}${lang}.json`;
-  const res = await list({ prefix: pathname, limit: 10 });
-  const exact = res.blobs?.find((b) => b.pathname === pathname);
-  if (!exact?.url) return null;
-
-  const r = await fetch(exact.url, { cache: 'no-store' });
-  if (!r.ok) return null;
-  const j = await r.json();
-  return j?.issuedAt || null;
-}
-
-function isPlausiblePayload(payload) {
-  // schützt davor, dass "Portal"-Schrott oder leere Blöcke gespeichert werden
-  const t = String(payload?.title || '');
-  const b = payload?.blocks || {};
-  const texts = [b.warning?.text, b.synopsis?.text, b.forecast_12h?.text, b.outlook_12h?.text]
-    .map((x) => String(x || '').trim())
-    .filter(Boolean);
-
-  const hasEnoughText = texts.join('\n').length >= 80;
-  const portalish = /croatian meteorological/i.test(t);
-
-  return hasEnoughText && !portalish;
-}
-
-async function refreshOneLang(lang, force = false) {
+async function refreshOneLang(lang) {
   const sourceUrl = URLS[lang];
 
   const res = await fetch(sourceUrl, {
     headers: {
       'User-Agent': 'wind2horizon/1.0 (+https://wind2horizon.com)',
-      Accept: 'text/html,application/xhtml+xml',
+      'Accept': 'text/html,application/xhtml+xml',
     },
     cache: 'no-store',
   });
@@ -386,14 +308,10 @@ async function refreshOneLang(lang, force = false) {
   }
 
   const html = await res.text();
-
   const { title, issuedAt, rawSections } = extractSectionsFromHtml(html, lang);
   const blocks = mapToBlocks(rawSections);
 
-  const existingIssuedAt = await getExistingIssuedAt(lang);
-
-  // Standard: nur schreiben, wenn neu – ABER: wenn force=1, trotzdem nur schreiben, wenn plausibel
-  const candidate = {
+  const payload = {
     sourceUrl,
     title,
     issuedAt: issuedAt || null,
@@ -401,55 +319,23 @@ async function refreshOneLang(lang, force = false) {
     blocks,
   };
 
-  const plausible = isPlausiblePayload(candidate);
-
-  // ✅ WICHTIG: wenn du "immer überschreiben" willst, setze hier einfach true,
-  // aber ich empfehle: immer nur überschreiben, wenn plausibel.
-  const shouldWrite =
-    (force || !existingIssuedAt || !candidate.issuedAt || candidate.issuedAt !== existingIssuedAt) && plausible;
-
-  if (shouldWrite) {
-    const pathname = `${BLOB_PREFIX}${lang}.json`;
-    await put(pathname, JSON.stringify(candidate, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      allowOverwrite: true,
-    });
-  }
+  const pathname = `${BLOB_PREFIX}${lang}.json`;
+  await put(pathname, JSON.stringify(payload, null, 2), {
+    access: 'public',
+    contentType: 'application/json; charset=utf-8',
+    allowOverwrite: true,
+  });
 
   return {
     lang,
     ok: true,
-    updated: shouldWrite,
-    plausible,
-    issuedAt: candidate.issuedAt,
-    existingIssuedAt,
-    title: candidate.title,
+    updated: true,          // <- ab jetzt immer true
+    issuedAt: payload.issuedAt,
+    title,
   };
 }
 
-async function writeCronLog({ force, results }) {
-  try {
-    const payload = {
-      ok: results?.some((r) => r?.ok),
-      refreshedAt: new Date().toISOString(),
-      force: !!force,
-      results,
-    };
-
-    await put(CRONLOG_PATH, JSON.stringify(payload, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      allowOverwrite: true,
-    });
-  } catch {
-    // CronLog ist nur Diagnose – niemals den Refresh dadurch failen lassen
-  }
-}
-
 export async function GET(req) {
-  console.log('cron header', req.headers.get('x-vercel-cron'));
-  console.log('ua', req.headers.get('user-agent'));
   if (!isVercelCron(req)) {
     return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
       status: 401,
@@ -457,39 +343,24 @@ export async function GET(req) {
     });
   }
 
-  // ✅ /api/seewetter/refresh-all?force=1
-  const url = new URL(req.url);
-  const force = url.searchParams.get('force') === '1';
-
   const langs = ['de', 'en', 'it', 'hr'];
 
   const results = [];
   for (const lang of langs) {
     try {
-      results.push(await refreshOneLang(lang, force));
+      results.push(await refreshOneLang(lang));
     } catch (e) {
       results.push({ lang, ok: false, error: e?.message || 'unknown error' });
     }
   }
 
-  // immer Cron-Log schreiben (overwrite)
-  await writeCronLog({ force, results });
-
-  const anyOk = results.some((r) => r.ok);
-  return new Response(
-    JSON.stringify(
-      {
-        ok: anyOk,
-        refreshedAt: new Date().toISOString(),
-        force,
-        results,
-      },
-      null,
-      2
-    ),
-    {
-      status: anyOk ? 200 : 500,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    }
-  );
+  const anyOk = results.some(r => r.ok);
+  return new Response(JSON.stringify({
+    ok: anyOk,
+    refreshedAt: new Date().toISOString(),
+    results,
+  }, null, 2), {
+    status: anyOk ? 200 : 500,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  });
 }
