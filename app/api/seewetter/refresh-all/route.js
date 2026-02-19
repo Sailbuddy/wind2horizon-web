@@ -1,4 +1,5 @@
 // app/api/seewetter/refresh-all/route.js
+
 import * as cheerio from 'cheerio';
 import { put } from '@vercel/blob';
 
@@ -344,6 +345,7 @@ async function refreshOneLang(lang) {
 }
 
 export async function GET(req) {
+console.log('SEEWETTER VERSION 2 - ALWAYS WRITE - OFFSET FIX ACTIVE');  
  if (!isVercelCron(req)) {
   return new Response(JSON.stringify({
     ok: false,
