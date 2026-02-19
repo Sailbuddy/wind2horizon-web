@@ -13,14 +13,22 @@ const BLOB_PREFIX = 'seewetter/';
 const DEBUG = false;
 
 function isVercelCron(req) {
+  // 1) offizieller Header (wenn vorhanden)
   const cronHeader = req.headers.get('x-vercel-cron');
   if (cronHeader) return true;
 
+  // 2) Vercel Cron UA (ist bei dir sichtbar)
+  const ua = (req.headers.get('user-agent') || '').toLowerCase();
+  if (ua.includes('vercel-cron')) return true;
+
+  // 3) Token für manuelle Trigger
   const auth = req.headers.get('authorization') || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   if (process.env.SEEWETTER_REFRESH_TOKEN && token === process.env.SEEWETTER_REFRESH_TOKEN) return true;
 
+  // 4) Lokal/Preview erlauben
   if (process.env.NODE_ENV !== 'production') return true;
+
   return false;
 }
 
@@ -336,12 +344,19 @@ async function refreshOneLang(lang) {
 }
 
 export async function GET(req) {
-  if (!isVercelCron(req)) {
-    return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    });
-  }
+ if (!isVercelCron(req)) {
+  return new Response(JSON.stringify({
+    ok: false,
+    error: 'unauthorized',
+    build: {
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+      env: process.env.VERCEL_ENV || process.env.NODE_ENV || null,
+    }
+  }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  });
+}
 
   const langs = ['de', 'en', 'it', 'hr'];
 
