@@ -1,65 +1,109 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 
-export default function SeaWeatherPanel({ lang, label }) {
+export default function SeaWeatherPanel({ lang = 'de', label }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const t = useMemo(
     () => ({
-      title: label?.('seaWeatherTitle', lang) ?? 'Seewetterbericht (Adria)',
+      fallbackTitle: label?.('seaWeatherTitle', lang) ?? 'Seewetterbericht (Adria)',
       hint: label?.('seaWeatherHint', lang) ?? 'Quelle: Meteo.hr (offiziell)',
       openOfficial: label?.('openOfficial', lang) ?? 'Offiziell öffnen',
       updated: label?.('updated', lang) ?? 'Stand',
-      warning: label?.('warning', lang) ?? 'Warnung',
-      situation: label?.('weatherSituation', lang) ?? 'Wetterlage',
-      forecast12: label?.('forecast12', lang) ?? 'Vorhersage (nächste 12h)',
-      forecast24: label?.('forecast24', lang) ?? 'Vorhersage (weitere 12h)',
       reload: label?.('reload', lang) ?? 'Aktualisieren',
+      loading: label?.('loading', lang) ?? 'Lädt…',
+      loadError: label?.('seaWeatherLoadError', lang) ?? 'Fehler beim Laden des Seewetterberichts',
     }),
     [lang, label]
   );
 
-  async function load() {
+  const locale = useMemo(() => {
+    // fr existiert bei euch im UI, Blob-API mapped fr -> en
+    if (lang === 'de') return 'de-DE';
+    if (lang === 'it') return 'it-IT';
+    if (lang === 'hr') return 'hr-HR';
+    return 'en-GB';
+  }, [lang]);
+
+  const fmtDate = useCallback(
+    (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      return d.toLocaleString(locale, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    },
+    [locale]
+  );
+
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
+
     try {
-      const res = await fetch('/api/seewetter', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const res = await fetch(`/api/seewetter?lang=${encodeURIComponent(lang)}`, { cache: 'no-store' });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const msg =
+          json?.error ||
+          (json?.ok === false ? 'Seewetter nicht verfügbar' : null) ||
+          `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      if (json?.ok === false) {
+        throw new Error(json?.error || 'Seewetter nicht verfügbar');
+      }
+
       setData(json);
     } catch (e) {
-      setErr(e?.message || 'Fehler beim Laden des Seewetterberichts');
+      setErr(e?.message || t.loadError);
     } finally {
       setLoading(false);
     }
-  }
+  }, [lang, t.loadError]);
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 15 * 60 * 1000);
-    return () => clearInterval(t);
-  }, []);
+    // 10 min Refresh ist ok (Peak 10 min / Offpeak stündlich -> wir lesen einfach öfter)
+    const timer = setInterval(load, 10 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  const blocks = data?.blocks || {};
+  const warning = blocks?.warning;
+  const synopsis = blocks?.synopsis; // Wetterlage
+  const forecast12 = blocks?.forecast_12h;
+  const outlook12 = blocks?.outlook_12h;
+
+  const sourceUrl =
+    data?.sourceUrl ||
+    'https://meteo.hr/prognoze_e.php?section=prognoze_specp&param=jadran&el=jadran_n';
+
+  const standIso = data?.issuedAt || data?.fetchedAt || null;
+  const standTxt = standIso ? fmtDate(standIso) : '';
 
   return (
     <div className="w2h-sea-wrap">
       <section className="w2h-card">
         <div className="w2h-head">
-          <h1 className="w2h-h1">{t.title}</h1>
+          <h1 className="w2h-h1">{data?.title || t.fallbackTitle}</h1>
 
           <div className="w2h-actions">
             <button className="w2h-btn" onClick={load} disabled={loading}>
               {loading ? '...' : t.reload}
             </button>
 
-            <a
-              className="w2h-btn w2h-btn-secondary"
-              href="https://meteo.hr/prognoze_e.php?section=prognoze_specp&param=jadran&el=jadran_n"
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a className="w2h-btn w2h-btn-secondary" href={sourceUrl} target="_blank" rel="noreferrer">
               {t.openOfficial}
             </a>
           </div>
@@ -69,32 +113,38 @@ export default function SeaWeatherPanel({ lang, label }) {
 
         {err ? <div className="w2h-err">{err}</div> : null}
 
-        {data?.updatedAt ? (
+        {standTxt ? (
           <div className="w2h-meta">
-            <span className="w2h-meta-k">{t.updated}:</span> {data.updatedAt}
+            <span className="w2h-meta-k">{t.updated}:</span> {standTxt}
           </div>
         ) : null}
       </section>
 
       <section className="w2h-section">
         <div className="w2h-card">
-          <div className="w2h-h2">{t.warning}</div>
-          <div className="w2h-textblock">{data?.warning || '—'}</div>
+          <div className="w2h-h2">{warning?.label || label?.('warning', lang) || 'Warnung'}</div>
+          <div className="w2h-textblock">{warning?.text || '—'}</div>
         </div>
 
         <div className="w2h-card">
-          <div className="w2h-h2">{t.situation}</div>
-          <div className="w2h-textblock">{data?.situation || '—'}</div>
+          <div className="w2h-h2">
+            {synopsis?.label || label?.('weatherSituation', lang) || 'Wetterlage'}
+          </div>
+          <div className="w2h-textblock">{synopsis?.text || '—'}</div>
         </div>
 
         <div className="w2h-card">
-          <div className="w2h-h2">{t.forecast12}</div>
-          <div className="w2h-textblock">{data?.forecast12 || '—'}</div>
+          <div className="w2h-h2">
+            {forecast12?.label || label?.('forecast12', lang) || 'Vorhersage (nächste 12h)'}
+          </div>
+          <div className="w2h-textblock">{forecast12?.text || '—'}</div>
         </div>
 
         <div className="w2h-card">
-          <div className="w2h-h2">{t.forecast24}</div>
-          <div className="w2h-textblock">{data?.forecast24 || '—'}</div>
+          <div className="w2h-h2">
+            {outlook12?.label || label?.('forecast24', lang) || 'Vorhersage (weitere 12h)'}
+          </div>
+          <div className="w2h-textblock">{outlook12?.text || '—'}</div>
         </div>
       </section>
 
@@ -133,6 +183,7 @@ export default function SeaWeatherPanel({ lang, label }) {
           font-size: 18px;
           font-weight: 900;
           letter-spacing: 0.2px;
+          line-height: 1.15;
         }
 
         .w2h-h2 {

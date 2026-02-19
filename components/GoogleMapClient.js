@@ -3341,7 +3341,7 @@ useEffect(() => {
         <BoraPanel lang={lang} label={label} />
         </PanelHost>
 
-        {/* ✅ Seewetter Panel Overlay */}
+        {/* ✅ Seawetter Panel Overlay */}
         <PanelHost
           open={activePanel === 'seewetter'}
           title={label?.('seaWeatherTitle', lang) ?? 'Seewetter'}
