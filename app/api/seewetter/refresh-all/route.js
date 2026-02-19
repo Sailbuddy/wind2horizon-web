@@ -438,6 +438,8 @@ async function writeCronLog({ force, results }) {
 }
 
 export async function GET(req) {
+  console.log('cron header', req.headers.get('x-vercel-cron'));
+  console.log('ua', req.headers.get('user-agent'));
   if (!isVercelCron(req)) {
     return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
       status: 401,
