@@ -109,7 +109,9 @@ export default function SeaWeatherPanel({ lang = 'de', label }) {
           </div>
         </div>
 
-        <p className="w2h-note">{t.hint}</p>
+        {t.hint && t.hint !== 'seaWeatherHint' ? (
+          <p className="w2h-note">{t.hint}</p>
+          ) : null}
 
         {err ? <div className="w2h-err">{err}</div> : null}
 
