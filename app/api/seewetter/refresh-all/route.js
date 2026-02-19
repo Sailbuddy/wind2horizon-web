@@ -67,7 +67,7 @@ function extractIssuedAtFromTitle(title) {
     const mm = Number(m[2]);
     const yyyy = Number(m[3]);
     const hh = Number(m[4]);
-    return new Date(Date.UTC(yyyy, mm - 1, dd, hh, 0, 0)).toISOString();
+    return new Date(yyyy, mm - 1, dd, hh, 0, 0).toISOString();
   } catch {
     return null;
   }
