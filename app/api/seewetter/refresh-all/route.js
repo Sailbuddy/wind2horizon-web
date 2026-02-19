@@ -55,6 +55,32 @@ function extractIssuedAtFromTitle(title) {
   }
 }
 
+function extractIssuedLocalFromTitle(title) {
+  // Beispiel: "... vom 19.02.2026 um 06" oder "... on 19.02.2026 at 12"
+  try {
+    const t = title || '';
+
+    // de/it/hr: "vom 19.02.2026 um 06" / "dana 19.02.2026. u 06 sati" / "alle 06"
+    let m = t.match(/(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\b(um|u|alle)\s+(\d{1,2})\b/i);
+    if (m) {
+      const dd = m[1], mm = m[2], yyyy = m[3], hh = String(m[5]).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd} ${hh}:00`;
+    }
+
+    // en: "on 19.02.2026 at 06"
+    m = t.match(/\bon\s+(\d{2})\.(\d{2})\.(\d{4}).{0,40}?\bat\s+(\d{1,2})\b/i);
+    if (m) {
+      const dd = m[1], mm = m[2], yyyy = m[3], hh = String(m[4]).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd} ${hh}:00`;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+
 function extractIssuedAtFromBodyText(fullText) {
   try {
     const t = fullText || '';
@@ -137,7 +163,7 @@ const MARKERS = {
 
 function extractSectionsFromHtml(html, lang) {
   const $ = cheerio.load(html);
-
+  
   const root =
     $('#primary .glavni__content').first().length ? $('#primary .glavni__content').first()
     : $('#primary').first().length ? $('#primary').first()
@@ -169,6 +195,8 @@ function extractSectionsFromHtml(html, lang) {
     (bodyText.toLowerCase().includes('seewetterbericht') ? bodyText.slice(0, 140) : 'Sea Weather Split');
 
   const issuedAt = extractIssuedAtFromTitle(title) || extractIssuedAtFromBodyText(bodyText);
+  const issuedLocal = extractIssuedLocalFromTitle(title) || null;
+  const issuedTz = 'Europe/Zagreb';
 
   const headings = root.find('h5');
   const rawSections = [];
@@ -221,10 +249,10 @@ function extractSectionsFromHtml(html, lang) {
     if (f.text) fallbackSections.push({ label: f.usedStart || 'Forecast', text: f.text });
     if (o.text) fallbackSections.push({ label: o.usedStart || 'Outlook', text: o.text });
 
-    return { title, issuedAt, rawSections: fallbackSections };
+    return { title, issuedAt, issuedLocal, issuedTz, rawSections: fallbackSections };
   }
 
-  return { title, issuedAt, rawSections };
+  return { title, issuedAt, issuedLocal, issuedTz, rawSections };
 }
 
 function mapToBlocks(rawSections) {
@@ -317,13 +345,16 @@ async function refreshOneLang(lang) {
   }
 
   const html = await res.text();
-  const { title, issuedAt, rawSections } = extractSectionsFromHtml(html, lang);
+  const { title, issuedAt, issuedLocal, issuedTz, rawSections } = extractSectionsFromHtml(html, lang);
+
   const blocks = mapToBlocks(rawSections);
 
   const payload = {
     sourceUrl,
     title,
     issuedAt: issuedAt || null,
+    issuedLocal: issuedLocal || null,
+    issuedTz: issuedTz || 'Europe/Zagreb',
     fetchedAt: new Date().toISOString(),
     blocks,
   };

@@ -89,8 +89,27 @@ export default function SeaWeatherPanel({ lang = 'de', label }) {
     data?.sourceUrl ||
     'https://meteo.hr/prognoze_e.php?section=prognoze_specp&param=jadran&el=jadran_n';
 
-  const standIso = data?.issuedAt || data?.fetchedAt || null;
-  const standTxt = standIso ? fmtDate(standIso) : '';
+   const standTxt = (() => {
+     // 1️⃣ Prefer issuedLocal (z.B. "2026-02-19 06:00")
+     if (data?.issuedLocal) {
+       const s = String(data.issuedLocal);
+       const m = s.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+       if (m) {
+         const yyyy = m[1];
+         const mm = m[2];
+         const dd = m[3];
+         const hh = m[4];
+         const min = m[5];
+         return `${dd}.${mm}.${yyyy}, ${hh}:${min}`;
+       }
+       return s;
+     }
+
+     // 2️⃣ Fallback auf ISO (UTC -> Browser Local)
+     const standIso = data?.issuedAt || data?.fetchedAt || null;
+     return standIso ? fmtDate(standIso) : '';
+   })();
+
 
   return (
     <div className="w2h-sea-wrap">
