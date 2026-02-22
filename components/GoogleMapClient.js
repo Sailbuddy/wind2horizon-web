@@ -2841,32 +2841,7 @@ useEffect(() => {
                   (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
                   googlePhotos.forEach(pushUnique);
   
- console.log('[dbg:gallery:merged] googlePhotos count', googlePhotos.length);
-console.log(
-  '[dbg:gallery:merged] google photo_refs',
-  googlePhotos.map(p =>
-    p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref
-  )
-);
-
-console.log('[dbg:gallery:merged] userPhotos count', (userPhotos || []).length);
-console.log(
-  '[dbg:gallery:merged] user urls',
-  (userPhotos || []).map(p => p.public_url || p.url || p.thumb || p.image_url)
-);
-
-console.log('[dbg:gallery:merged] merged count', merged.length);
-console.log(
-  '[dbg:gallery:merged] merged keys',
-  merged.map(p => p.photo_reference || p.public_url || p.url || p.thumb || p.image_url)
-);
-
-if (googlePhotos?.length) {
-  const uniq = new Set(
-    googlePhotos.map(p => String(p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref || ''))
-  );
-  console.log('[dbg:gallery:merged] google unique refs', uniq.size);
-}                 
+              
                   
                   if (merged.length) {
                     setGallery({ title: titleNow, photos: merged, row });
@@ -2875,20 +2850,6 @@ if (googlePhotos?.length) {
                   console.warn('[w2h] merge gallery failed', e);
                   const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
 
-console.log('[dbg:gallery:fallback] googlePhotos count', googlePhotos.length);
-console.log(
-  '[dbg:gallery:fallback] google photo_refs',
-  googlePhotos.map(p =>
-    p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref
-  )
-);
-
-if (googlePhotos?.length) {
-  const uniq = new Set(
-    googlePhotos.map(p => String(p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref || ''))
-  );
-  console.log('[dbg:gallery:fallback] google unique refs', uniq.size);
-}
 
                   if (googlePhotos.length) {
                     setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
