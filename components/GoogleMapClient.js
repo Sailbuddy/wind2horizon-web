@@ -764,7 +764,7 @@ function Lightbox({ gallery: g, onClose }) {
                 const u = `/api/gphoto?${qs.toString()}`;
 
                 // ✅ Debug: hilft sofort zu sehen, ob index korrekt hochzählt
-                console.log('[dbg:lightbox]', { idx, gPhotoIdx, ref, w, url: u });
+                // console.log('[dbg:lightbox]', { idx, gPhotoIdx, ref, w, url: u });
 
                 src = u;
               } else if (isUser) {
