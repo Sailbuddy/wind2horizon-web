@@ -677,221 +677,137 @@ useEffect(() => {
 };
 
 
-  // ------------------------------
-  // ✅ Lightbox + WindModal + KiReportModal
-  // ------------------------------
-  function Lightbox({ gallery: g, onClose }) {
-    if (!g) return null;
+ // ------------------------------
+// ✅ Lightbox + WindModal + KiReportModal
+// ------------------------------
+function Lightbox({ gallery: g, onClose }) {
+  if (!g) return null;
 
-    let items = [];
-    try {
-      if (Array.isArray(g.photos)) items = g.photos;
-      else if (typeof g.photos === 'string') {
-        const parsed = JSON.parse(g.photos);
-        items = Array.isArray(parsed) ? parsed : parsed?.photos || [];
-      } else if (g.photos && typeof g.photos === 'object') {
-        items = Array.isArray(g.photos.photos) ? g.photos.photos : [];
-      }
-    } catch (err) {
-      console.warn('[w2h] Lightbox parse failed', err);
-      items = [];
+  let items = [];
+  try {
+    if (Array.isArray(g.photos)) items = g.photos;
+    else if (typeof g.photos === 'string') {
+      const parsed = JSON.parse(g.photos);
+      items = Array.isArray(parsed) ? parsed : parsed?.photos || [];
+    } else if (g.photos && typeof g.photos === 'object') {
+      items = Array.isArray(g.photos.photos) ? g.photos.photos : [];
     }
+  } catch (err) {
+    console.warn('[w2h] Lightbox parse failed', err);
+    items = [];
+  }
 
-    return (
-      <div
-        className="w2h-lbx"
-        onClick={onClose}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,.7)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <div
-          onClick={(ev) => ev.stopPropagation()}
-          style={{
-            background: '#fff',
-            borderRadius: 14,
-            maxWidth: 1100,
-            width: '95vw',
-            maxHeight: '90vh',
-            overflow: 'auto',
-            padding: 16,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-            <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
-              {g.title} – {items.length} Fotos
-            </h3>
-            <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
-              ×
-            </button>
-          </div>
+  // ✅ Fix: eigener 0-based Index nur für Google-Fotos (wichtig für Heal in /api/gphoto)
+  // Hintergrund: Wenn upstream 400 liefert, greift Heal und nimmt ohne index= immer Foto #0 → 10× gleiches Bild.
+  let gPhotoIdx = -1;
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-            {items
-              .map((p, idx) => {
-                const isGoogle = !!(p.photo_reference || p.photoreference);
-                const isUser = !!(p.public_url || p.url || p.thumb);
-
-                let src = '';
-if (isGoogle) {
-  const ref = String(p.photo_reference || p.photoreference || '').trim();
-  const w = Math.min(1200, Number(p.width || 0) || 640);
-
-  // ✅ Fix 2: URL sicher bauen (encoding), ohne photoUrl()
-  const qs = new URLSearchParams();
-  qs.set('photo_reference', ref);
-  qs.set('maxwidth', String(w));
-
-  const placeId = g?.row?.google_place_id ? String(g.row.google_place_id).trim() : '';
-  const locationId = g?.row?.id ? String(g.row.id).trim() : '';
-
-  if (placeId) qs.set('place_id', placeId);
-  if (locationId) qs.set('location_id', locationId);
-
-  const u = `/api/gphoto?${qs.toString()}`;
-
-  // ✅ Debug (wie bei dir)
-  console.log('[dbg:lightbox]', { idx, ref, w, url: u });
-
-  src = u;
-} else if (isUser) {
-  src = p.thumb || p.public_url || p.url || '';
-}
-
-if (!src) return null;
-
-return (
-  <figure key={p.public_url || p.url || p.photo_reference || p.photoreference || idx} style={{ margin: 0 }}>
+  return (
     <div
+      className="w2h-lbx"
+      onClick={onClose}
       style={{
-        background: '#fafafa',
-        border: '1px solid #eee',
-        borderRadius: 10,
-        minHeight: 160,
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.7)',
+        zIndex: 9999,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        overflow: 'hidden',
       }}
     >
-      <img src={src} alt={p.caption || ''} loading="lazy" decoding="async" style={{ width: '100%', height: 'auto', display: 'block' }} />
-    </div>
-
-    {isGoogle ? (
-      Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
-        <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }} dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }} />
-      ) : null
-    ) : p.caption || p.author ? (
-      <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
-        {[p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · ')}
-      </figcaption>
-    ) : null}
-  </figure>
-);
-              })
-              .filter(Boolean)}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function WindModal({ modal, onClose }) {
-    if (!modal) return null;
-
-    const windProfile = modal.windProfile || null;
-    const windHint = modal.windHint || {};
-    const hintText = windHint[lang] || windHint.de || windHint.en || '';
-    const liveWindStation = modal.liveWindStation || null;
-    const liveWindStationName = modal.liveWindStationName || null;
-
-    return (
       <div
-        onClick={onClose}
+        onClick={(ev) => ev.stopPropagation()}
         style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,.65)',
-          zIndex: 10000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          background: '#fff',
+          borderRadius: 14,
+          maxWidth: 1100,
+          width: '95vw',
+          maxHeight: '90vh',
+          overflow: 'auto',
+          padding: 16,
         }}
       >
-        <div
-          onClick={(ev) => ev.stopPropagation()}
-          style={{
-            background: '#f9fafb',
-            borderRadius: 16,
-            maxWidth: 960,
-            width: '95vw',
-            maxHeight: '90vh',
-            padding: 20,
-            boxShadow: '0 10px 30px rgba(0,0,0,.25)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 20 }}>💨 Winddaten · {modal.title} (#{modal.id})</h2>
-            <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
-              ×
-            </button>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
+            {g.title} – {items.length} Fotos
+          </h3>
+          <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+            ×
+          </button>
+        </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 0.9fr)', gap: 20 }}>
-            <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
-              <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Wind &amp; Schwell-Rosette</h3>
-              {windProfile ? (
-                <WindSwellRose size={260} wind={windProfile.wind || {}} swell={windProfile.swell || {}} />
-              ) : (
-                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.</p>
-              )}
-            </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+          {items
+            .map((p, idx) => {
+              const isGoogle = !!(p.photo_reference || p.photoreference);
+              const isUser = !!(p.public_url || p.url || p.thumb);
 
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
-                <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Hinweis</h3>
-                {hintText ? (
-                  <p style={{ margin: 0, fontSize: 14, whiteSpace: 'pre-wrap' }}>{hintText}</p>
-                ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Kein spezieller Hinweistext hinterlegt.</p>
-                )}
-              </div>
+              let src = '';
 
-              <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
-                <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
-                {liveWindStation ? (
-                  <>
-                    <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
-                      Station: <strong>{liveWindStation}{liveWindStationName ? ` – ${liveWindStationName}` : ''}</strong>
-                    </p>
-                    <iframe
-                      src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(String(liveWindStation))}`}
-                      style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
-                      loading="lazy"
-                      title="LiveWind"
-                    />
-                  </>
-                ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Für diesen Spot ist noch keine Live-Wind-Station verknüpft.</p>
-                )}
-              </div>
-            </div>
-          </div>
+              if (isGoogle) {
+                gPhotoIdx += 1; // ✅ 0-based Index nur für Google Photos
 
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.</p>
+                const ref = String(p.photo_reference || p.photoreference || '').trim();
+                const w = Math.min(1200, Number(p.width || 0) || 640);
+
+                // ✅ URL sicher bauen (encoding) + index mitsenden
+                const qs = new URLSearchParams();
+                qs.set('photo_reference', ref);
+                qs.set('maxwidth', String(w));
+                qs.set('index', String(gPhotoIdx)); // ✅ entscheidend gegen "immer Foto #0"
+
+                const placeId = g?.row?.google_place_id ? String(g.row.google_place_id).trim() : '';
+                const locationId = g?.row?.id ? String(g.row.id).trim() : '';
+                if (placeId) qs.set('place_id', placeId);
+                if (locationId) qs.set('location_id', locationId);
+
+                const u = `/api/gphoto?${qs.toString()}`;
+
+                // ✅ Debug: hilft sofort zu sehen, ob index korrekt hochzählt
+                console.log('[dbg:lightbox]', { idx, gPhotoIdx, ref, w, url: u });
+
+                src = u;
+              } else if (isUser) {
+                src = p.thumb || p.public_url || p.url || '';
+              }
+
+              if (!src) return null;
+
+              return (
+                <figure key={p.public_url || p.url || p.photo_reference || p.photoreference || idx} style={{ margin: 0 }}>
+                  <div
+                    style={{
+                      background: '#fafafa',
+                      border: '1px solid #eee',
+                      borderRadius: 10,
+                      minHeight: 160,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <img src={src} alt={p.caption || ''} loading="lazy" decoding="async" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                  </div>
+
+                  {isGoogle ? (
+                    Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
+                      <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }} dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }} />
+                    ) : null
+                  ) : p.caption || p.author ? (
+                    <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
+                      {[p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · ')}
+                    </figcaption>
+                  ) : null}
+                </figure>
+              );
+            })
+            .filter(Boolean)}
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   function renderKiReportPretty(report, langCode) {
     if (!report || typeof report !== 'object') return null;
