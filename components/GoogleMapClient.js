@@ -739,51 +739,61 @@ useEffect(() => {
                 const isUser = !!(p.public_url || p.url || p.thumb);
 
                 let src = '';
-                if (isGoogle) {
-                  const ref = p.photo_reference || p.photoreference;
-                  const w = Math.min(1200, Number(p.width || 0) || 640);
-                  src = photoUrl(ref, w, g.row);
+if (isGoogle) {
+  const ref = String(p.photo_reference || p.photoreference || '').trim();
+  const w = Math.min(1200, Number(p.width || 0) || 640);
 
-  const u = photoUrl(ref, w, g.row);     // <-- URL erzeugen
-  console.log('[dbg:lightbox]', { idx, ref, w, url: u });  // <-- loggen
+  // ✅ Fix 2: URL sicher bauen (encoding), ohne photoUrl()
+  const qs = new URLSearchParams();
+  qs.set('photo_reference', ref);
+  qs.set('maxwidth', String(w));
 
-  src = u; // <-- verwenden                
+  const placeId = g?.row?.google_place_id ? String(g.row.google_place_id).trim() : '';
+  const locationId = g?.row?.id ? String(g.row.id).trim() : '';
 
-                  
-                } else if (isUser) {
-                  src = p.thumb || p.public_url || p.url || '';
-                }
+  if (placeId) qs.set('place_id', placeId);
+  if (locationId) qs.set('location_id', locationId);
 
-                if (!src) return null;
+  const u = `/api/gphoto?${qs.toString()}`;
 
-                return (
-                  <figure key={p.public_url || p.url || p.photo_reference || p.photoreference || idx} style={{ margin: 0 }}>
-                    <div
-                      style={{
-                        background: '#fafafa',
-                        border: '1px solid #eee',
-                        borderRadius: 10,
-                        minHeight: 160,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <img src={src} alt={p.caption || ''} loading="lazy" decoding="async" style={{ width: '100%', height: 'auto', display: 'block' }} />
-                    </div>
+  // ✅ Debug (wie bei dir)
+  console.log('[dbg:lightbox]', { idx, ref, w, url: u });
 
-                    {isGoogle ? (
-                      Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
-                        <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }} dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }} />
-                      ) : null
-                    ) : p.caption || p.author ? (
-                      <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
-                        {[p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · ')}
-                      </figcaption>
-                    ) : null}
-                  </figure>
-                );
+  src = u;
+} else if (isUser) {
+  src = p.thumb || p.public_url || p.url || '';
+}
+
+if (!src) return null;
+
+return (
+  <figure key={p.public_url || p.url || p.photo_reference || p.photoreference || idx} style={{ margin: 0 }}>
+    <div
+      style={{
+        background: '#fafafa',
+        border: '1px solid #eee',
+        borderRadius: 10,
+        minHeight: 160,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+      }}
+    >
+      <img src={src} alt={p.caption || ''} loading="lazy" decoding="async" style={{ width: '100%', height: 'auto', display: 'block' }} />
+    </div>
+
+    {isGoogle ? (
+      Array.isArray(p.html_attributions) && p.html_attributions[0] ? (
+        <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }} dangerouslySetInnerHTML={{ __html: p.html_attributions[0] }} />
+      ) : null
+    ) : p.caption || p.author ? (
+      <figcaption style={{ fontSize: 12, color: '#666', padding: '6px 2px' }}>
+        {[p.caption, p.author && `© ${p.author}`].filter(Boolean).join(' · ')}
+      </figcaption>
+    ) : null}
+  </figure>
+);
               })
               .filter(Boolean)}
           </div>

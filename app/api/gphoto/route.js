@@ -60,7 +60,7 @@ async function fetchGooglePhoto({ photo_reference, maxwidth, maxheight, key }) {
   const params = new URLSearchParams();
   if (maxwidth) params.set("maxwidth", String(maxwidth));
   if (maxheight) params.set("maxheight", String(maxheight));
-  params.set("photo_reference", photo_reference);
+  params.set("photoreference", photo_reference);
   params.set("key", key);
 
   const url = `https://maps.googleapis.com/maps/api/place/photo?${params.toString()}`;
