@@ -743,6 +743,17 @@ useEffect(() => {
                   const ref = p.photo_reference || p.photoreference;
                   const w = Math.min(1200, Number(p.width || 0) || 640);
                   src = photoUrl(ref, w, g.row);
+
+   console.log('[dbg:lightbox]', {
+     idx,
+     ref,
+     w,
+     url: u
+   });
+ 
+   src = u;                  
+
+                  
                 } else if (isUser) {
                   src = p.thumb || p.public_url || p.url || '';
                 }
