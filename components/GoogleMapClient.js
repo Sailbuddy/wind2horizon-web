@@ -1081,7 +1081,10 @@ function Lightbox({ gallery: g, onClose }) {
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button
-              onClick={onRefresh}
+              onClick={() => {
+  console.log("KI-Report: Refresh clicked", { modalLocationId: modal.locationId, lang });
+  onRefresh?.();
+}}
               disabled={modal.loading}
               style={{
                 border: 'none',
