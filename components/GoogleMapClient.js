@@ -677,7 +677,7 @@ useEffect(() => {
 };
 
 
- // ------------------------------
+// ------------------------------
 // ✅ Lightbox + WindModal + KiReportModal
 // ------------------------------
 function Lightbox({ gallery: g, onClose }) {
@@ -808,6 +808,97 @@ function Lightbox({ gallery: g, onClose }) {
     </div>
   );
 }
+
+  function WindModal({ modal, onClose }) {
+    if (!modal) return null;
+
+    const windProfile = modal.windProfile || null;
+    const windHint = modal.windHint || {};
+    const hintText = windHint[lang] || windHint.de || windHint.en || '';
+    const liveWindStation = modal.liveWindStation || null;
+    const liveWindStationName = modal.liveWindStationName || null;
+
+    return (
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,.65)',
+          zIndex: 10000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <div
+          onClick={(ev) => ev.stopPropagation()}
+          style={{
+            background: '#f9fafb',
+            borderRadius: 16,
+            maxWidth: 960,
+            width: '95vw',
+            maxHeight: '90vh',
+            padding: 20,
+            boxShadow: '0 10px 30px rgba(0,0,0,.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <h2 style={{ margin: 0, fontSize: 20 }}>💨 Winddaten · {modal.title} (#{modal.id})</h2>
+            <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+              ×
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 0.9fr)', gap: 20 }}>
+            <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Wind &amp; Schwell-Rosette</h3>
+              {windProfile ? (
+                <WindSwellRose size={260} wind={windProfile.wind || {}} swell={windProfile.swell || {}} />
+              ) : (
+                <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Für diesen Spot sind aktuell keine Wind-/Schwellprofile hinterlegt.</p>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Hinweis</h3>
+                {hintText ? (
+                  <p style={{ margin: 0, fontSize: 14, whiteSpace: 'pre-wrap' }}>{hintText}</p>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Kein spezieller Hinweistext hinterlegt.</p>
+                )}
+              </div>
+
+              <div style={{ background: '#fff', borderRadius: 14, padding: 12, border: '1px solid #e5e7eb' }}>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>LiveWind</h3>
+                {liveWindStation ? (
+                  <>
+                    <p style={{ margin: '0 0 6px', fontSize: 12, color: '#6b7280' }}>
+                      Station: <strong>{liveWindStation}{liveWindStationName ? ` – ${liveWindStationName}` : ''}</strong>
+                    </p>
+                    <iframe
+                      src={`https://w2hlivewind.netlify.app?station=${encodeURIComponent(String(liveWindStation))}`}
+                      style={{ width: '100%', height: 70, border: 'none', borderRadius: 8 }}
+                      loading="lazy"
+                      title="LiveWind"
+                    />
+                  </>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 14, color: '#9ca3af' }}>Für diesen Spot ist noch keine Live-Wind-Station verknüpft.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Hinweis: Darstellung aktuell nur zur internen Kontrolle. Feintuning folgt.</p>
+        </div>
+      </div>
+    );
+  }
 
   function renderKiReportPretty(report, langCode) {
     if (!report || typeof report !== 'object') return null;
