@@ -744,14 +744,10 @@ useEffect(() => {
                   const w = Math.min(1200, Number(p.width || 0) || 640);
                   src = photoUrl(ref, w, g.row);
 
-   console.log('[dbg:lightbox]', {
-     idx,
-     ref,
-     w,
-     url: u
-   });
- 
-   src = u;                  
+  const u = photoUrl(ref, w, g.row);     // <-- URL erzeugen
+  console.log('[dbg:lightbox]', { idx, ref, w, url: u });  // <-- loggen
+
+  src = u; // <-- verwenden                
 
                   
                 } else if (isUser) {
