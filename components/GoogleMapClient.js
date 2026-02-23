@@ -3326,13 +3326,83 @@ useEffect(() => {
           ) : null}
         </div>
 
-        {/* Modals */}
-        <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
-        <WindModal modal={windModal} onClose={() => setWindModal(null)} />
-        {kiModal ? (
-          <KiReportModal modal={kiModal} onClose={() => setKiModal(null)} />
-        ) : null}
-      </div>
+{/* Modals */}
+<Lightbox gallery={gallery} onClose={() => setGallery(null)} />
+<WindModal modal={windModal} onClose={() => setWindModal(null)} />
+
+{kiModal ? (
+  <KiReportModal
+    modal={kiModal}
+    onClose={() => setKiModal(null)}
+    onRefresh={async (locationId, langCode) => {
+      if (!locationId) return;
+
+      // UI sofort in Loading setzen
+      setKiModal((prev) =>
+        prev ? { ...prev, loading: true, error: null } : prev
+      );
+
+      try {
+        // 1️⃣ POST → echten Refresh triggern
+        const refreshRes = await fetch('/api/ki-report/refresh', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            location_id: locationId,
+            lang: langCode,
+          }),
+        });
+
+        if (!refreshRes.ok) {
+          const txt = await refreshRes.text().catch(() => '');
+          throw new Error(txt || `Refresh failed (${refreshRes.status})`);
+        }
+
+        // 2️⃣ GET → aktualisierten Report holen
+        const getRes = await fetch(
+          `/api/ki-report?location_id=${encodeURIComponent(
+            String(locationId)
+          )}&lang=${encodeURIComponent(String(langCode))}`,
+          { method: 'GET', headers: { Accept: 'application/json' } }
+        );
+
+        if (!getRes.ok) {
+          const txt2 = await getRes.text().catch(() => '');
+          throw new Error(txt2 || `Reload failed (${getRes.status})`);
+        }
+
+        const data = await getRes.json();
+
+        // 3️⃣ Modal mit neuen Daten aktualisieren
+        setKiModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                loading: false,
+                error: null,
+                report: data?.report ?? data,
+                createdAt: data?.createdAt ?? prev.createdAt,
+              }
+            : prev
+        );
+      } catch (err) {
+        setKiModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                loading: false,
+                error: String(err?.message || err),
+              }
+            : prev
+        );
+      }
+    }}
+  />
+) : null}
+
 
       {/* ✅ Overlay nur anzeigen wenn Map geladen */}
       {mapLoaded ? (
