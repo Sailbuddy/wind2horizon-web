@@ -1080,41 +1080,54 @@ function Lightbox({ gallery: g, onClose }) {
           )}
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button
-            onClick={() => {
-      console.log("KI-Report: Refresh clicked", { modalLocationId: modal.locationId, lang });
-      onRefresh?.();
-            }}
-            disabled={modal.loading}
-              style={{
-                border: 'none',
-                borderRadius: 12,
-                padding: '10px 14px',
-                fontSize: 13,
-                fontWeight: 800,
-                background: '#0284c7',
-                color: '#fff',
-                cursor: 'pointer',
-                opacity: modal.loading ? 0.6 : 1,
-              }}
-            >
-              {label('refreshReport', lang)}
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                border: '1px solid #d1d5db',
-                borderRadius: 12,
-                padding: '10px 14px',
-                fontSize: 13,
-                fontWeight: 700,
-                background: '#fff',
-                cursor: 'pointer',
-              }}
-            >
-              {label('closeModal', lang)}
-            </button>
-          </div>
+  <button
+    type="button"
+    onClick={async () => {
+      console.log('KI-Report: Refresh clicked', {
+        modalLocationId: modal?.locationId,
+        lang,
+        loading: !!modal?.loading,
+        hasOnRefresh: typeof onRefresh === 'function',
+      });
+
+      if (modal?.loading) return;
+
+      if (typeof onRefresh === 'function') {
+        await onRefresh(modal?.locationId, lang);
+      }
+    }}
+    disabled={!!modal?.loading}
+    style={{
+      border: 'none',
+      borderRadius: 12,
+      padding: '10px 14px',
+      fontSize: 13,
+      fontWeight: 800,
+      background: '#0284c7',
+      color: '#fff',
+      cursor: 'pointer',
+      opacity: modal?.loading ? 0.6 : 1,
+    }}
+  >
+    {label('refreshReport', lang)}
+  </button>
+
+  <button
+    type="button"
+    onClick={onClose}
+    style={{
+      border: '1px solid #d1d5db',
+      borderRadius: 12,
+      padding: '10px 14px',
+      fontSize: 13,
+      fontWeight: 700,
+      background: '#fff',
+      cursor: 'pointer',
+    }}
+  >
+    {label('closeModal', lang)}
+  </button>
+</div>
 
           <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>
             Hinweis: Aktuell wird der Report als JSON angezeigt (Debug/MVP). UI-Rendering der Abschnitte folgt.
@@ -3086,245 +3099,314 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* ================= MAP ================= */}
-        <div className="w2h-map-wrap">
-          <div ref={mapRef} className="w2h-map" />
+{/* ================= MAP ================= */}
+<div className="w2h-map-wrap">
+  <div ref={mapRef} className="w2h-map" />
 
-          {seaWarning && !seaWarningClosed && (
-            <div
-             style={{
-               position: 'absolute',
-               top: 14,
-               left: '50%',
-               transform: 'translateX(-50%)',
-               zIndex: 50,
-               width: 'min(640px, 92%)',
-               background: 'rgba(15, 23, 42, 0.96)',
-               border: '1px solid rgba(148, 163, 184, 0.25)',
-               borderRadius: 16,
-               padding: 12,
-               boxShadow: '0 18px 50px rgba(0,0,0,0.45)',
-               color: 'white',
-               pointerEvents: 'auto',
-             }}
-           >
-             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-               <div style={{ fontWeight: 900 }}>
-                 ⚠️ {lang === 'de' ? 'Warnung (Seewetter Split)' : 'Warning (Sea Weather Split)'}
-               </div>
+  {seaWarning && !seaWarningClosed && (
+    <div
+      style={{
+        position: 'absolute',
+        top: 14,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 50,
+        width: 'min(640px, 92%)',
+        background: 'rgba(15, 23, 42, 0.96)',
+        border: '1px solid rgba(148, 163, 184, 0.25)',
+        borderRadius: 16,
+        padding: 12,
+        boxShadow: '0 18px 50px rgba(0,0,0,0.45)',
+        color: 'white',
+        pointerEvents: 'auto',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ fontWeight: 900 }}>
+          ⚠️ {lang === 'de' ? 'Warnung (Seewetter Split)' : 'Warning (Sea Weather Split)'}
+        </div>
 
-               <button
-                 onClick={closeSeaWarning}
-                 style={{
-                   background: 'rgba(255,255,255,0.10)',
-                   border: '1px solid rgba(255,255,255,0.15)',
-                   borderRadius: 10,
-                   padding: '6px 10px',
-                   color: 'white',
-                   cursor: 'pointer',
-                   fontWeight: 800,
-                 }}
-                 title="Schließen"
-               >
-                 ✕
-               </button>
-             </div>
+        <button
+          onClick={closeSeaWarning}
+          style={{
+            background: 'rgba(255,255,255,0.10)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 10,
+            padding: '6px 10px',
+            color: 'white',
+            cursor: 'pointer',
+            fontWeight: 800,
+          }}
+          title="Schließen"
+        >
+          ✕
+        </button>
+      </div>
 
-             <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.35, whiteSpace: 'pre-wrap' }}>
-               {seaWarning.warning}
-             </div>
+      <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.35, whiteSpace: 'pre-wrap' }}>
+        {seaWarning.warning}
+      </div>
 
-             {seaWarning.synopsis ? (
-               <div style={{ marginTop: 10, fontSize: 13, opacity: 0.88, whiteSpace: 'pre-wrap' }}>
-                 <b>{lang === 'de' ? 'Wetterlage:' : 'Synopsis:'}</b> {seaWarning.synopsis}
-               </div>
-             ) : null}
+      {seaWarning.synopsis ? (
+        <div style={{ marginTop: 10, fontSize: 13, opacity: 0.88, whiteSpace: 'pre-wrap' }}>
+          <b>{lang === 'de' ? 'Wetterlage:' : 'Synopsis:'}</b> {seaWarning.synopsis}
+        </div>
+      ) : null}
 
-             <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-               <button
-                 onClick={() => window.open(seaWarning.sourceUrl, '_blank', 'noopener,noreferrer')}
-                 style={{
-                   background: '#0284c7',
-                   border: 'none',
-                   borderRadius: 10,
-                   padding: '7px 10px',
-                   color: 'white',
-                   cursor: 'pointer',
-                   fontWeight: 900,
-                 }}
-                 title="Quelle in neuem Tab öffnen"
-               >
-                 ↗ Quelle öffnen
-               </button>
-             </div>
-           </div>
-         )}
+      <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button
+          onClick={() => window.open(seaWarning.sourceUrl, '_blank', 'noopener,noreferrer')}
+          style={{
+            background: '#0284c7',
+            border: 'none',
+            borderRadius: 10,
+            padding: '7px 10px',
+            color: 'white',
+            cursor: 'pointer',
+            fontWeight: 900,
+          }}
+          title="Quelle in neuem Tab öffnen"
+        >
+          ↗ Quelle öffnen
+        </button>
+      </div>
+    </div>
+  )}
 
+  {/* Locate Button */}
+  <div
+    style={{
+      position: 'absolute',
+      left: 14,
+      bottom: 18,
+      zIndex: 10,
+    }}
+  >
+    <button
+      type="button"
+      onClick={async () => {
+        setLocateErr('');
+        setLocateBusy(true);
+        try {
+          const ok = await requestAndApplyGeolocation({
+            reason: 'button',
+            alsoSetAutoRegion: true,
+            showAccuracy: true,
+          });
+          if (!ok) setLocateErr('Geolocation nicht verfügbar.');
+        } finally {
+          setTimeout(() => setLocateBusy(false), 350);
+        }
+      }}
+      title="Meinen Standort verwenden"
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: 9999,
+        border: '1px solid rgba(0,0,0,.12)',
+        background: 'rgba(255,255,255,0.92)',
+        boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+        cursor: 'pointer',
+        display: 'grid',
+        placeItems: 'center',
+        fontSize: 16,
+        lineHeight: 1,
+        opacity: locateBusy ? 0.7 : 1,
+      }}
+    >
+      ⦿
+    </button>
 
+    {locateErr ? (
+      <div
+        style={{
+          marginTop: 6,
+          maxWidth: 220,
+          fontSize: 11,
+          color: '#7c2d12',
+          background: 'rgba(255,247,237,0.95)',
+          border: '1px solid #fed7aa',
+          borderRadius: 10,
+          padding: '6px 8px',
+          boxShadow: '0 6px 18px rgba(0,0,0,.10)',
+        }}
+      >
+        {locateErr}
+      </div>
+    ) : null}
+  </div>
 
-          {/* Locate Button */}
-          <div
+  {/* Search Result Panel */}
+  {searchMode.active ? (
+    <div
+      className="w2h-search-panel"
+      style={{
+        position: 'absolute',
+        top: 10,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 10,
+        width: 360,
+        maxWidth: '92vw',
+        maxHeight: '70vh',
+        overflow: 'auto',
+        background: 'rgba(255,255,255,0.96)',
+        borderRadius: 14,
+        padding: 12,
+        boxShadow: '0 10px 28px rgba(0,0,0,.18)',
+        border: '1px solid rgba(0,0,0,.06)',
+      }}
+    >
+      <div
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 2,
+          background: 'rgba(255,255,255,0.96)',
+          paddingBottom: 8,
+          marginBottom: 8,
+          borderBottom: '1px solid rgba(0,0,0,.06)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <div style={{ fontWeight: 900, fontSize: 13 }}>{resultPanelTitle}</div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery('');
+              clearSearchMode();
+            }}
+            aria-label={label('resetSearch', lang)}
+            title={label('resetSearch', lang)}
             style={{
-              position: 'absolute',
-              left: 14,
-              bottom: 18,
-              zIndex: 10,
+              width: 30,
+              height: 30,
+              borderRadius: 10,
+              border: '1px solid rgba(0,0,0,.12)',
+              background: '#fff',
+              cursor: 'pointer',
+              fontSize: 16,
+              fontWeight: 900,
+              lineHeight: 1,
+              display: 'grid',
+              placeItems: 'center',
             }}
           >
-            <button
-              type="button"
-              onClick={async () => {
-                setLocateErr('');
-                setLocateBusy(true);
-                try {
-                  const ok = await requestAndApplyGeolocation({
-                    reason: 'button',
-                    alsoSetAutoRegion: true,
-                    showAccuracy: true,
-                  });
-                  if (!ok) setLocateErr('Geolocation nicht verfügbar.');
-                } finally {
-                  setTimeout(() => setLocateBusy(false), 350);
-                }
-              }}
-              title="Meinen Standort verwenden"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 9999,
-                border: '1px solid rgba(0,0,0,.12)',
-                background: 'rgba(255,255,255,0.92)',
-                boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-                cursor: 'pointer',
-                display: 'grid',
-                placeItems: 'center',
-                fontSize: 16,
-                lineHeight: 1,
-                opacity: locateBusy ? 0.7 : 1,
-              }}
-            >
-              ⦿
-            </button>
+            ✕
+          </button>
+        </div>
+      </div>
 
-            {locateErr ? (
-              <div
-                style={{
-                  marginTop: 6,
-                  maxWidth: 220,
-                  fontSize: 11,
-                  color: '#7c2d12',
-                  background: 'rgba(255,247,237,0.95)',
-                  border: '1px solid #fed7aa',
-                  borderRadius: 10,
-                  padding: '6px 8px',
-                  boxShadow: '0 6px 18px rgba(0,0,0,.10)',
-                }}
-              >
-                {locateErr}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Search Result Panel */}
-          {searchMode.active ? (
-            <div
-              className="w2h-search-panel"
-              style={{
-                position: 'absolute',
-                top: 10,
-                left: '50%',
-                transform: 'translateX(-50%)',  
-                zIndex: 10,
-                width: 360,
-                maxWidth: '92vw',
-                maxHeight: '70vh',
-                overflow: 'auto',
-                background: 'rgba(255,255,255,0.96)',
-                borderRadius: 14,
-                padding: 12,
-                boxShadow: '0 10px 28px rgba(0,0,0,.18)',
-                border: '1px solid rgba(0,0,0,.06)',
-              }}
-            >
-              <div
-                style={{
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 2,
-                  background: 'rgba(255,255,255,0.96)',
-                  paddingBottom: 8,
-                  marginBottom: 8,
-                  borderBottom: '1px solid rgba(0,0,0,.06)',
-                }}
-              >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 10,
-             }}
-            >
-              <div style={{ fontWeight: 900, fontSize: 13 }}>
-                {resultPanelTitle}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  clearSearchMode();
-         }}
-              aria-label={label('resetSearch', lang)}
-              title={label('resetSearch', lang)}
-                style={{
-                width: 30,
-                height: 30,
-                borderRadius: 10,
-                border: '1px solid rgba(0,0,0,.12)',
-                background: '#fff',
-                cursor: 'pointer',
-                fontSize: 16,
-                fontWeight: 900,
-                lineHeight: 1,
-                display: 'grid',
-                placeItems: 'center',
+      {searchMode.results?.map(({ row, score }) => (
+        <button
+          key={row.id}
+          type="button"
+          onClick={() => openResult(row)}
+          style={{
+            display: 'block',
+            width: '100%',
+            textAlign: 'left',
+            border: '1px solid #e5e7eb',
+            background: '#fff',
+            borderRadius: 12,
+            padding: '10px 10px',
+            cursor: 'pointer',
+            marginBottom: 8,
           }}
-    >
-      ✕
-    </button>
-  </div>
+        >
+          <div style={{ fontWeight: 800, fontSize: 13 }}>{pickName(row, lang)}</div>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            {Number.isFinite(score) ? `Score: ${score}` : ''}
+          </div>
+        </button>
+      ))}
+    </div>
+  ) : null}
+
+  {/* ================= MODALS ================= */}
+  <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
+  <WindModal modal={windModal} onClose={() => setWindModal(null)} />
+
+  {kiModal ? (
+    <KiReportModal
+      modal={kiModal}
+      onClose={() => setKiModal(null)}
+      onRefresh={async (locationId, langCode) => {
+        if (!locationId) return;
+
+        // UI sofort in Loading setzen
+        setKiModal((prev) => (prev ? { ...prev, loading: true, error: null } : prev));
+
+        try {
+          // 1️⃣ POST → echten Refresh triggern
+          const refreshRes = await fetch('/api/ki-report/refresh', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              location_id: locationId,
+              lang: langCode,
+            }),
+          });
+
+          if (!refreshRes.ok) {
+            const txt = await refreshRes.text().catch(() => '');
+            throw new Error(txt || `Refresh failed (${refreshRes.status})`);
+          }
+
+          // 2️⃣ GET → aktualisierten Report holen
+          const getRes = await fetch(
+            `/api/ki-report?location_id=${encodeURIComponent(String(locationId))}&lang=${encodeURIComponent(
+              String(langCode)
+            )}`,
+            { method: 'GET', headers: { Accept: 'application/json' } }
+          );
+
+          if (!getRes.ok) {
+            const txt2 = await getRes.text().catch(() => '');
+            throw new Error(txt2 || `Reload failed (${getRes.status})`);
+          }
+
+          const data = await getRes.json();
+
+          // 3️⃣ Modal mit neuen Daten aktualisieren
+          setKiModal((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  loading: false,
+                  error: null,
+                  report: data?.report ?? data,
+                  createdAt: data?.createdAt ?? prev.createdAt,
+                }
+              : prev
+          );
+        } catch (err) {
+          setKiModal((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  loading: false,
+                  error: String(err?.message || err),
+                }
+              : prev
+          );
+        }
+      }}
+    />
+  ) : null}
 </div>
 
-
-              {searchMode.results?.map(({ row, score }) => (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => openResult(row)}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    border: '1px solid #e5e7eb',
-                    background: '#fff',
-                    borderRadius: 12,
-                    padding: '10px 10px',
-                    cursor: 'pointer',
-                    marginBottom: 8,
-                  }}
-                >
-                  <div style={{ fontWeight: 800, fontSize: 13 }}>
-                    {pickName(row, lang)}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                    {Number.isFinite(score) ? `Score: ${score}` : ''}
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
 
 {/* Modals */}
 <Lightbox gallery={gallery} onClose={() => setGallery(null)} />
