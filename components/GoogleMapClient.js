@@ -3338,9 +3338,7 @@ useEffect(() => {
       if (!locationId) return;
 
       // UI sofort in Loading setzen
-      setKiModal((prev) =>
-        prev ? { ...prev, loading: true, error: null } : prev
-      );
+      setKiModal((prev) => (prev ? { ...prev, loading: true, error: null } : prev));
 
       try {
         // 1️⃣ POST → echten Refresh triggern
@@ -3363,9 +3361,9 @@ useEffect(() => {
 
         // 2️⃣ GET → aktualisierten Report holen
         const getRes = await fetch(
-          `/api/ki-report?location_id=${encodeURIComponent(
-            String(locationId)
-          )}&lang=${encodeURIComponent(String(langCode))}`,
+          `/api/ki-report?location_id=${encodeURIComponent(String(locationId))}&lang=${encodeURIComponent(
+            String(langCode)
+          )}`,
           { method: 'GET', headers: { Accept: 'application/json' } }
         );
 
@@ -3403,6 +3401,7 @@ useEffect(() => {
   />
 ) : null}
 
+</div>
 
       {/* ✅ Overlay nur anzeigen wenn Map geladen */}
       {mapLoaded ? (
