@@ -50,7 +50,7 @@ export const floatingToolsTranslations = {
       'Croatia: MRCC Rijeka 195 or +385 9155\n' +
       'Slovenia: 080 18 00 (Modra Stevilka)\n' +
       'Malta: Malta Radio +356 21 456 767\n' +
-      'SeaHelp: (add number)',
+      'SeaHelp: 0043 50 43 112',
     vhf16: 'Distress: VHF Channel 16 (DSC if available)',
     navtex: 'NAVTEX messages – official source',
     openContacts: 'Open contacts',
@@ -79,7 +79,7 @@ export const floatingToolsTranslations = {
       'Croazia: MRCC Rijeka 195 o +385 9155\n' +
       'Slovenia: 080 18 00 (Modra Stevilka)\n' +
       'Malta: Malta Radio +356 21 456 767\n' +
-      'SeaHelp: (aggiungere numero)',
+      'SeaHelp: 0043 50 43 112',
     vhf16: 'Emergenza: VHF Canale 16',
     navtex: 'Messaggi NAVTEX – fonte ufficiale',
     openContacts: 'Apri contatti',
@@ -108,7 +108,7 @@ fr: {
     'Croatie : MRCC Rijeka 195 ou +385 9155\n' +
     'Slovénie : 080 18 00 (Modra Stevilka)\n' +
     'Malte : Malta Radio +356 21 456 767\n' +
-    'SeaHelp : (numéro à compléter)',
+    'SeaHelp : 0043 50 43 112',
   vhf16: 'Détresse : VHF Canal 16 (DSC si disponible)',
   navtex: 'Messages NAVTEX – source officielle',
   openContacts: 'Ouvrir contacts',
@@ -137,7 +137,7 @@ fr: {
       'Hrvatska: MRCC Rijeka 195 ili +385 9155\n' +
       'Slovenija: 080 18 00 (Modra Stevilka)\n' +
       'Malta: Malta Radio +356 21 456 767\n' +
-      'SeaHelp: (dodati broj)',
+      'SeaHelp: 0043 50 43 112)',
     vhf16: 'Hitno: VHF Kanal 16',
     navtex: 'NAVTEX poruke – službeni izvor',
     openContacts: 'Otvori kontakte',
