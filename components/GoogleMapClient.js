@@ -156,6 +156,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
 
   // 🔹 Marker-Map & Locations für Suche
   const markerMapRef = useRef(new Map()); // location_id -> Marker
+  const polygonMapRef = useRef(new Map());  // ✅ neu
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
 
   // 🔹 Meta pro Location (für Suche/InfoWindow)
@@ -2790,21 +2791,17 @@ useEffect(() => {
 
     setLocVersion((v) => v + 1);
 
-    // Alte Marker entfernen
-    markers.current.forEach((m) => m.setMap(null));
-    markers.current = [];
-    markerMapRef.current = new Map();
+// Alte Marker entfernen
+markers.current.forEach((m) => m.setMap(null));
+markers.current = [];
+markerMapRef.current = new Map(); // ok (oder clear)
 
-            // ---------------------------
-        // Alte Polygone entfernen
-        // ---------------------------
-        polygonMapRef.current.forEach((polys) => {
-          if (Array.isArray(polys)) {
-            polys.forEach((p) => p.setMap(null));
-          }
-        });
-        polygonMapRef.current = new Map();
-        
+// Alte Polygone entfernen
+polygonMapRef.current.forEach((polys) => {
+  (Array.isArray(polys) ? polys : []).forEach((p) => p.setMap(null));
+});
+polygonMapRef.current = new Map(); // ok (oder clear)
+
 
     // Marker erzeugen
     locList.forEach((row) => {
