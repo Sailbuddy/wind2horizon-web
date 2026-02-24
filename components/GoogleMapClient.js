@@ -2085,9 +2085,15 @@ function Lightbox({ gallery: g, onClose }) {
 
     // Hide all, then show only results
     for (const m of markers.current) m.setVisible(false);
+            // Hide all polygons
+        polygonMapRef.current.forEach((polys) => {
+          (Array.isArray(polys) ? polys : []).forEach((p) => p.setVisible(false));
+        });
     for (const row of resultRows) {
       const marker = markerMapRef.current.get(row.id);
       if (marker) marker.setVisible(true);
+                const polys = polygonMapRef.current.get(row.id);
+          if (Array.isArray(polys)) polys.forEach((p) => p.setVisible(true));
     }
 
     // fitBounds
@@ -2828,16 +2834,28 @@ polygonMapRef.current = new Map(); // ok (oder clear)
           const polyPaths = geoJsonToPolygonPaths(g); // array of paths
           if (polyPaths.length) {
             const polys = polyPaths.map((path) => {
-              const poly = new google.maps.Polygon({
-                paths: path,
-                map: mapObj.current,
-                clickable: false,
-                strokeOpacity: 0.7,
-                strokeWeight: 2,
-                fillOpacity: 0.14,
-                zIndex: 500 + (row.category_id || 0), // unter Marker
-              });
-              return poly;
+const poly = new google.maps.Polygon({
+  paths: path,
+  map: mapObj.current,
+  clickable: false,
+  strokeOpacity: 0.7,
+  strokeWeight: 2,
+  fillOpacity: 0.14,
+  zIndex: 500 + (row.category_id || 0), // unter Marker
+});
+
+// ✅ Kategorie wie beim Marker merken
+poly._cat = String(row.category_id);
+
+// ✅ Sichtbarkeit an Layer/Tier/active koppeln
+const polyVisible =
+  (row.active ?? true) &&
+  isCategoryAllowedByTier(row.category_id) &&
+  isLayerEnabled(row.category_id);
+
+poly.setVisible(!!polyVisible);
+
+return poly;
             });
 
             polygonMapRef.current.set(row.id, polys);
