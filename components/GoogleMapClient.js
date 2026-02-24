@@ -220,6 +220,49 @@ useEffect(() => {
     }
   };
 
+  // ------------------------------
+// GeoJSON -> Google Maps helpers
+// ------------------------------
+function isGeoJsonPolygon(g) {
+  const t = g?.type;
+  return t === 'Polygon' || t === 'MultiPolygon';
+}
+
+// GeoJSON coordinates are [lng, lat]; Google wants {lat, lng}
+function ringToLatLngPath(ring) {
+  if (!Array.isArray(ring)) return [];
+  return ring
+    .filter((p) => Array.isArray(p) && p.length >= 2)
+    .map(([lng, lat]) => ({ lat: Number(lat), lng: Number(lng) }));
+}
+
+// Returns array of "paths" to draw; each item is a Google Maps Polygon "paths"
+// We keep it simple: outer ring only (holes ignored for now).
+function geoJsonToPolygonPaths(g) {
+  if (!g || !g.type) return [];
+
+  if (g.type === 'Polygon') {
+    const outer = Array.isArray(g.coordinates) ? g.coordinates[0] : null;
+    const path = ringToLatLngPath(outer);
+    return path.length >= 3 ? [path] : [];
+  }
+
+  if (g.type === 'MultiPolygon') {
+    const polys = Array.isArray(g.coordinates) ? g.coordinates : [];
+    const paths = [];
+    for (const poly of polys) {
+      const outer = Array.isArray(poly) ? poly[0] : null;
+      const path = ringToLatLngPath(outer);
+      if (path.length >= 3) paths.push(path);
+    }
+    return paths;
+  }
+
+  return [];
+}
+
+
+
   // ---------------------------------------------
   // Helpers: KI-Report API (GET cached / POST refresh)
   // Lazy: Requests werden ausschließlich per Klick ausgelöst.
@@ -2752,6 +2795,17 @@ useEffect(() => {
     markers.current = [];
     markerMapRef.current = new Map();
 
+            // ---------------------------
+        // Alte Polygone entfernen
+        // ---------------------------
+        polygonMapRef.current.forEach((polys) => {
+          if (Array.isArray(polys)) {
+            polys.forEach((p) => p.setMap(null));
+          }
+        });
+        polygonMapRef.current = new Map();
+        
+
     // Marker erzeugen
     locList.forEach((row) => {
       const title = pickName(row, langCode);
@@ -2768,6 +2822,34 @@ useEffect(() => {
 
       marker._cat = String(row.category_id);
       markerMapRef.current.set(row.id, marker);
+
+      // ---------------------------
+      // Optional: Fläche (Polygon) aus locations.geometry
+      // ---------------------------
+      try {
+        const g = row.geometry; // GeoJSON in jsonb
+        if (g && isGeoJsonPolygon(g)) {
+          const polyPaths = geoJsonToPolygonPaths(g); // array of paths
+          if (polyPaths.length) {
+            const polys = polyPaths.map((path) => {
+              const poly = new google.maps.Polygon({
+                paths: path,
+                map: mapObj.current,
+                clickable: false,
+                strokeOpacity: 0.7,
+                strokeWeight: 2,
+                fillOpacity: 0.14,
+                zIndex: 500 + (row.category_id || 0), // unter Marker
+              });
+              return poly;
+            });
+
+            polygonMapRef.current.set(row.id, polys);
+          }
+        }
+      } catch (e) {
+        console.warn('[w2h] polygon render failed for', row?.id, e);
+      }
 
       marker.addListener('click', () => {
         infoWinOpenedByMarkerRef.current = true;
