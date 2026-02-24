@@ -2074,6 +2074,34 @@ function Lightbox({ gallery: g, onClose }) {
     return v ?? true;
   }
 
+// ------------------------------
+// ✅ Apply category-layer visibility to markers + polygons
+// ------------------------------
+function applyLayerVisibilityToMarkersAndPolys() {
+  if (!mapObj.current) return;
+
+  // Markers
+  for (const m of markers.current) {
+    const catId = m?._cat;
+    if (!catId) continue;
+
+    const show = isCategoryAllowedByTier(catId) && isLayerEnabled(catId);
+    m.setVisible(!!show);
+  }
+
+  // Polygons
+  polygonMapRef.current.forEach((polys) => {
+    (Array.isArray(polys) ? polys : []).forEach((p) => {
+      const catId = p?._cat;
+      if (!catId) return;
+
+      const show = isCategoryAllowedByTier(catId) && isLayerEnabled(catId);
+      p.setVisible(!!show);
+    });
+  });
+}
+
+
   // ✅ Search Focus: Marker Visibility Override
   function enterSearchFocus(resultRows) {
     if (!mapObj.current) return;
@@ -3174,6 +3202,7 @@ return poly;
                 onInit={(initialMap) => {
                   layerState.current = new Map(initialMap);
                   applyLayerVisibility();
+                  applyLayerVisibilityToMarkersAndPolys();
                 }}
                 onToggle={(catKey, visible, meta) => {
                   const affected =
@@ -3182,13 +3211,19 @@ return poly;
                       : [catKey];
 
                   for (const k of affected) layerState.current.set(String(k), visible);
-                  if (!searchMode.active) applyLayerVisibility();
+                  if (!searchMode.active) {
+                    applyLayerVisibility();
+                    applyLayerVisibilityToMarkersAndPolys();
+                  }
                 }}
                 onToggleAll={(visible) => {
                   const updated = new Map();
                   layerState.current.forEach((_v, key) => updated.set(key, visible));
                   layerState.current = updated;
-                  if (!searchMode.active) applyLayerVisibility();
+                  if (!searchMode.active) {
+                    applyLayerVisibility();
+                    applyLayerVisibilityToMarkersAndPolys();
+                  }
                 }}
               />
             </div>
