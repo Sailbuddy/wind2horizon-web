@@ -14,7 +14,14 @@ export const floatingToolsTranslations = {
     emergency: 'Notfall',
     emergencyTitle: 'Notfallkontakte Adria',
     emergencyHint: 'Wichtige Kontakte & Funk.',
-    coastRadio: 'Küstenfunk: Radio Rijeka / Split / Dubrovnik',
+    coastRadio:
+      'Küstenfunk: Radio Rijeka / Split / Dubrovnik\n' +
+      'Greece: Hellenic Coast Guard 108 oder 112\n' +
+      'Italy: Emergenza in mare 1530\n' +
+      'Croatia: MRCC Rijeka 195 oder +385 9155\n' +
+      'Slovenia: 080 18 00 (Modra Stevilka)\n' +
+      'Malta: Malta Radio +356 21 456 767\n' +
+    'SeaHelp: (Nummer ergänzen)',
     vhf16: 'Notruf: VHF Kanal 16 (DSC wenn verfügbar)',
     navtex: 'NAVTEX Meldungen – offizielle Quelle',
     openContacts: 'Kontakte öffnen',
@@ -64,6 +71,35 @@ export const floatingToolsTranslations = {
     openContacts: 'Apri contatti',
     openNavtex: 'Apri NAVTEX',
   },
+
+fr: {
+  bora: 'Bora',
+  boraTitle: 'Alerte Bora',
+  boraHint: 'Informations sur la Bora, différence de pression et avertissements.',
+  toggleOverlay: 'Afficher/masquer la couche',
+  openBoraPage: 'Ouvrir la page Bora',
+
+  seaWeather: 'Météo Marine',
+  seaWeatherTitle: 'Bulletin météo maritime Split',
+  seaWeatherHint: 'Bulletin météo officiel.',
+  openOfficial: 'Ouvrir la source officielle',
+
+  emergency: 'Urgence',
+  emergencyTitle: 'Contacts d’urgence Adriatique',
+  emergencyHint: 'Contacts importants & radio.',
+  coastRadio:
+    'Radio côtière : Rijeka / Split / Dubrovnik\n' +
+    'Grèce : Garde côtière hellénique 108 ou 112\n' +
+    'Italie : Emergenza in mare 1530\n' +
+    'Croatie : MRCC Rijeka 195 ou +385 9155\n' +
+    'Slovénie : 080 18 00 (Modra Stevilka)\n' +
+    'Malte : Malta Radio +356 21 456 767\n' +
+    'SeaHelp : (numéro à compléter)',
+  vhf16: 'Détresse : VHF Canal 16 (DSC si disponible)',
+  navtex: 'Messages NAVTEX – source officielle',
+  openContacts: 'Ouvrir contacts',
+  openNavtex: 'Ouvrir NAVTEX',
+},
 
   hr: {
     bora: 'Bura',
