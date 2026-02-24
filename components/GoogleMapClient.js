@@ -2430,15 +2430,14 @@ useEffect(() => {
   async function loadMarkers(langCode) {
     const schema = await ensureAttributeSchema();
 
-    // ✅ WICHTIG: address/phone/website/rating/price_level aus locations laden
-    let locQuery = supabase.from('locations').select(`
-        id,lat,lng,category_id,display_name,
-        google_place_id,plus_code,
-        address,phone,website,rating,price_level,
-        name_de,name_en,name_hr,name_it,name_fr,
-        description_de,description_en,description_hr,description_it,description_fr,active,
-        categories:category_id ( id, icon_svg, google_cat_id, name_de, name_en, name_it, name_fr, name_hr, group_key, visibility_tier )
-      `);
+   let locQuery = supabase.from('locations').select(`
+    id,lat,lng,geometry,category_id,display_name,
+    google_place_id,plus_code,
+    address,phone,website,rating,price_level,
+    name_de,name_en,name_hr,name_it,name_fr,
+    description_de,description_en,description_hr,description_it,description_fr,active,
+    categories:category_id ( id, icon_svg, google_cat_id, name_de, name_en, name_it, name_fr, name_hr, group_key, visibility_tier )
+`);
 
     const r = selectedRegion === 'all' ? null : regions.find((x) => x.slug === selectedRegion);
     if (r) {
