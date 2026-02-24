@@ -21,7 +21,7 @@ export const floatingToolsTranslations = {
       'Croatia: MRCC Rijeka 195 oder +385 9155\n' +
       'Slovenia: 080 18 00 (Modra Stevilka)\n' +
       'Malta: Malta Radio +356 21 456 767\n' +
-    'SeaHelp: (Nummer ergänzen)',
+      'SeaHelp: 0043 50 43 112',
     vhf16: 'Notruf: VHF Kanal 16 (DSC wenn verfügbar)',
     navtex: 'NAVTEX Meldungen – offizielle Quelle',
     openContacts: 'Kontakte öffnen',
