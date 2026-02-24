@@ -43,7 +43,14 @@ export const floatingToolsTranslations = {
     emergency: 'Emergency',
     emergencyTitle: 'Emergency Contacts Adriatic',
     emergencyHint: 'Important contacts & radio.',
-    coastRadio: 'Coast Radio: Rijeka / Split / Dubrovnik',
+    coastRadio:
+      'Coast Radio: Rijeka / Split / Dubrovnik\n' +
+      'Greece: Hellenic Coast Guard 108 or 112\n' +
+      'Italy: Emergenza in mare 1530\n' +
+      'Croatia: MRCC Rijeka 195 or +385 9155\n' +
+      'Slovenia: 080 18 00 (Modra Stevilka)\n' +
+      'Malta: Malta Radio +356 21 456 767\n' +
+      'SeaHelp: (add number)',
     vhf16: 'Distress: VHF Channel 16 (DSC if available)',
     navtex: 'NAVTEX messages – official source',
     openContacts: 'Open contacts',
@@ -65,7 +72,14 @@ export const floatingToolsTranslations = {
     emergency: 'Emergenza',
     emergencyTitle: 'Contatti di emergenza Adriatico',
     emergencyHint: 'Contatti importanti e radio.',
-    coastRadio: 'Radio costiera: Rijeka / Split / Dubrovnik',
+    coastRadio:
+      'Radio costiera: Rijeka / Split / Dubrovnik\n' +
+      'Grecia: Guardia Costiera Ellenica 108 o 112\n' +
+      'Italia: Emergenza in mare 1530\n' +
+      'Croazia: MRCC Rijeka 195 o +385 9155\n' +
+      'Slovenia: 080 18 00 (Modra Stevilka)\n' +
+      'Malta: Malta Radio +356 21 456 767\n' +
+      'SeaHelp: (aggiungere numero)',
     vhf16: 'Emergenza: VHF Canale 16',
     navtex: 'Messaggi NAVTEX – fonte ufficiale',
     openContacts: 'Apri contatti',
@@ -116,7 +130,14 @@ fr: {
     emergency: 'Hitno',
     emergencyTitle: 'Hitni kontakti Jadran',
     emergencyHint: 'Važni kontakti i radio.',
-    coastRadio: 'Obalni radio: Rijeka / Split / Dubrovnik',
+    coastRadio:
+      'Obalni radio: Rijeka / Split / Dubrovnik\n' +
+      'Grčka: Helenska obalna straža 108 ili 112\n' +
+      'Italija: Emergenza in mare 1530\n' +
+      'Hrvatska: MRCC Rijeka 195 ili +385 9155\n' +
+      'Slovenija: 080 18 00 (Modra Stevilka)\n' +
+      'Malta: Malta Radio +356 21 456 767\n' +
+      'SeaHelp: (dodati broj)',
     vhf16: 'Hitno: VHF Kanal 16',
     navtex: 'NAVTEX poruke – službeni izvor',
     openContacts: 'Otvori kontakte',
