@@ -123,9 +123,9 @@ function buildDefaultTools({ texts }) {
         <div class="w2h-tool-section">
           <p class="w2h-tool-text">${safe('emergencyHint', '')}</p>
           <div class="w2h-tool-list">
-            <div class="w2h-row"><span>📞</span><span>${safe('coastRadio', '')}</span></div>
-            <div class="w2h-row"><span>📡</span><span>${safe('vhf16', '')}</span></div>
-            <div class="w2h-row"><span>🛰️</span><span>${safe('navtex', '')}</span></div>
+              <div class="w2h-row"><span>📞</span><span style="white-space: pre-line;">${safe('coastRadio', '')}</span></div>
+              <div class="w2h-row"><span>📡</span><span style="white-space: pre-line;">${safe('vhf16', '')}</span></div>
+              <div class="w2h-row"><span>🛰️</span><span style="white-space: pre-line;">${safe('navtex', '')}</span></div>
           </div>
           <div class="w2h-tool-actions">
             <a class="w2h-btn"
