@@ -1866,7 +1866,7 @@ function Lightbox({ gallery: g, onClose }) {
         <div class="iw-block-bd">
           ${thumbHtml}
           ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
-          ${desc ? `<div class="iw-row iw-desc">${desc}</div>` : ''}
+          ${desc ? `<div class="iw-row iw-desc" style="white-space:pre-line;">${desc}</div>` : ''}
           ${ratingHtml}
           ${priceHtml}
           ${openingHtml}
