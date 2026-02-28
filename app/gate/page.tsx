@@ -10,23 +10,45 @@ export default function GatePage() {
   const next = useMemo(() => {
     if (typeof window === "undefined") return "/de";
     const sp = new URLSearchParams(window.location.search);
-    return sp.get("next") || "/de";
+    const raw = sp.get("next") || "/de";
+
+    // ✅ nur relative Pfade erlauben (kein open redirect)
+    const safe = raw.startsWith("/") ? raw : "/de";
+
+    // ✅ "/" würde sonst oft wieder auf Gate/Root führen -> normalize
+    return safe === "/" ? "/de" : safe;
   }, []);
 
   async function submit() {
+    if (!pw || loading) return;
+
     setErr(null);
     setLoading(true);
+
     try {
       const r = await fetch("/api/gate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pw }),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pass: pw,  // ✅ passt zur API
+          next,      // ✅ damit du später (optional) serverseitig debuggen kannst
+        }),
       });
-      if (!r.ok) {
+
+      if (r.status === 401) {
         setErr("Zugangsdaten falsch.");
         return;
       }
+
+      if (!r.ok) {
+        setErr("Serverfehler. Bitte später erneut versuchen.");
+        return;
+      }
+
+      // ✅ harte Navigation: Middleware greift neu, Cookie wird mitgeschickt
       window.location.href = next;
+    } catch {
+      setErr("Netzwerkfehler. Bitte erneut versuchen.");
     } finally {
       setLoading(false);
     }
@@ -76,6 +98,7 @@ export default function GatePage() {
               fontSize: 14,
             }}
             onKeyDown={(e) => e.key === "Enter" && submit()}
+            autoFocus
           />
           <button
             onClick={submit}
