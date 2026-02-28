@@ -2,22 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 const LOCALES = new Set(["de", "en", "it", "fr", "hr"]);
 
-function unauthorized() {
-  return new NextResponse("Authentication required", {
-    status: 401,
-    headers: {
-      "WWW-Authenticate": 'Basic realm="Wind2Horizon"',
-    },
-  });
-}
-
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // ----------------------------
-  // 0) Skip Next internals / assets
-  // (API lasse ich bewusst NICHT aus, damit auch /api geschützt ist.
-  //  Wenn du /api offen lassen willst, sag's, dann nehmen wir es wieder raus.)
+  // Skip Next internals / assets
   // ----------------------------
   if (
     pathname.startsWith("/_next") ||
@@ -31,41 +20,25 @@ export function middleware(req: NextRequest) {
   }
 
   // ----------------------------
-  // 1) Basic Auth Schutz
+  // Gate-Seiten & Gate-API erlauben
   // ----------------------------
-  const user = process.env.BASIC_AUTH_USER;
-  const pass = process.env.BASIC_AUTH_PASS;
-
-  // "Fail open" um dich bei fehlender ENV nicht auszusperren.
-  // Wenn du maximale Sicherheit willst: return unauthorized();
-  if (!user || !pass) {
-    // trotzdem Language-Header setzen + Redirect-Logik beibehalten
-    const res = NextResponse.next();
-    const first = pathname.split("/").filter(Boolean)[0];
-    const lang = LOCALES.has(first) ? first : "en";
-    res.headers.set("x-w2h-lang", lang);
-    return res;
+  if (pathname === "/gate" || pathname.startsWith("/api/gate")) {
+    return NextResponse.next();
   }
 
-  const auth = req.headers.get("authorization") || "";
-  const [scheme, encoded] = auth.split(" ");
+  // ----------------------------
+  // 1) Gate Cookie prüfen
+  // ----------------------------
+  const gateCookie = req.cookies.get("w2h_gate")?.value;
+  const gateOn = process.env.W2H_GATE_ON === "1"; // Feature-Flag
 
-  if (scheme !== "Basic" || !encoded) return unauthorized();
-
-  let decoded = "";
-  try {
-    decoded = Buffer.from(encoded, "base64").toString("utf8");
-  } catch {
-    return unauthorized();
+  if (gateOn && gateCookie !== "ok") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/gate";
+    // optional: Rücksprung merken
+    url.searchParams.set("next", pathname + (req.nextUrl.search || ""));
+    return NextResponse.redirect(url, 307);
   }
-
-  const idx = decoded.indexOf(":");
-  if (idx < 0) return unauthorized();
-
-  const u = decoded.slice(0, idx);
-  const p = decoded.slice(idx + 1);
-
-  if (u !== user || p !== pass) return unauthorized();
 
   // ----------------------------
   // 2) Root "/" -> "/de"
