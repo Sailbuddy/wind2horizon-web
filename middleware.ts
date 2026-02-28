@@ -13,7 +13,7 @@ export function middleware(req: NextRequest) {
   // ----------------------------
   // Gate Flag + Cookie (für Debug)
   // ----------------------------
-  const gateOn = process.env.W2H_GATE_ON === "1"; // Feature-Flag
+  const gateOn = true; // Feature-Flag
   const gateCookie = req.cookies.get("w2h_gate")?.value;
 
   // Helper: Immer Debug-Header setzen
