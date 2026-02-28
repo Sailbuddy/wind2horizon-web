@@ -69,7 +69,7 @@ export function middleware(req: NextRequest) {
   // ----------------------------
   // Root "/" -> "/de"
   // ----------------------------
-  if (pathname === "/") {
+  if (pathname === "/" && !gateOn) {
     const url = req.nextUrl.clone();
     url.pathname = "/de";
     return withDebug(NextResponse.redirect(url, 308));
