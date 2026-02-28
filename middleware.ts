@@ -5,25 +5,28 @@ const LOCALES = new Set(["de", "en", "it", "fr", "hr"]);
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ✅ HARD TEST: muss IMMER greifen (Proof ob Middleware in Production läuft)
+  // ----------------------------
+  // HARD TEST (optional, kann später raus)
+  // ----------------------------
   if (pathname === "/__mw_test") {
     return new NextResponse("MW OK", { status: 418 });
   }
 
   // ----------------------------
-  // Gate Flag + Cookie (für Debug)
+  // Gate Flag + Cookie
   // ----------------------------
-  const gateOn = process.env.W2H_GATE_ON === "1"; // Feature-Flag
+  const gateOn = process.env.W2H_GATE_ON === "1";
   const gateCookie = req.cookies.get("w2h_gate")?.value;
 
+  // optional Debug endpoint
   if (pathname === "/__mw_cookie") {
     return new NextResponse(
-      `cookie=${gateCookie ?? "none"} gateOn=${process.env.W2H_GATE_ON}`,
+      `cookie=${gateCookie ?? "none"} gateOn=${process.env.W2H_GATE_ON ?? "unset"} path=${pathname}`,
       { status: 200 }
     );
   }
 
-  // Helper: Immer Debug-Header setzen
+  // Helper: Debug-Header
   const withDebug = (res: NextResponse) => {
     res.headers.set("x-w2h-mw", "1");
     res.headers.set("x-w2h-gateon", gateOn ? "1" : "0");
@@ -33,7 +36,7 @@ export function middleware(req: NextRequest) {
   };
 
   // ----------------------------
-  // Skip Next internals / assets
+  // Skip Next internals / assets / API die frei bleiben sollen
   // ----------------------------
   if (
     pathname.startsWith("/_next") ||
@@ -47,21 +50,16 @@ export function middleware(req: NextRequest) {
   }
 
   // ----------------------------
-  // Gate-Seiten & Gate-API erlauben
+  // Gate-Seite & Gate-API erlauben
   // ----------------------------
   if (pathname === "/gate" || pathname.startsWith("/api/gate")) {
     return withDebug(NextResponse.next());
   }
 
   // ----------------------------
-  // ✅ TEST: Gate erzwingen (für Debug)
+  // Gate erzwingen
   // ----------------------------
-  if (
-    gateOn &&
-    gateCookie !== "ok" &&
-    pathname !== "/__mw_test" &&
-    pathname !== "/__mw_cookie"
-  ) {
+  if (gateOn && gateCookie !== "ok") {
     const url = req.nextUrl.clone();
     url.pathname = "/gate";
     url.searchParams.set("next", pathname + (req.nextUrl.search || ""));
@@ -69,7 +67,7 @@ export function middleware(req: NextRequest) {
   }
 
   // ----------------------------
-  // 2) Root "/" -> "/de"
+  // Root "/" -> "/de"
   // ----------------------------
   if (pathname === "/") {
     const url = req.nextUrl.clone();
@@ -78,7 +76,7 @@ export function middleware(req: NextRequest) {
   }
 
   // ----------------------------
-  // 3) Sprache aus erstem Segment + Header für app/layout.tsx
+  // Sprache aus erstem Segment + Header für app/layout.tsx
   // ----------------------------
   const first = pathname.split("/").filter(Boolean)[0];
   const lang = LOCALES.has(first) ? first : "en";
@@ -93,6 +91,7 @@ export function middleware(req: NextRequest) {
   );
 }
 
+// ✅ DER FIX: matcher so setzen, dass i18n-Routen garantiert durch Middleware laufen
 export const config = {
-  matcher: ["/((?!_next/static|_next/image).*)"],
+  matcher: ["/:path*"],
 };
