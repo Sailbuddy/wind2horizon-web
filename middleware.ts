@@ -5,6 +5,11 @@ const LOCALES = new Set(["de", "en", "it", "fr", "hr"]);
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // ✅ HARD TEST: muss IMMER greifen (Proof ob Middleware in Production läuft)
+  if (pathname === "/__mw_test") {
+    return new NextResponse("MW OK", { status: 418 });
+  }
+
   // ----------------------------
   // Gate Flag + Cookie (für Debug)
   // ----------------------------
