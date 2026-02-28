@@ -54,9 +54,14 @@ export function middleware(req: NextRequest) {
   }
 
   // ----------------------------
-  // 1) Gate Cookie prüfen
+  // ✅ TEST: Gate erzwingen (für Debug)
   // ----------------------------
-  if (gateOn && gateCookie !== "ok") {
+  if (
+    gateOn &&
+    gateCookie !== "ok" &&
+    pathname !== "/__mw_test" &&
+    pathname !== "/__mw_cookie"
+  ) {
     const url = req.nextUrl.clone();
     url.pathname = "/gate";
     url.searchParams.set("next", pathname + (req.nextUrl.search || ""));
