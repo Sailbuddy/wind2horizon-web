@@ -13,6 +13,7 @@ import PanelHost from '@/components/panels/PanelHost';
 import BoraPanel from '@/components/panels/BoraPanel';
 import { boraTexts } from '@/lib/i18n/boraTexts';
 import SeaWeatherPanel from '@/components/panels/SeaWeatherPanel';
+import { useAuth } from '@/context/AuthContext';
 
 
 
@@ -142,6 +143,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [activePanel, setActivePanel] = useState(null);
   const [seaWarning, setSeaWarning] = useState(null);
   const [seaWarningClosed, setSeaWarningClosed] = useState(false);
+  const { user, setAuthModalOpen } = useAuth();
 
   function closeSeaWarning() {
     if (seaWarning?.issuedAt) {
@@ -3233,6 +3235,50 @@ return poly;
 {/* ================= MAP ================= */}
 <div className="w2h-map-wrap">
   <div ref={mapRef} className="w2h-map" />
+
+    {/* Auth Test Button */}
+  <div
+    style={{
+      position: 'absolute',
+      top: 14,
+      right: 14,
+      zIndex: 20,
+    }}
+  >
+    {user ? (
+      <button
+        type="button"
+        style={{
+          padding: '10px 12px',
+          borderRadius: 10,
+          border: '1px solid rgba(0,0,0,.12)',
+          background: 'rgba(255,255,255,0.94)',
+          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+          fontWeight: 800,
+          cursor: 'default',
+        }}
+      >
+        Eingeloggt
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={() => setAuthModalOpen(true)}
+        style={{
+          padding: '10px 12px',
+          borderRadius: 10,
+          border: '1px solid rgba(0,0,0,.12)',
+          background: 'rgba(255,255,255,0.94)',
+          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+          fontWeight: 800,
+          cursor: 'pointer',
+        }}
+      >
+        Login testen
+      </button>
+    )}
+  </div>
+
 
   {seaWarning && !seaWarningClosed && (
     <div
