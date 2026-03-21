@@ -2,6 +2,8 @@
 import "./globals.css";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
+import { AuthProvider } from "@/context/AuthContext";
+import AuthModal from "@/components/auth/AuthModal";
 
 export const metadata = {
   metadataBase: new URL("https://wind2horizon.com"),
@@ -26,7 +28,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
   return (
     <html lang={safeLang}>
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          {children}
+          <AuthModal lang={safeLang} />
+        </AuthProvider>
+      </body>
     </html>
   );
 }
