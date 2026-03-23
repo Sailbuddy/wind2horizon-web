@@ -1161,7 +1161,7 @@ function Lightbox({ gallery: g, onClose }) {
     opacity: modal?.loading ? 0.6 : 1,
   }}
 >
-  {user ? label('refreshReport', lang) : 'Login für Update'}
+  {user ? label('refreshReport', lang) : label('loginForUpdate', lang)}
 </button>
 
   <button
@@ -1315,7 +1315,15 @@ function Lightbox({ gallery: g, onClose }) {
       it: 'Cerca',
       hr: 'Traži',
       fr: 'Rechercher',
-  },
+      },
+
+        loginForUpdate: {
+      de: 'Update freischalten',
+      en: 'Login to update',
+      it: 'Accedi per aggiornare',
+      hr: 'Prijava za ažuriranje',
+      fr: 'Connexion pour actualiser',
+      },
 
       // ✅ KI-Report UI
       kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
