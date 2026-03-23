@@ -1126,37 +1126,43 @@ function Lightbox({ gallery: g, onClose }) {
           )}
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-  <button
-    type="button"
-    onClick={async () => {
-      console.log('KI-Report: Refresh clicked', {
-        modalLocationId: modal?.locationId,
-        lang,
-        loading: !!modal?.loading,
-        hasOnRefresh: typeof onRefresh === 'function',
-      });
+ <button
+  type="button"
+  onClick={async () => {
+    console.log('KI-Report: Refresh clicked', {
+      modalLocationId: modal?.locationId,
+      lang,
+      loading: !!modal?.loading,
+      hasOnRefresh: typeof onRefresh === 'function',
+      user: !!user,
+    });
 
-      if (modal?.loading) return;
+    if (modal?.loading) return;
 
-      if (typeof onRefresh === 'function') {
-        await onRefresh(modal?.locationId, lang);
-      }
-    }}
-    disabled={!!modal?.loading}
-    style={{
-      border: 'none',
-      borderRadius: 12,
-      padding: '10px 14px',
-      fontSize: 13,
-      fontWeight: 800,
-      background: '#0284c7',
-      color: '#fff',
-      cursor: 'pointer',
-      opacity: modal?.loading ? 0.6 : 1,
-    }}
-  >
-    {label('refreshReport', lang)}
-  </button>
+    if (!user) {
+      setAuthModalOpen(true);
+      return;
+    }
+
+    if (typeof onRefresh === 'function') {
+      await onRefresh(modal?.locationId, lang);
+    }
+  }}
+  disabled={!!modal?.loading}
+  style={{
+    border: 'none',
+    borderRadius: 12,
+    padding: '10px 14px',
+    fontSize: 13,
+    fontWeight: 800,
+    background: '#0284c7',
+    color: '#fff',
+    cursor: 'pointer',
+    opacity: modal?.loading ? 0.6 : 1,
+  }}
+>
+  {user ? label('refreshReport', lang) : 'Login für Update'}
+</button>
 
   <button
     type="button"
