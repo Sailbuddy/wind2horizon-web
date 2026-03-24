@@ -16,6 +16,11 @@ function txt(lang) {
       close: 'Schließen',
       success: 'Prüfe dein Postfach. Dein Zugang ist unterwegs.',
       error: 'Der Login-Link konnte nicht gesendet werden.',
+      legalPrefix: 'Mit dem Login stimmst du unserer',
+      privacy: 'Datenschutzerklärung',
+      legalConnector: 'und den',
+      terms: 'Nutzungsbedingungen',
+      legalSuffix: 'zu.',
     },
     en: {
       title: 'Sign in',
@@ -26,6 +31,11 @@ function txt(lang) {
       close: 'Close',
       success: 'Check your inbox. Your access is on the way.',
       error: 'The login link could not be sent.',
+      legalPrefix: 'By signing in, you agree to our',
+      privacy: 'privacy policy',
+      legalConnector: 'and',
+      terms: 'terms of use',
+      legalSuffix: '.',
     },
     it: {
       title: 'Accedi',
@@ -36,6 +46,11 @@ function txt(lang) {
       close: 'Chiudi',
       success: 'Controlla la tua casella di posta. Il tuo accesso è in arrivo.',
       error: 'Impossibile inviare il link di accesso.',
+      legalPrefix: 'Accedendo, accetti la nostra',
+      privacy: 'informativa sulla privacy',
+      legalConnector: 'e i',
+      terms: 'termini di utilizzo',
+      legalSuffix: '.',
     },
     fr: {
       title: 'Connexion',
@@ -46,6 +61,11 @@ function txt(lang) {
       close: 'Fermer',
       success: 'Vérifie ta boîte mail. Ton accès est en route.',
       error: 'Le lien de connexion n’a pas pu être envoyé.',
+      legalPrefix: 'En vous connectant, vous acceptez notre',
+      privacy: 'politique de confidentialité',
+      legalConnector: 'et nos',
+      terms: 'conditions d’utilisation',
+      legalSuffix: '.',
     },
     hr: {
       title: 'Prijava',
@@ -56,6 +76,11 @@ function txt(lang) {
       close: 'Zatvori',
       success: 'Provjeri svoju e-poštu. Tvoj pristup je na putu.',
       error: 'Poveznicu za prijavu nije bilo moguće poslati.',
+      legalPrefix: 'Prijavom prihvaćate našu',
+      privacy: 'politiku privatnosti',
+      legalConnector: 'i',
+      terms: 'uvjete korištenja',
+      legalSuffix: '.',
     },
   };
   return t[lang] || t.en;
@@ -77,6 +102,18 @@ export default function AuthModal({ lang = 'de' }) {
 
     return ['de', 'en', 'it', 'fr', 'hr'].includes(first) ? first : lang;
   }, [pathname, lang]);
+
+  const legalLinks = {
+  de: { privacy: '/de/datenschutz', terms: '/de/nutzungsbedingungen' },
+  en: { privacy: '/en/privacy', terms: '/en/terms' },
+
+  // Fallback → Englisch
+  it: { privacy: '/en/privacy', terms: '/en/terms' },
+  fr: { privacy: '/en/privacy', terms: '/en/terms' },
+  hr: { privacy: '/en/privacy', terms: '/en/terms' },
+};
+
+const links = legalLinks[routeLang] || legalLinks.en;
 
   const copy = useMemo(() => txt(routeLang), [routeLang]);
 
@@ -202,6 +239,34 @@ export default function AuthModal({ lang = 'de' }) {
           >
             {busy ? copy.sending : copy.send}
           </button>
+         <div
+           style={{
+           fontSize: 11,
+           color: '#6b7280',
+           marginTop: 14,   // 👈 etwas mehr Abstand
+           lineHeight: 1.5,
+           textAlign: 'center', // 👈 optional, wirkt ruhiger
+         }}
+  {copy.legalPrefix}{' '}
+  <a
+    href={links.privacy}
+    target="_blank"
+    rel="noopener noreferrer"
+    style={{ textDecoration: 'underline' }}
+  >
+    {copy.privacy}
+  </a>{' '}
+  {copy.legalConnector}{' '}
+  <a
+    href={links.terms}
+    target="_blank"
+    rel="noopener noreferrer"
+    style={{ textDecoration: 'underline' }}
+  >
+    {copy.terms}
+  </a>
+  {copy.legalSuffix}
+</div>
         </form>
 
         {success ? (
