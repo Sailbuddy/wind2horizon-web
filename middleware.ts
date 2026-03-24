@@ -50,6 +50,18 @@ export function middleware(req: NextRequest) {
   }
 
   // ----------------------------
+  // Öffentliche Legal-Routen immer erlauben
+  // ----------------------------
+  if (
+    pathname.includes("/datenschutz") ||
+    pathname.includes("/nutzungsbedingungen") ||
+    pathname.includes("/privacy") ||
+    pathname.includes("/terms")
+  ) {
+    return withDebug(NextResponse.next());
+  }
+
+  // ----------------------------
   // Gate-Seite & Gate-API erlauben
   // ----------------------------
   if (pathname === "/gate" || pathname.startsWith("/api/gate")) {
