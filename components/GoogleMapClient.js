@@ -1177,7 +1177,7 @@ function Lightbox({ gallery: g, onClose }) {
       fontWeight: 500,
     }}
   >
-    Um diesen Report zu aktualisieren, melde dich bitte mit deiner E-Mail-Adresse an.
+    {label('loginToRefreshReport', lang)}
   </div>
 )}
 
@@ -1421,6 +1421,14 @@ function Lightbox({ gallery: g, onClose }) {
       it: 'Accedi per aggiornare',
       hr: 'Prijava za ažuriranje',
       fr: 'Connexion pour actualiser',
+      },
+
+        loginToRefreshReport: {
+      de: 'Um diesen Report zu aktualisieren, melde dich bitte mit deiner E-Mail-Adresse an.',
+      en: 'To update this report, please sign in with your email address.',
+      it: 'Per aggiornare questo report, accedi con il tuo indirizzo email.',
+      hr: 'Za ažuriranje ovog izvještaja prijavite se svojom e-mail adresom.',
+      fr: 'Pour actualiser ce rapport, veuillez vous connecter avec votre adresse e-mail.',
       },
 
       loginTitle: {
