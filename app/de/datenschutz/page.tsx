@@ -1,11 +1,13 @@
-import LegalPage from '@/components/legal/LegalPage';
-
 export default function Page() {
   return (
-    <LegalPage
-      filePath="legal/datenschutz-de.html"
-      title="Datenschutzerklärung"
-      note="Diese deutsche Version ist rechtlich maßgeblich."
-    />
+    <main style={{ padding: 32, maxWidth: 900, margin: '0 auto' }}>
+      <h1>Datenschutzerklärung</h1>
+
+      <p>
+        Diese Version ist rechtlich maßgeblich.
+      </p>
+
+      {/* HIER deinen deutschen HTML-Inhalt einfügen */}
+    </main>
   );
 }
