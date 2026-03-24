@@ -14,6 +14,7 @@ import BoraPanel from '@/components/panels/BoraPanel';
 import { boraTexts } from '@/lib/i18n/boraTexts';
 import SeaWeatherPanel from '@/components/panels/SeaWeatherPanel';
 import { useAuth } from '@/context/AuthContext';
+import { setAuthIntent } from '@/lib/authIntent';
 
 
 
@@ -143,7 +144,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [activePanel, setActivePanel] = useState(null);
   const [seaWarning, setSeaWarning] = useState(null);
   const [seaWarningClosed, setSeaWarningClosed] = useState(false);
-  const { user, setAuthModalOpen } = useAuth();
+  const { user, setAuthModalOpen, lastIntent, setLastIntent } = useAuth();
 
   function closeSeaWarning() {
     if (seaWarning?.issuedAt) {
@@ -183,6 +184,80 @@ useEffect(() => {
   // ✅ KI-Report Modal (wird erst bei Klick gerendert = Lazy-Render)
   // { locationId, title, loading, error, report, createdAt }
   const [kiModal, setKiModal] = useState(null);
+  useEffect(() => {
+  if (!user) return;
+  if (!lastIntent) return;
+  if (lastIntent.type !== 'ki_report_refresh') return;
+
+  const locationId = lastIntent.locationId;
+  const langCode = lastIntent.lang || lang;
+
+  if (!locationId) {
+    setLastIntent(null);
+    return;
+  }
+
+  setAuthModalOpen(false);
+
+  setKiModal((prev) => ({
+    ...(prev || {}),
+    locationId,
+    title: prev?.title || `Spot #${locationId}`,
+    loading: true,
+    error: '',
+  }));
+
+  (async () => {
+    try {
+      const refreshRes = await fetch('/api/ki-report/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          location_id: locationId,
+          lang: langCode,
+        }),
+      });
+
+      if (!refreshRes.ok) {
+        const txt = await refreshRes.text().catch(() => '');
+        throw new Error(txt || `Refresh failed (${refreshRes.status})`);
+      }
+
+      const getRes = await fetch(
+        `/api/ki-report?location_id=${encodeURIComponent(String(locationId))}&lang=${encodeURIComponent(String(langCode))}`,
+        { method: 'GET', headers: { Accept: 'application/json' } }
+      );
+
+      if (!getRes.ok) {
+        const txt2 = await getRes.text().catch(() => '');
+        throw new Error(txt2 || `Reload failed (${getRes.status})`);
+      }
+
+      const data = await getRes.json();
+
+      setKiModal((prev) => ({
+        ...(prev || {}),
+        locationId,
+        loading: false,
+        error: null,
+        report: data?.report ?? data,
+        createdAt: data?.createdAt ?? data?.created_at ?? prev?.createdAt ?? null,
+      }));
+    } catch (err) {
+      setKiModal((prev) => ({
+        ...(prev || {}),
+        locationId,
+        loading: false,
+        error: String(err?.message || err),
+      }));
+    } finally {
+      setLastIntent(null);
+    }
+  })();
+}, [user, lastIntent, lang, setAuthModalOpen, setLastIntent]);
 
   // Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
@@ -1140,7 +1215,13 @@ function Lightbox({ gallery: g, onClose }) {
     if (modal?.loading) return;
 
     if (!user) {
-      setAuthModalOpen(true);
+      setAuthIntent({
+        type: 'ki_report_refresh',
+        locationId: modal?.locationId,
+        lang,
+        ts: Date.now(),
+      });
+        setAuthModalOpen(true);
       return;
     }
 
@@ -3610,7 +3691,7 @@ return poly;
                   loading: false,
                   error: null,
                   report: data?.report ?? data,
-                  createdAt: data?.createdAt ?? prev.createdAt,
+                  createdAt: data?.createdAt ?? data?.created_at ?? prev?.createdAt ?? null,
                 }
               : prev
           );
@@ -3631,80 +3712,7 @@ return poly;
 </div>
 
 
-{/* Modals */}
-<Lightbox gallery={gallery} onClose={() => setGallery(null)} />
-<WindModal modal={windModal} onClose={() => setWindModal(null)} />
 
-{kiModal ? (
-  <KiReportModal
-    modal={kiModal}
-    onClose={() => setKiModal(null)}
-    onRefresh={async (locationId, langCode) => {
-      if (!locationId) return;
-
-      // UI sofort in Loading setzen
-      setKiModal((prev) => (prev ? { ...prev, loading: true, error: null } : prev));
-
-      try {
-        // 1️⃣ POST → echten Refresh triggern
-        const refreshRes = await fetch('/api/ki-report/refresh', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            location_id: locationId,
-            lang: langCode,
-          }),
-        });
-
-        if (!refreshRes.ok) {
-          const txt = await refreshRes.text().catch(() => '');
-          throw new Error(txt || `Refresh failed (${refreshRes.status})`);
-        }
-
-        // 2️⃣ GET → aktualisierten Report holen
-        const getRes = await fetch(
-          `/api/ki-report?location_id=${encodeURIComponent(String(locationId))}&lang=${encodeURIComponent(
-            String(langCode)
-          )}`,
-          { method: 'GET', headers: { Accept: 'application/json' } }
-        );
-
-        if (!getRes.ok) {
-          const txt2 = await getRes.text().catch(() => '');
-          throw new Error(txt2 || `Reload failed (${getRes.status})`);
-        }
-
-        const data = await getRes.json();
-
-        // 3️⃣ Modal mit neuen Daten aktualisieren
-        setKiModal((prev) =>
-          prev
-            ? {
-                ...prev,
-                loading: false,
-                error: null,
-                report: data?.report ?? data,
-                createdAt: data?.createdAt ?? prev.createdAt,
-              }
-            : prev
-        );
-      } catch (err) {
-        setKiModal((prev) =>
-          prev
-            ? {
-                ...prev,
-                loading: false,
-                error: String(err?.message || err),
-              }
-            : prev
-        );
-      }
-    }}
-  />
-) : null}
 
 </div>
 
