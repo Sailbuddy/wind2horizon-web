@@ -1325,6 +1325,38 @@ function Lightbox({ gallery: g, onClose }) {
       fr: 'Connexion pour actualiser',
       },
 
+      loginTitle: {
+      de: 'Anmelden',
+      en: 'Sign in',
+      it: 'Accedi',
+      hr: 'Prijava',
+      fr: 'Connexion',
+      },
+
+      loginDescription: {
+      de: 'Gib deine E-Mail-Adresse ein. Wir senden dir einen sicheren Login-Link.',
+      en: 'Enter your email address. We will send you a secure login link.',
+      it: 'Inserisci la tua email. Ti invieremo un link di accesso sicuro.',
+      hr: 'Unesi svoju e-mail adresu. Poslat ćemo ti sigurnu poveznicu za prijavu.',
+      fr: 'Entrez votre adresse e-mail. Nous vous enverrons un lien de connexion sécurisé.',
+      },
+
+      emailLabel: {
+      de: 'E-Mail-Adresse',
+      en: 'Email address',
+      it: 'Indirizzo email',
+      hr: 'Email adresa',
+      fr: 'Adresse e-mail',
+      },
+
+      sendLoginLink: {
+      de: 'Login-Link senden',
+      en: 'Send login link',
+      it: 'Invia link di accesso',
+      hr: 'Pošalji link za prijavu',
+      fr: 'Envoyer le lien de connexion',
+      },
+
       // ✅ KI-Report UI
       kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
       refreshReport: { de: 'Aktualisieren', en: 'Refresh', it: 'Aggiorna', hr: 'Osvježi', fr: 'Actualiser' },

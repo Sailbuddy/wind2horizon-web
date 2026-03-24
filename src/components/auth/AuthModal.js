@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 
@@ -67,7 +68,17 @@ export default function AuthModal({ lang = 'de' }) {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
-  const copy = useMemo(() => txt(lang), [lang]);
+    const pathname = usePathname();
+
+  const routeLang = useMemo(() => {
+    const first = String(pathname || '/')
+      .split('/')
+      .filter(Boolean)[0];
+
+    return ['de', 'en', 'it', 'fr', 'hr'].includes(first) ? first : lang;
+  }, [pathname, lang]);
+
+  const copy = useMemo(() => txt(routeLang), [routeLang]);
 
   if (!authModalOpen) return null;
 
