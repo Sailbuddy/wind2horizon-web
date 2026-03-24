@@ -108,10 +108,10 @@ export default function AuthModal({ lang = 'de' }) {
   en: { privacy: '/en/privacy', terms: '/en/terms' },
 
   // Fallback → Englisch
-  it: { privacy: '/en/privacy', terms: '/en/terms' },
-  fr: { privacy: '/en/privacy', terms: '/en/terms' },
-  hr: { privacy: '/en/privacy', terms: '/en/terms' },
-};
+    it: { privacy: '/it/privacy', terms: '/it/terms' },
+    fr: { privacy: '/fr/privacy', terms: '/fr/terms' },
+    hr: { privacy: '/hr/privacy', terms: '/hr/terms' },
+  };
 
 const links = legalLinks[routeLang] || legalLinks.en;
 
@@ -239,34 +239,35 @@ const links = legalLinks[routeLang] || legalLinks.en;
           >
             {busy ? copy.sending : copy.send}
           </button>
-         <div
-           style={{
-           fontSize: 11,
-           color: '#6b7280',
-           marginTop: 14,   // 👈 etwas mehr Abstand
-           lineHeight: 1.5,
-           textAlign: 'center', // 👈 optional, wirkt ruhiger
-         }}
-  {copy.legalPrefix}{' '}
-  <a
-    href={links.privacy}
-    target="_blank"
-    rel="noopener noreferrer"
-    style={{ textDecoration: 'underline' }}
-  >
-    {copy.privacy}
-  </a>{' '}
-  {copy.legalConnector}{' '}
-  <a
-    href={links.terms}
-    target="_blank"
-    rel="noopener noreferrer"
-    style={{ textDecoration: 'underline' }}
-  >
-    {copy.terms}
-  </a>
-  {copy.legalSuffix}
-</div>
+                   <div
+            style={{
+              fontSize: 11,
+              color: '#6b7280',
+              marginTop: 14,
+              lineHeight: 1.5,
+              textAlign: 'center',
+            }}
+          >
+            {copy.legalPrefix}{' '}
+            <a
+              href={links.privacy}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ textDecoration: 'underline' }}
+            >
+              {copy.privacy}
+            </a>{' '}
+            {copy.legalConnector}{' '}
+            <a
+              href={links.terms}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ textDecoration: 'underline' }}
+            >
+              {copy.terms}
+            </a>
+            {copy.legalSuffix}
+          </div>
         </form>
 
         {success ? (
