@@ -1164,9 +1164,22 @@ function Lightbox({ gallery: g, onClose }) {
                 {created ? ` · ${label('createdAt', lang)}: ${created}` : ''}
               </div>
             </div>
+            {!user && (
+               <div
+                style={{
+                fontSize: 13,
+                lineHeight: 1.4,
+                marginBottom: 10,
+                color: '#6b7280',
+              }}
+              >
+              Um diesen Report zu aktualisieren, melde dich bitte mit deiner E-Mail-Adresse an.
+              </div>
+            )}
 
             <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
               ×
+  
             </button>
           </div>
 
