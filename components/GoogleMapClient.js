@@ -1165,17 +1165,21 @@ function Lightbox({ gallery: g, onClose }) {
               </div>
             </div>
             {!user && (
-               <div
-                style={{
-                fontSize: 13,
-                lineHeight: 1.4,
-                marginBottom: 10,
-                color: '#6b7280',
-              }}
-              >
-              Um diesen Report zu aktualisieren, melde dich bitte mit deiner E-Mail-Adresse an.
-              </div>
-            )}
+  <div
+    style={{
+      fontSize: 13,
+      lineHeight: 1.4,
+      marginBottom: 12,
+      padding: '8px 10px',
+      borderRadius: 8,
+      background: '#f3f4f6',
+      color: '#374151',
+      fontWeight: 500,
+    }}
+  >
+    Um diesen Report zu aktualisieren, melde dich bitte mit deiner E-Mail-Adresse an.
+  </div>
+)}
 
             <button onClick={onClose} style={{ fontSize: 24, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer' }}>
               ×
