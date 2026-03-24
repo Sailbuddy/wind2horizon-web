@@ -202,7 +202,7 @@ useEffect(() => {
   setKiModal((prev) => ({
     ...(prev || {}),
     locationId,
-    title: prev?.title || `Spot #${locationId}`,
+    title: prev?.title || `${label('kiReport', lang)} #${locationId}`,
     loading: true,
     error: '',
   }));

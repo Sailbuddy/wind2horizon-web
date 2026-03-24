@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { clearAuthIntent, getAuthIntent } from '@/lib/authIntent';
+import { clearAuthIntent, readAuthIntent } from '@/lib/authIntent';
 
 const AuthContext = createContext(null);
 
@@ -35,7 +35,7 @@ export function AuthProvider({ children }) {
     setEntitlements(entData || []);
   }
 
-  useEffect(() => {
+    useEffect(() => {
     let active = true;
 
     async function boot() {
@@ -55,10 +55,13 @@ export function AuthProvider({ children }) {
         setEntitlements([]);
       }
 
-      const intent = getAuthIntent();
-      if (intent) setLastIntent(intent);
+      const intent = readAuthIntent();
+      if (intent) {
+        setLastIntent(intent);
+        clearAuthIntent();
+      }
 
-      if (active) setLoading(false);
+      setLoading(false);
     }
 
     boot();
@@ -73,7 +76,8 @@ export function AuthProvider({ children }) {
 
       if (newUser?.id) {
         await loadProfileAndEntitlements(newUser.id);
-        const intent = getAuthIntent();
+
+        const intent = readAuthIntent();
         if (intent) {
           setLastIntent(intent);
           clearAuthIntent();
@@ -91,7 +95,7 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe();
     };
   }, []);
-
+ 
   async function signOut() {
     await supabase.auth.signOut();
     setAuthModalOpen(false);

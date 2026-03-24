@@ -1,16 +1,14 @@
-export function setAuthIntent(payload) {
-  if (typeof window === 'undefined') return;
+const KEY = 'w2h_auth_intent';
+
+export function setAuthIntent(intent) {
   try {
-    window.sessionStorage.setItem('w2h_auth_intent', JSON.stringify(payload));
-  } catch {
-    // ignore
-  }
+    localStorage.setItem(KEY, JSON.stringify(intent));
+  } catch {}
 }
 
-export function getAuthIntent() {
-  if (typeof window === 'undefined') return null;
+export function readAuthIntent() {
   try {
-    const raw = window.sessionStorage.getItem('w2h_auth_intent');
+    const raw = localStorage.getItem(KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -18,10 +16,7 @@ export function getAuthIntent() {
 }
 
 export function clearAuthIntent() {
-  if (typeof window === 'undefined') return;
   try {
-    window.sessionStorage.removeItem('w2h_auth_intent');
-  } catch {
-    // ignore
-  }
+    localStorage.removeItem(KEY);
+  } catch {}
 }
