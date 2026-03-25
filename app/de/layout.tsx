@@ -1,8 +1,7 @@
-// app/de/layout.tsx
-import { buildLangMetadata } from "@/lib/seo";
-
-export const metadata = buildLangMetadata("de");
+export const metadata = {
+  title: "Wind2Horizon",
+};
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <>{children}</>;
 }
