@@ -1,8 +1,11 @@
+import LegalPage from '@/components/legal/LegalPage';
+
 export default function Page() {
   return (
-    <main style={{ padding: 40 }}>
-      <h1>TEST DATENSCHUTZ</h1>
-      <p>Diese Route lebt.</p>
-    </main>
+    <LegalPage
+      filePath="legal/datenschutz-de.html"
+      title="Datenschutzerklärung"
+      note="Diese deutsche Version ist rechtlich maßgeblich."
+    />
   );
 }

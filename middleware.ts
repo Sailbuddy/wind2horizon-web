@@ -69,6 +69,15 @@ export function middleware(req: NextRequest) {
   }
 
   // ----------------------------
+  // Root "/" immer zuerst -> "/de"
+  // ----------------------------
+  if (pathname === "/") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/de";
+    return withDebug(NextResponse.redirect(url, 308));
+  }
+
+  // ----------------------------
   // Gate erzwingen
   // ----------------------------
   if (gateOn && gateCookie !== "ok") {
@@ -76,15 +85,6 @@ export function middleware(req: NextRequest) {
     url.pathname = "/gate";
     url.searchParams.set("next", pathname + (req.nextUrl.search || ""));
     return withDebug(NextResponse.redirect(url, 307));
-  }
-
-  // ----------------------------
-  // Root "/" -> "/de"
-  // ----------------------------
-  if (pathname === "/" && !gateOn) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/de";
-    return withDebug(NextResponse.redirect(url, 308));
   }
 
   // ----------------------------
