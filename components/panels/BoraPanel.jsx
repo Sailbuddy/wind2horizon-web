@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchBoraDeltaSeries, buildBoraCharts } from '@/lib/bora/boraForecast';
 import BoraChart from '@/components/bora/BoraChart';
 import BoraLegend from '@/components/bora/BoraLegend';
-import LiveWindCard from '@/components/bora/LiveWindCard';
+
 
 function levelBadge(level, minDelta, lang, label) {
   const base = 'w2h-badge';
@@ -117,13 +117,48 @@ export default function BoraPanel({ lang, label }) {
 
       {/* LiveWind */}
       <section className="w2h-section">
-        <div className="w2h-card">
-          <div className="w2h-h2">{t.liveTitle}</div>
-          <div className="w2h-live">
-            <LiveWindCard station="16108" labelStation="Triest" />
-          </div>
-        </div>
-      </section>
+         <div className="w2h-card">
+         <div className="w2h-h2">{t.liveTitle}</div>
+         <div className="w2h-live-meta">
+           <span className="w2h-live-meta-label">
+             {label('stationLabel', lang) || 'Station'}:
+             </span>{' '}
+             <strong>16108 – Triest</strong>
+         </div>
+ 
+         <div className="w2h-live-embed">
+           <iframe
+             src="https://w2hlivewind.netlify.app?station=16108"
+             title="LiveWind Triest"
+             loading="lazy"
+             className="w2h-live-iframe"
+           />
+           </div>
+    
+         <div className="w2h-live-links">
+         <a
+           href="https://w2hlivewind.netlify.app?station=16108"
+           target="_blank"
+           rel="noopener noreferrer"
+           className="w2h-live-link"
+         >
+           {label('openFullView', lang) || 'Vollansicht öffnen'}
+         </a>
+         </div>
+    
+         <div className="w2h-live-source">
+           {label('sourceLabel', lang) || 'Quelle'}:{' '}
+           <a
+             href="https://meteostat.net"
+             target="_blank"
+             rel="noopener noreferrer"
+             className="w2h-live-link"
+             >
+             Meteostat
+           </a>
+         </div>
+       </div>
+     </section>
 
       {/* 48h */}
       <section className="w2h-section">
@@ -246,6 +281,47 @@ export default function BoraPanel({ lang, label }) {
         .w2h-live :global(.bg-white) {
           /* Falls LiveWindCard irgendwo "weiß" hardcoded ist, bleibt es trotzdem sauber */
           background: rgba(255, 255, 255, 0.96) !important;
+        }
+
+        .w2h-live-meta {
+          margin-bottom: 10px;
+          font-size: 13px;
+          color: #334155;
+        }
+
+        .w2h-live-meta-label {
+          font-weight: 700;
+        }
+
+        .w2h-live-embed {
+          border-radius: 14px;
+          overflow: hidden;
+          background: rgba(255, 255, 255, 0.78);
+          border: 1px solid rgba(0, 0, 0, 0.06);
+        }
+
+        .w2h-live-iframe {
+          display: block;
+          width: 100%;
+          height: 120px;
+          border: 0;
+        }
+
+        .w2h-live-links {
+          margin-top: 10px;
+        }
+
+        .w2h-live-link {
+          font-size: 13px;
+          font-weight: 700;
+          color: #1d4ed8;
+          text-decoration: underline;
+        }
+
+        .w2h-live-source {
+          margin-top: 6px;
+          font-size: 12px;
+          color: #64748b;
         }
 
         /* Badges */
