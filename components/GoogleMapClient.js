@@ -259,6 +259,41 @@ useEffect(() => {
   })();
 }, [user, lastIntent, lang, setAuthModalOpen, setLastIntent]);
 
+// Auto-Fortsetzung nach Login für Favoriten
+
+   useEffect(() => {
+     if (!user) return;
+     if (!lastIntent) return;
+     if (lastIntent.type !== 'favorite_add') return;
+ 
+     const locationId = lastIntent.locationId;
+     const langCode = lastIntent.lang || lang;
+ 
+     if (!locationId) {
+       setLastIntent(null);
+       return;
+     }
+ 
+     setAuthModalOpen(false);
+ 
+     (async () => {
+       try {
+         await saveFavoriteToDefaultCollection({
+           locationId,
+           langCode,
+         });
+ 
+         window.alert(label('favoriteSaved', langCode));
+       } catch (err) {
+         console.error('[w2h] favorite intent failed', err);
+         window.alert(label('favoriteSaveFailed', langCode));
+       } finally {
+         setLastIntent(null);
+       }
+     })();
+   }, [user, lastIntent, lang, setAuthModalOpen, setLastIntent]);
+
+
   // Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -369,6 +404,81 @@ function geoJsonToPolygonPaths(g) {
     }
     return res.json();
   }
+
+  // Helper-Funktion zum Speichern in die Default-Liste
+ async function saveFavoriteToDefaultCollection({ locationId, langCode }) {
+   // 1) Listen laden
+   const listRes = await fetch('/api/favorites/collections', {
+     method: 'GET',
+     headers: { Accept: 'application/json' },
+   });
+ 
+   if (!listRes.ok) {
+     const txt = await listRes.text().catch(() => '');
+     throw new Error(txt || `Collections load failed (${listRes.status})`);
+   }
+ 
+   const listJson = await listRes.json();
+   const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
+ 
+   // 2) Default-Liste finden oder anlegen
+   let targetCollection =
+     collections.find((c) => c?.is_default) ||
+     collections.find((c) => c?.collection_type === 'favorites') ||
+     collections[0] ||
+     null;
+ 
+   if (!targetCollection) {
+     const createRes = await fetch('/api/favorites/collections', {
+       method: 'POST',
+       headers: {
+         'Content-Type': 'application/json',
+         Accept: 'application/json',
+       },
+       body: JSON.stringify({
+         title: langCode === 'de' ? 'Meine Favoriten' : 'My Favorites',
+         description: null,
+         visibility: 'private',
+         collectionType: 'favorites',
+         isDefault: true,
+       }),
+     });
+ 
+     if (!createRes.ok) {
+       const txt = await createRes.text().catch(() => '');
+       throw new Error(txt || `Collection create failed (${createRes.status})`);
+     }
+ 
+     const createJson = await createRes.json();
+     targetCollection = createJson?.collection || null;
+   }
+ 
+   if (!targetCollection?.id) {
+     throw new Error('No target collection available.');
+   }
+ 
+   // 3) Marker in Liste speichern
+   const saveRes = await fetch('/api/favorites/items', {
+     method: 'POST',
+     headers: {
+       'Content-Type': 'application/json',
+       Accept: 'application/json',
+     },
+     body: JSON.stringify({
+       collectionId: Number(targetCollection.id),
+       locationId: Number(locationId),
+       status: 'saved',
+     }),
+   });
+ 
+   if (!saveRes.ok) {
+     const txt = await saveRes.text().catch(() => '');
+     throw new Error(txt || `Favorite save failed (${saveRes.status})`);
+   }
+ 
+   return saveRes.json();
+ }
+
 
   // Load SeaWarning 
   //------------------------------
@@ -1463,6 +1573,31 @@ function Lightbox({ gallery: g, onClose }) {
       fr: 'Envoyer le lien de connexion',
       },
 
+    // ✅ Favoriten UI 
+    favoriteSave: {
+       de: 'Zu Favoriten',
+       en: 'Save to favorites',
+       it: 'Salva nei preferiti',
+       hr: 'Spremi u favorite',
+       fr: 'Ajouter aux favoris',
+     },
+ 
+     favoriteSaved: {
+       de: 'In Favoriten gespeichert.',
+       en: 'Saved to favorites.',
+       it: 'Salvato nei preferiti.',
+       hr: 'Spremljeno u favorite.',
+       fr: 'Ajouté aux favoris.',
+     },
+ 
+     favoriteSaveFailed: {
+       de: 'Favorit konnte nicht gespeichert werden.',
+       en: 'Could not save favorite.',
+       it: 'Impossibile salvare il preferito.',
+       hr: 'Spremanje favorita nije uspjelo.',
+       fr: 'Impossible d’enregistrer le favori.',
+     },
+
       // ✅ KI-Report UI
       kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
       refreshReport: { de: 'Aktualisieren', en: 'Refresh', it: 'Aggiorna', hr: 'Osvježi', fr: 'Actualiser' },
@@ -1967,6 +2102,10 @@ function Lightbox({ gallery: g, onClose }) {
 
     const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
 
+    // ✅ Favoriten Button
+    const btnFav = `<button id="favbtn-${row.id}" class="iw-btn iw-btn-fav">${label('favoriteSave', langCode)}</button>`;
+  
+  
     // ✅ KI-Report Button (nur nach Klick; kein Preload)
     const btnKi = `<button id="kibtn-${row.id}" class="iw-btn iw-btn-ki">🧠 ${label('kiReport', langCode)}</button>`;
 
@@ -2044,7 +2183,7 @@ function Lightbox({ gallery: g, onClose }) {
         </div>
 
         <div class="iw-actions">
-          ${btnKi}${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
+          ${btnFav}${btnKi}${btnWind}${btnRoute}${btnSite}${btnTel}${btnPhotos}
         </div>
       </div>
     `;
@@ -3168,6 +3307,38 @@ return poly;
                 });
               });
             }
+
+                 // ---------------------------
+                 // Favoriten Button
+                 // ---------------------------
+                 const favbtn = document.getElementById(`favbtn-${row.id}`);
+                 if (favbtn) {
+                   favbtn.addEventListener('click', async () => {
+                     try {
+                       if (!user) {
+                         setAuthIntent({
+                           type: 'favorite_add',
+                           locationId: row.id,
+                           lang: langCode,
+                           ts: Date.now(),
+                         });
+                         setAuthModalOpen(true);
+                         return;
+                       }
+ 
+                       await saveFavoriteToDefaultCollection({
+                         locationId: row.id,
+                         langCode,
+                       });
+ 
+                       window.alert(label('favoriteSaved', langCode));
+                     } catch (e) {
+                       console.error('[w2h] favorite save failed', e);
+                       window.alert(label('favoriteSaveFailed', langCode));
+                     }
+                   });
+                 }
+
 
             // ---------------------------
             // KI-Report Button (Lazy Fetch)
