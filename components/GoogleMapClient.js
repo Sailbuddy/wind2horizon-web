@@ -417,91 +417,82 @@ function geoJsonToPolygonPaths(g) {
     throw new Error('No access token available.');
   }
 
+  // 1) Listen laden
   const listRes = await fetch('/api/favorites/collections', {
     method: 'GET',
     headers: {
       Accept: 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-  })
+  });
 
-  // 1) Listen laden
-   const listRes = await fetch('/api/favorites/collections', {
-     method: 'GET',
-     headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-   });
- 
-   if (!listRes.ok) {
-     const txt = await listRes.text().catch(() => '');
-     throw new Error(txt || `Collections load failed (${listRes.status})`);
-   }
- 
-   const listJson = await listRes.json();
-   const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
- 
-   // 2) Default-Liste finden oder anlegen
-   let targetCollection =
-     collections.find((c) => c?.is_default) ||
-     collections.find((c) => c?.collection_type === 'favorites') ||
-     collections[0] ||
-     null;
- 
-   if (!targetCollection) {
-     const createRes = await fetch('/api/favorites/collections', {
-       method: 'POST',
-       headers: {
+  if (!listRes.ok) {
+    const txt = await listRes.text().catch(() => '');
+    throw new Error(txt || `Collections load failed (${listRes.status})`);
+  }
+
+  const listJson = await listRes.json();
+  const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
+
+  // 2) Default-Liste finden oder anlegen
+  let targetCollection =
+    collections.find((c) => c?.is_default) ||
+    collections.find((c) => c?.collection_type === 'favorites') ||
+    collections[0] ||
+    null;
+
+  if (!targetCollection) {
+    const createRes = await fetch('/api/favorites/collections', {
+      method: 'POST',
+      headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
-       body: JSON.stringify({
-         title: langCode === 'de' ? 'Meine Favoriten' : 'My Favorites',
-         description: null,
-         visibility: 'private',
-         collectionType: 'favorites',
-         isDefault: true,
-       }),
-     });
- 
-     if (!createRes.ok) {
-       const txt = await createRes.text().catch(() => '');
-       throw new Error(txt || `Collection create failed (${createRes.status})`);
-     }
- 
-     const createJson = await createRes.json();
-     targetCollection = createJson?.collection || null;
-   }
- 
-   if (!targetCollection?.id) {
-     throw new Error('No target collection available.');
-   }
- 
-   // 3) Marker in Liste speichern
-   const saveRes = await fetch('/api/favorites/items', {
-     method: 'POST',
-     headers: {
+      body: JSON.stringify({
+        title: langCode === 'de' ? 'Meine Favoriten' : 'My Favorites',
+        description: null,
+        visibility: 'private',
+        collectionType: 'favorites',
+        isDefault: true,
+      }),
+    });
+
+    if (!createRes.ok) {
+      const txt = await createRes.text().catch(() => '');
+      throw new Error(txt || `Collection create failed (${createRes.status})`);
+    }
+
+    const createJson = await createRes.json();
+    targetCollection = createJson?.collection || null;
+  }
+
+  if (!targetCollection?.id) {
+    throw new Error('No target collection available.');
+  }
+
+  // 3) Marker in Liste speichern
+  const saveRes = await fetch('/api/favorites/items', {
+    method: 'POST',
+    headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
+    body: JSON.stringify({
+      collectionId: Number(targetCollection.id),
+      locationId: Number(locationId),
+      status: 'saved',
+    }),
+  });
 
-     body: JSON.stringify({
-       collectionId: Number(targetCollection.id),
-       locationId: Number(locationId),
-       status: 'saved',
-     }),
-   });
- 
-   if (!saveRes.ok) {
-     const txt = await saveRes.text().catch(() => '');
-     throw new Error(txt || `Favorite save failed (${saveRes.status})`);
-   }
- 
-   return saveRes.json();
- }
+  if (!saveRes.ok) {
+    const txt = await saveRes.text().catch(() => '');
+    throw new Error(txt || `Favorite save failed (${saveRes.status})`);
+  }
+
+  return saveRes.json();
+}
 
 
   // Load SeaWarning 
