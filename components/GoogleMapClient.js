@@ -3354,16 +3354,6 @@ return poly;
                          locationId: row.id,
                           langCode,
                        });
-
-                        const accessToken = session?.access_token || null;
-
-                        if (!accessToken) {
-                          throw new Error('No access token available.');
-                        }
-                        
-                        locationId: row.id,
-                         langCode,
-                       });
  
                        window.alert(label('favoriteSaved', langCode));
                      } catch (e) {
