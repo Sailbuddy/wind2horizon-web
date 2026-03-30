@@ -410,6 +410,7 @@ function geoJsonToPolygonPaths(g) {
    // 1) Listen laden
    const listRes = await fetch('/api/favorites/collections', {
      method: 'GET',
+     credentials: 'include',
      headers: { Accept: 'application/json' },
    });
  
@@ -431,6 +432,7 @@ function geoJsonToPolygonPaths(g) {
    if (!targetCollection) {
      const createRes = await fetch('/api/favorites/collections', {
        method: 'POST',
+       credentials: 'include',
        headers: {
          'Content-Type': 'application/json',
          Accept: 'application/json',
@@ -460,6 +462,7 @@ function geoJsonToPolygonPaths(g) {
    // 3) Marker in Liste speichern
    const saveRes = await fetch('/api/favorites/items', {
      method: 'POST',
+     credentials: 'include',
      headers: {
        'Content-Type': 'application/json',
        Accept: 'application/json',
