@@ -1,24 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-async function getAuthenticatedUser(supabase: any, req: Request) {
-  const authHeader = req.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : "";
-
-  // 1. Bearer Token
-  if (token) {
-    const { data, error } = await supabase.auth.getUser(token);
-    if (!error && data?.user) return data.user;
-  }
-
-  // 2. Cookie Session
-  const { data, error } = await supabase.auth.getUser();
-  if (!error && data?.user) return data.user;
-
-  return null;
-}
+import { createSupabaseRouteClient } from "@/lib/supabase/route";
 
 async function checkCollectionOwnership(
   supabase: any,
@@ -44,17 +25,18 @@ async function checkCollectionOwnership(
 // --------------------------------------------------
 export async function POST(req: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = createSupabaseRouteClient(req);
 
-    const user = await getAuthenticatedUser(supabase, req);
-    if (!user) {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !authData?.user) {
       return NextResponse.json(
         { ok: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    const userId = user.id;
+    const userId = authData.user.id;
     const body = await req.json();
 
     const collectionId = Number(body.collectionId);
@@ -102,6 +84,7 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
+      console.error("[favorites items UPSERT error]", error);
       return NextResponse.json(
         { ok: false, error: error.message },
         { status: 500 }
@@ -123,17 +106,18 @@ export async function POST(req: Request) {
 // --------------------------------------------------
 export async function PATCH(req: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = createSupabaseRouteClient(req);
 
-    const user = await getAuthenticatedUser(supabase, req);
-    if (!user) {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !authData?.user) {
       return NextResponse.json(
         { ok: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    const userId = user.id;
+    const userId = authData.user.id;
     const body = await req.json();
 
     const collectionId = Number(body.collectionId);
@@ -182,6 +166,7 @@ export async function PATCH(req: Request) {
       .single();
 
     if (error) {
+      console.error("[favorites items UPDATE error]", error);
       return NextResponse.json(
         { ok: false, error: error.message },
         { status: 500 }
@@ -203,17 +188,18 @@ export async function PATCH(req: Request) {
 // --------------------------------------------------
 export async function DELETE(req: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = createSupabaseRouteClient(req);
 
-    const user = await getAuthenticatedUser(supabase, req);
-    if (!user) {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !authData?.user) {
       return NextResponse.json(
         { ok: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    const userId = user.id;
+    const userId = authData.user.id;
     const body = await req.json();
 
     const collectionId = Number(body.collectionId);
@@ -246,6 +232,7 @@ export async function DELETE(req: Request) {
       .eq("location_id", locationId);
 
     if (error) {
+      console.error("[favorites items DELETE error]", error);
       return NextResponse.json(
         { ok: false, error: error.message },
         { status: 500 }
