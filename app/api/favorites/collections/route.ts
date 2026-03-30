@@ -7,29 +7,32 @@ async function getAuthenticatedUser(supabase: any, req: Request) {
     ? authHeader.slice(7).trim()
     : "";
 
-  // 1. Versuche Bearer Token
+  // 1. Bearer Token
   if (token) {
     const { data, error } = await supabase.auth.getUser(token);
     if (!error && data?.user) return data.user;
   }
 
-  // 2. Fallback: Cookie Session
+  // 2. Cookie Session
   const { data, error } = await supabase.auth.getUser();
   if (!error && data?.user) return data.user;
 
   return null;
 }
- 
+
 // --------------------------------------------------
 // GET → Alle Collections des Users laden
 // --------------------------------------------------
-export async function GET() {
-try {
+export async function GET(req: Request) {
+  try {
     const supabase = await createSupabaseServerClient();
- 
+
     const user = await getAuthenticatedUser(supabase, req);
-      if (!user) {
-       return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Not authenticated" },
+        { status: 401 }
+      );
     }
 
     const userId = user.id;
@@ -42,12 +45,19 @@ try {
       .order("updated_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, collections: data ?? [] });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
+    console.error("[favorites collections GET]", err);
+    return NextResponse.json(
+      { ok: false, error: "Server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -59,17 +69,19 @@ export async function POST(req: Request) {
     const supabase = await createSupabaseServerClient();
 
     const user = await getAuthenticatedUser(supabase, req);
-
     if (!user) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json(
+        { ok: false, error: "Not authenticated" },
+        { status: 401 }
+      );
     }
 
-const userId = user.id;
+    const userId = user.id;
     const body = await req.json();
 
     const payload = {
       owner_user_id: userId,
-      title: body.title,
+      title: body.title ?? "Neue Liste",
       description: body.description ?? null,
       visibility: body.visibility ?? "private",
       is_template: false,
@@ -81,17 +93,24 @@ const userId = user.id;
     };
 
     const { data, error } = await supabase
-     .from("favorite_collections")
+      .from("favorite_collections")
       .insert(payload)
       .select("*")
       .single();
- 
+
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 }
+      );
     }
- 
+
     return NextResponse.json({ ok: true, collection: data });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
+    console.error("[favorites collections POST]", err);
+    return NextResponse.json(
+      { ok: false, error: "Server error" },
+      { status: 500 }
+    );
   }
 }
