@@ -410,8 +410,10 @@ function geoJsonToPolygonPaths(g) {
    // 1) Listen laden
    const listRes = await fetch('/api/favorites/collections', {
      method: 'GET',
-     credentials: 'include',
-     headers: { Accept: 'application/json' },
+     headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
    });
  
    if (!listRes.ok) {
@@ -432,11 +434,11 @@ function geoJsonToPolygonPaths(g) {
    if (!targetCollection) {
      const createRes = await fetch('/api/favorites/collections', {
        method: 'POST',
-       credentials: 'include',
        headers: {
-         'Content-Type': 'application/json',
-         Accept: 'application/json',
-       },
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
        body: JSON.stringify({
          title: langCode === 'de' ? 'Meine Favoriten' : 'My Favorites',
          description: null,
@@ -464,9 +466,11 @@ function geoJsonToPolygonPaths(g) {
      method: 'POST',
      credentials: 'include',
      headers: {
-       'Content-Type': 'application/json',
-       Accept: 'application/json',
-     },
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    
      body: JSON.stringify({
        collectionId: Number(targetCollection.id),
        locationId: Number(locationId),
@@ -3330,7 +3334,17 @@ return poly;
                        }
  
                        await saveFavoriteToDefaultCollection({
-                         locationId: row.id,
+                        const {
+                          data: { session },
+                        } = await supabase.auth.getSession();
+
+                        const accessToken = session?.access_token || null;
+
+                        if (!accessToken) {
+                          throw new Error('No access token available.');
+                        }
+                        
+                        locationId: row.id,
                          langCode,
                        });
  
