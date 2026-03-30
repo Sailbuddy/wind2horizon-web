@@ -407,7 +407,25 @@ function geoJsonToPolygonPaths(g) {
 
   // Helper-Funktion zum Speichern in die Default-Liste
  async function saveFavoriteToDefaultCollection({ locationId, langCode }) {
-   // 1) Listen laden
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const accessToken = session?.access_token || null;
+
+  if (!accessToken) {
+    throw new Error('No access token available.');
+  }
+
+  const listRes = await fetch('/api/favorites/collections', {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  // 1) Listen laden
    const listRes = await fetch('/api/favorites/collections', {
      method: 'GET',
      headers: {
@@ -464,13 +482,12 @@ function geoJsonToPolygonPaths(g) {
    // 3) Marker in Liste speichern
    const saveRes = await fetch('/api/favorites/items', {
      method: 'POST',
-     credentials: 'include',
      headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    
+
      body: JSON.stringify({
        collectionId: Number(targetCollection.id),
        locationId: Number(locationId),
@@ -3334,9 +3351,9 @@ return poly;
                        }
  
                        await saveFavoriteToDefaultCollection({
-                        const {
-                          data: { session },
-                        } = await supabase.auth.getSession();
+                         locationId: row.id,
+                          langCode,
+                       });
 
                         const accessToken = session?.access_token || null;
 
