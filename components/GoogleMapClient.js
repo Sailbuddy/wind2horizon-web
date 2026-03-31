@@ -357,7 +357,6 @@ function setFavoriteButtonState(buttonEl, state, langCode) {
 }, [user, lastIntent, lang, setAuthModalOpen, setLastIntent]);
 
 // Auto-Fortsetzung nach Login für Favoriten
-
 useEffect(() => {
   if (!user) return;
   if (!accessToken) return;
@@ -383,6 +382,8 @@ useEffect(() => {
         langCode,
         accessToken,
       });
+
+      favoriteStatusCache[locationId] = true;
 
       console.log('[W2H] favorite saved (intent)');
     } catch (err) {
@@ -3502,14 +3503,23 @@ if (!favbtn) {
 } else {
   console.log('[W2H] button FOUND:', favbtnId);
 
+  const currentLocationId = String(row.id);
+  favbtn.dataset.locationId = currentLocationId;
+
   setFavoriteButtonState(favbtn, 'checking', langCode);
 
   (async () => {
     try {
       const isFavorite = await fetchFavoriteStatus(row.id);
+
+      if (favbtn.dataset.locationId !== currentLocationId) return;
+
       setFavoriteButtonState(favbtn, isFavorite ? 'saved' : 'idle', langCode);
     } catch (err) {
       console.error('[W2H] favorite status check failed:', err);
+
+      if (favbtn.dataset.locationId !== currentLocationId) return;
+
       setFavoriteButtonState(favbtn, 'idle', langCode);
     }
   })();
@@ -3523,23 +3533,28 @@ if (!favbtn) {
         return;
       }
 
+      if (favoriteStatusCache[row.id] === true) {
+        setFavoriteButtonState(favbtn, 'saved', langCode);
+        return;
+      }
+
       setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
       setFavoriteButtonState(favbtn, 'saving', langCode);
 
       if (!user) {
-      setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
-      setFavoriteButtonState(favbtn, 'idle', langCode);
+        setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
+        setFavoriteButtonState(favbtn, 'idle', langCode);
 
-      setAuthIntent({
-        type: 'favorite_add',
-        locationId: row.id,
-        lang: langCode,
-        ts: Date.now(),
-      });
+        setAuthIntent({
+          type: 'favorite_add',
+          locationId: row.id,
+          lang: langCode,
+          ts: Date.now(),
+        });
 
-  setAuthModalOpen(true);
-  return;
-}
+        setAuthModalOpen(true);
+        return;
+      }
 
       console.log('[W2H] saving favorite...', row.id);
 
@@ -3549,6 +3564,8 @@ if (!favbtn) {
         accessToken,
       });
 
+      favoriteStatusCache[row.id] = true;
+
       console.log('[W2H] favorite saved');
       setFavoriteButtonState(favbtn, 'saved', langCode);
     } catch (e) {
@@ -3556,7 +3573,11 @@ if (!favbtn) {
       setFavoriteButtonState(favbtn, 'error', langCode);
 
       window.setTimeout(() => {
-        setFavoriteButtonState(favbtn, 'idle', langCode);
+        if (favoriteStatusCache[row.id] === true) {
+          setFavoriteButtonState(favbtn, 'saved', langCode);
+        } else {
+          setFavoriteButtonState(favbtn, 'idle', langCode);
+        }
       }, 1600);
     } finally {
       setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
@@ -3820,7 +3841,7 @@ if (!favbtn) {
           cursor: 'pointer',
         }}
       >
-        Login testen
+        Login Link senden
       </button>
     )}
   </div>
