@@ -144,7 +144,13 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [activePanel, setActivePanel] = useState(null);
   const [seaWarning, setSeaWarning] = useState(null);
   const [seaWarningClosed, setSeaWarningClosed] = useState(false);
-  const { user, setAuthModalOpen, lastIntent, setLastIntent } = useAuth();
+  const { user, accessToken, setAuthModalOpen, lastIntent, setLastIntent } = useAuth();
+  const [favoriteBusyIds, setFavoriteBusyIds] = useState({});
+
+  // 👉 Helper gegen Mehrfachklicks
+function isFavoriteBusy(id) {
+  return !!favoriteBusyIds[id];
+}
 
   function closeSeaWarning() {
     if (seaWarning?.issuedAt) {
@@ -261,37 +267,42 @@ useEffect(() => {
 
 // Auto-Fortsetzung nach Login für Favoriten
 
-   useEffect(() => {
-     if (!user) return;
-     if (!lastIntent) return;
-     if (lastIntent.type !== 'favorite_add') return;
- 
-     const locationId = lastIntent.locationId;
-     const langCode = lastIntent.lang || lang;
- 
-     if (!locationId) {
-       setLastIntent(null);
-       return;
-     }
- 
-     setAuthModalOpen(false);
- 
-     (async () => {
-       try {
-         await saveFavoriteToDefaultCollection({
-           locationId,
-           langCode,
-         });
- 
-         window.alert(label('favoriteSaved', langCode));
-       } catch (err) {
-         console.error('[w2h] favorite intent failed', err);
-         window.alert(label('favoriteSaveFailed', langCode));
-       } finally {
-         setLastIntent(null);
-       }
-     })();
-   }, [user, lastIntent, lang, setAuthModalOpen, setLastIntent]);
+useEffect(() => {
+  if (!user) return;
+  if (!accessToken) return;
+  if (!lastIntent) return;
+  if (lastIntent.type !== 'favorite_add') return;
+
+  const locationId = lastIntent.locationId;
+  const langCode = lastIntent.lang || lang;
+
+  if (!locationId) {
+    setLastIntent(null);
+    return;
+  }
+
+  console.log('[W2H] processing favorite intent after login', locationId);
+
+  setAuthModalOpen(false);
+
+  (async () => {
+    try {
+      await saveFavoriteToDefaultCollection({
+        locationId,
+        langCode,
+        accessToken,
+      });
+
+      console.log('[W2H] favorite saved (intent)');
+      window.alert(label('favoriteSaved', langCode));
+    } catch (err) {
+      console.error('[W2H] favorite intent failed', err);
+      window.alert(label('favoriteSaveFailed', langCode));
+    } finally {
+      setLastIntent(null);
+    }
+  })();
+}, [user, accessToken, lastIntent, lang, setAuthModalOpen, setLastIntent]);
 
 
   // Such-Query-State
@@ -405,15 +416,9 @@ function geoJsonToPolygonPaths(g) {
     return res.json();
   }
 
- // Helper-Funktion zum Speichern in die Default-Liste
-async function saveFavoriteToDefaultCollection({ locationId, langCode }) {
+// Helper-Funktion zum Speichern in die Default-Liste
+async function saveFavoriteToDefaultCollection({ locationId, langCode, accessToken }) {
   console.log('[W2H] saveFavorite START', locationId);
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  const accessToken = session?.access_token || null;
 
   if (!accessToken) {
     console.error('[W2H] NO ACCESS TOKEN');
@@ -518,7 +523,6 @@ async function saveFavoriteToDefaultCollection({ locationId, langCode }) {
 
   return result;
 }
-
 
   // Load SeaWarning 
   //------------------------------
@@ -3365,6 +3369,15 @@ if (!favbtn) {
     console.log('[W2H] CLICK FIRED', row.id);
 
     try {
+      // 🔒 Busy-Schutz: verhindert Mehrfachklicks / Race Conditions
+      if (favoriteBusyIds[row.id]) {
+        console.log('[W2H] already saving → skip', row.id);
+        return;
+      }
+
+      setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
+
+      // 🔐 Falls nicht eingeloggt → Login starten
       if (!user) {
         setAuthIntent({
           type: 'favorite_add',
@@ -3381,6 +3394,7 @@ if (!favbtn) {
       await saveFavoriteToDefaultCollection({
         locationId: row.id,
         langCode,
+        accessToken,
       });
 
       console.log('[W2H] favorite saved');
@@ -3389,10 +3403,12 @@ if (!favbtn) {
     } catch (e) {
       console.error('[W2H] favorite save failed', e);
       window.alert(label('favoriteSaveFailed', langCode));
+    } finally {
+      // 🔓 Busy wieder freigeben
+      setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
     }
   });
 }
-
             // ---------------------------
             // KI-Report Button (Lazy Fetch)
             // ---------------------------
