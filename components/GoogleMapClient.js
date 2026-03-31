@@ -204,6 +204,13 @@ async function fetchFavoriteStatus(locationId) {
 
   favoriteStatusPromiseCache[locationId] = (async () => {
     try {
+      // Wenn User eingeloggt ist, aber Token noch nicht bereit:
+      // noch NICHT prüfen und vor allem NICHT false cachen.
+      if (user && !accessToken) {
+        console.warn('[W2H] favorite status skipped: user present but accessToken not ready');
+        return false;
+      }
+
       const headers = {
         Accept: 'application/json',
       };
@@ -211,6 +218,12 @@ async function fetchFavoriteStatus(locationId) {
       if (accessToken) {
         headers.Authorization = `Bearer ${accessToken}`;
       }
+
+      console.log('[W2H] favorite status request', {
+        locationId,
+        hasUser: !!user,
+        hasAccessToken: !!accessToken,
+      });
 
       const res = await fetch(
         `/api/favorites/status?locationId=${encodeURIComponent(locationId)}`,
@@ -222,18 +235,27 @@ async function fetchFavoriteStatus(locationId) {
 
       if (!res.ok) {
         console.warn('[W2H] favorite status request failed:', res.status);
-        favoriteStatusCache[locationId] = false;
         return false;
       }
 
       const data = await res.json();
       const isFavorite = !!data?.isFavorite;
+      const authenticated = !!data?.authenticated;
 
-      favoriteStatusCache[locationId] = isFavorite;
+      console.log('[W2H] favorite status response', {
+        locationId,
+        authenticated,
+        isFavorite,
+      });
+
+      // Nur cachen, wenn der Request wirklich authentifiziert war
+      if (authenticated) {
+        favoriteStatusCache[locationId] = isFavorite;
+      }
+
       return isFavorite;
     } catch (err) {
       console.error('[W2H] fetchFavoriteStatus failed:', locationId, err);
-      favoriteStatusCache[locationId] = false;
       return false;
     } finally {
       delete favoriteStatusPromiseCache[locationId];
@@ -397,6 +419,21 @@ useEffect(() => {
     }
   })();
 }, [user, accessToken, lastIntent, lang, setAuthModalOpen, setLastIntent]);
+
+// ---------------------------
+// Favoriten-Cache bei Login/Logout zurücksetzen
+// ---------------------------
+useEffect(() => {
+  console.log('[W2H] clearing favorite caches due to auth change');
+
+  Object.keys(favoriteStatusCache).forEach((k) => {
+    delete favoriteStatusCache[k];
+  });
+
+  Object.keys(favoriteStatusPromiseCache).forEach((k) => {
+    delete favoriteStatusPromiseCache[k];
+  });
+}, [user, accessToken]);
 
 
   // Such-Query-State
@@ -3518,6 +3555,12 @@ if (!favbtn) {
 
       if (favbtn.dataset.locationId !== currentLocationId) return;
 
+      if (user && !accessToken) {
+        console.warn('[W2H] skip final favorite state: token not ready yet');
+        setFavoriteButtonState(favbtn, 'idle', langCode);
+        return;
+      }
+
       setFavoriteButtonState(favbtn, isFavorite ? 'saved' : 'idle', langCode);
     } catch (err) {
       console.error('[W2H] favorite status check failed:', err);
@@ -3557,6 +3600,12 @@ if (!favbtn) {
         });
 
         setAuthModalOpen(true);
+        return;
+      }
+
+      if (!accessToken) {
+        console.warn('[W2H] no access token yet, cannot save favorite');
+        setFavoriteButtonState(favbtn, 'idle', langCode);
         return;
       }
 
