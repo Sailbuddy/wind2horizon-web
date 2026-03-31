@@ -188,7 +188,6 @@ useEffect(() => {
   console.log("W2H MAP KEY prefix:", process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.slice(0, 6));
 }, []);
 
-// Helper: Favoriten-Status für einen Standort abrufen (inkl. Cache)
 // ---------------------------
 // Favoritenstatus für einen Marker laden
 // ---------------------------
@@ -205,14 +204,19 @@ async function fetchFavoriteStatus(locationId) {
 
   favoriteStatusPromiseCache[locationId] = (async () => {
     try {
+      const headers = {
+        Accept: 'application/json',
+      };
+
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
       const res = await fetch(
         `/api/favorites/status?locationId=${encodeURIComponent(locationId)}`,
         {
           method: 'GET',
-          credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-          },
+          headers,
         }
       );
 
