@@ -37,6 +37,13 @@ const DYNAMIC_SMOKE_TEST = false;
 // 0 = Free, 1 = Plus, 2 = Pro (Beispiel)
 const USER_VISIBILITY_TIER = 0;
 
+// ---------------------------
+// Favoriten Status / Busy Cache
+// ---------------------------
+const favoriteBusyIds = {};
+const favoriteStatusCache = {};
+const favoriteStatusPromiseCache = {};
+
 // --- Doppel-Wind-/Schwell-Rose (read-only Variante) -----------------
 const DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
 const ANGLE = { N: 0, NO: 45, O: 90, SO: 135, S: 180, SW: 225, W: 270, NW: 315 };
@@ -181,6 +188,56 @@ useEffect(() => {
   console.log("W2H MAP KEY prefix:", process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.slice(0, 6));
 }, []);
 
+// Helper: Favoriten-Status für einen Standort abrufen (inkl. Cache)
+// ---------------------------
+// Favoritenstatus für einen Marker laden
+// ---------------------------
+async function fetchFavoriteStatus(locationId) {
+  if (!locationId) return false;
+
+  if (typeof favoriteStatusCache[locationId] === 'boolean') {
+    return favoriteStatusCache[locationId];
+  }
+
+  if (favoriteStatusPromiseCache[locationId]) {
+    return favoriteStatusPromiseCache[locationId];
+  }
+
+  favoriteStatusPromiseCache[locationId] = (async () => {
+    try {
+      const res = await fetch(
+        `/api/favorites/status?locationId=${encodeURIComponent(locationId)}`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      if (!res.ok) {
+        console.warn('[W2H] favorite status request failed:', res.status);
+        favoriteStatusCache[locationId] = false;
+        return false;
+      }
+
+      const data = await res.json();
+      const isFavorite = !!data?.isFavorite;
+
+      favoriteStatusCache[locationId] = isFavorite;
+      return isFavorite;
+    } catch (err) {
+      console.error('[W2H] fetchFavoriteStatus failed:', locationId, err);
+      favoriteStatusCache[locationId] = false;
+      return false;
+    } finally {
+      delete favoriteStatusPromiseCache[locationId];
+    }
+  })();
+
+  return favoriteStatusPromiseCache[locationId];
+}
 
 // Helper: Favoriten-Button-Zustand setzen (Text + Farbe + disabled)
 function setFavoriteButtonState(buttonEl, state, langCode) {
@@ -188,6 +245,7 @@ function setFavoriteButtonState(buttonEl, state, langCode) {
 
   const labels = {
     idle: label('favoriteSave', langCode),
+    checking: label('favoriteChecking', langCode),
     saving: label('favoriteSaving', langCode),
     saved: label('favoriteSavedShort', langCode),
     error: label('favoriteSaveErrorShort', langCode),
@@ -197,6 +255,7 @@ function setFavoriteButtonState(buttonEl, state, langCode) {
 
   buttonEl.classList.remove(
     'iw-btn-fav-idle',
+    'iw-btn-fav-checking',
     'iw-btn-fav-saving',
     'iw-btn-fav-saved',
     'iw-btn-fav-error'
@@ -204,7 +263,7 @@ function setFavoriteButtonState(buttonEl, state, langCode) {
 
   buttonEl.classList.add(`iw-btn-fav-${state}`);
 
-  if (state === 'saving') {
+  if (state === 'saving' || state === 'checking') {
     buttonEl.disabled = true;
     buttonEl.setAttribute('aria-busy', 'true');
   } else {
@@ -1694,6 +1753,30 @@ function Lightbox({ gallery: g, onClose }) {
       it: 'Errore',
       hr: 'Greška',
       fr: 'Erreur',
+    },
+
+    favoriteSave: {
+      de: 'Zu Favoriten',
+      en: 'Save to favorites',
+      it: 'Salva nei preferiti',
+      hr: 'Spremi u favorite',
+      fr: 'Ajouter aux favoris',
+    },
+
+    favoriteChecking: {
+      de: 'Prüfe...',
+      en: 'Checking...',
+      it: 'Controllo...',
+      hr: 'Provjera...',
+      fr: 'Vérification...',
+    },
+
+    favoriteSaved: {
+      de: 'In Favoriten gespeichert.',
+      en: 'Saved to favorites.',
+      it: 'Salvato nei preferiti.',
+      hr: 'Spremljeno u favorite.',
+      fr: 'Ajouté aux favoris.',
     },
 
       // ✅ KI-Report UI
@@ -3419,7 +3502,17 @@ if (!favbtn) {
 } else {
   console.log('[W2H] button FOUND:', favbtnId);
 
-  setFavoriteButtonState(favbtn, 'idle', langCode);
+  setFavoriteButtonState(favbtn, 'checking', langCode);
+
+  (async () => {
+    try {
+      const isFavorite = await fetchFavoriteStatus(row.id);
+      setFavoriteButtonState(favbtn, isFavorite ? 'saved' : 'idle', langCode);
+    } catch (err) {
+      console.error('[W2H] favorite status check failed:', err);
+      setFavoriteButtonState(favbtn, 'idle', langCode);
+    }
+  })();
 
   favbtn.addEventListener('click', async () => {
     console.log('[W2H] CLICK FIRED', row.id);

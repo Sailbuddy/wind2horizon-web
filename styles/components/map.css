@@ -17,6 +17,15 @@
   border: 1px solid #0d6ea8;
 }
 
+/* Checking (beim Öffnen prüfen) */
+.w2h-fav-checking {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  opacity: 0.7;
+  cursor: wait;
+}
+
 /* Während Speichern */
 .w2h-fav-saving {
   background: #eaf4fb;
