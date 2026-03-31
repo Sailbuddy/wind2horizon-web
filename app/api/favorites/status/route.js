@@ -27,7 +27,6 @@ export async function GET(req) {
 
     const userId = authData.user.id;
 
-    // 🔥 WICHTIG: richtige Tabelle + Spalte
     const { data: collections, error: collectionsError } = await supabase
       .from("favorite_collections")
       .select("id,is_default,collection_type")
@@ -54,10 +53,9 @@ export async function GET(req) {
       });
     }
 
-    // 🔥 WICHTIG: richtige Items-Tabelle
     const { data: item, error: itemError } = await supabase
       .from("favorite_collection_items")
-      .select("id")
+      .select("collection_id,location_id")
       .eq("collection_id", Number(targetCollection.id))
       .eq("location_id", locationId)
       .maybeSingle();
