@@ -3323,37 +3323,50 @@ return poly;
               });
             }
 
-                 // ---------------------------
-                 // Favoriten Button
-                 // ---------------------------
-                 const favbtn = document.getElementById(`favbtn-${row.id}`);
-                 if (favbtn) {
-                   favbtn.addEventListener('click', async () => {
-                     try {
-                       if (!user) {
-                         setAuthIntent({
-                           type: 'favorite_add',
-                           locationId: row.id,
-                           lang: langCode,
-                           ts: Date.now(),
-                         });
-                         setAuthModalOpen(true);
-                         return;
-                       }
- 
-                       await saveFavoriteToDefaultCollection({
-                         locationId: row.id,
-                          langCode,
-                       });
- 
-                       window.alert(label('favoriteSaved', langCode));
-                     } catch (e) {
-                       console.error('[w2h] favorite save failed', e);
-                       window.alert(label('favoriteSaveFailed', langCode));
-                     }
-                   });
-                 }
+// ---------------------------
+// Favoriten Button
+// ---------------------------
+const favbtnId = `favbtn-${row.id}`;
+console.log('[W2H] looking for button:', favbtnId);
 
+const favbtn = document.getElementById(favbtnId);
+
+if (!favbtn) {
+  console.warn('[W2H] button NOT found:', favbtnId);
+} else {
+  console.log('[W2H] button FOUND:', favbtnId);
+
+  favbtn.addEventListener('click', async () => {
+    console.log('[W2H] CLICK FIRED', row.id);
+
+    try {
+      if (!user) {
+        setAuthIntent({
+          type: 'favorite_add',
+          locationId: row.id,
+          lang: langCode,
+          ts: Date.now(),
+        });
+        setAuthModalOpen(true);
+        return;
+      }
+
+      console.log('[W2H] saving favorite...', row.id);
+
+      await saveFavoriteToDefaultCollection({
+        locationId: row.id,
+        langCode,
+      });
+
+      console.log('[W2H] favorite saved');
+
+      window.alert(label('favoriteSaved', langCode));
+    } catch (e) {
+      console.error('[W2H] favorite save failed', e);
+      window.alert(label('favoriteSaveFailed', langCode));
+    }
+  });
+}
 
             // ---------------------------
             // KI-Report Button (Lazy Fetch)
