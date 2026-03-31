@@ -1,0 +1,41 @@
+/* ---------------------------
+   FAVORITE BUTTON STATES
+--------------------------- */
+
+.w2h-fav-btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* Default */
+.w2h-fav-idle {
+  background: #ffffff;
+  color: #0d6ea8;
+  border: 1px solid #0d6ea8;
+}
+
+/* Während Speichern */
+.w2h-fav-saving {
+  background: #eaf4fb;
+  color: #0d6ea8;
+  border: 1px solid #0d6ea8;
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Erfolgreich */
+.w2h-fav-saved {
+  background: #0d6ea8;
+  color: #ffffff;
+  border: 1px solid #0d6ea8;
+}
+
+/* Fehler */
+.w2h-fav-error {
+  background: #ffeaea;
+  color: #b91c1c;
+  border: 1px solid #b91c1c;
+}

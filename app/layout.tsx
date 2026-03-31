@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { AuthProvider } from "@/context/AuthContext";
 import AuthModal from "@/components/auth/AuthModal";
+import "@/styles/components/map.css";
 
 export const metadata = {
   metadataBase: new URL("https://wind2horizon.com"),

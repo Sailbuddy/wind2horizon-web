@@ -181,6 +181,38 @@ useEffect(() => {
   console.log("W2H MAP KEY prefix:", process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.slice(0, 6));
 }, []);
 
+
+// Helper: Favoriten-Button-Zustand setzen (Text + Farbe + disabled)
+function setFavoriteButtonState(buttonEl, state, langCode) {
+  if (!buttonEl) return;
+
+  const labels = {
+    idle: label('favoriteSave', langCode),
+    saving: label('favoriteSaving', langCode),
+    saved: label('favoriteSavedShort', langCode),
+    error: label('favoriteSaveErrorShort', langCode),
+  };
+
+  buttonEl.textContent = labels[state] || labels.idle;
+
+  buttonEl.classList.remove(
+    'iw-btn-fav-idle',
+    'iw-btn-fav-saving',
+    'iw-btn-fav-saved',
+    'iw-btn-fav-error'
+  );
+
+  buttonEl.classList.add(`iw-btn-fav-${state}`);
+
+  if (state === 'saving') {
+    buttonEl.disabled = true;
+    buttonEl.setAttribute('aria-busy', 'true');
+  } else {
+    buttonEl.disabled = false;
+    buttonEl.removeAttribute('aria-busy');
+  }
+}
+
   // Galerie-Lightbox
   const [gallery, setGallery] = useState(null);
 
@@ -294,10 +326,8 @@ useEffect(() => {
       });
 
       console.log('[W2H] favorite saved (intent)');
-      window.alert(label('favoriteSaved', langCode));
     } catch (err) {
       console.error('[W2H] favorite intent failed', err);
-      window.alert(label('favoriteSaveFailed', langCode));
     } finally {
       setLastIntent(null);
     }
@@ -344,7 +374,7 @@ useEffect(() => {
     }
   };
 
-  // ------------------------------
+// ------------------------------
 // GeoJSON -> Google Maps helpers
 // ------------------------------
 function isGeoJsonPolygon(g) {
@@ -1642,6 +1672,30 @@ function Lightbox({ gallery: g, onClose }) {
        fr: 'Impossible d’enregistrer le favori.',
      },
 
+     favoriteSaving: {
+      de: 'Speichert...',
+      en: 'Saving...',
+      it: 'Salvataggio...',
+      hr: 'Spremanje...',
+      fr: 'Enregistrement...',
+    },
+
+    favoriteSavedShort: {
+      de: 'Gespeichert',
+      en: 'Saved',
+      it: 'Salvato',
+      hr: 'Spremljeno',
+      fr: 'Enregistré',
+    },
+
+    favoriteSaveErrorShort: {
+      de: 'Fehler',
+      en: 'Error',
+      it: 'Errore',
+      hr: 'Greška',
+      fr: 'Erreur',
+    },
+
       // ✅ KI-Report UI
       kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
       refreshReport: { de: 'Aktualisieren', en: 'Refresh', it: 'Aggiorna', hr: 'Osvježi', fr: 'Actualiser' },
@@ -2147,7 +2201,7 @@ function Lightbox({ gallery: g, onClose }) {
     const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
 
     // ✅ Favoriten Button
-    const btnFav = `<button id="favbtn-${row.id}" class="iw-btn iw-btn-fav">${label('favoriteSave', langCode)}</button>`;
+    const btnFav = `<button id="favbtn-${row.id}" class="iw-btn iw-btn-fav iw-btn-fav-idle" type="button">${label('favoriteSave', langCode)}</button>`;
   
   
     // ✅ KI-Report Button (nur nach Klick; kein Preload)
@@ -3365,29 +3419,34 @@ if (!favbtn) {
 } else {
   console.log('[W2H] button FOUND:', favbtnId);
 
+  setFavoriteButtonState(favbtn, 'idle', langCode);
+
   favbtn.addEventListener('click', async () => {
     console.log('[W2H] CLICK FIRED', row.id);
 
     try {
-      // 🔒 Busy-Schutz: verhindert Mehrfachklicks / Race Conditions
       if (favoriteBusyIds[row.id]) {
         console.log('[W2H] already saving → skip', row.id);
         return;
       }
 
       setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
+      setFavoriteButtonState(favbtn, 'saving', langCode);
 
-      // 🔐 Falls nicht eingeloggt → Login starten
       if (!user) {
-        setAuthIntent({
-          type: 'favorite_add',
-          locationId: row.id,
-          lang: langCode,
-          ts: Date.now(),
-        });
-        setAuthModalOpen(true);
-        return;
-      }
+      setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
+      setFavoriteButtonState(favbtn, 'idle', langCode);
+
+      setAuthIntent({
+        type: 'favorite_add',
+        locationId: row.id,
+        lang: langCode,
+        ts: Date.now(),
+      });
+
+  setAuthModalOpen(true);
+  return;
+}
 
       console.log('[W2H] saving favorite...', row.id);
 
@@ -3398,13 +3457,15 @@ if (!favbtn) {
       });
 
       console.log('[W2H] favorite saved');
-
-      window.alert(label('favoriteSaved', langCode));
+      setFavoriteButtonState(favbtn, 'saved', langCode);
     } catch (e) {
       console.error('[W2H] favorite save failed', e);
-      window.alert(label('favoriteSaveFailed', langCode));
+      setFavoriteButtonState(favbtn, 'error', langCode);
+
+      window.setTimeout(() => {
+        setFavoriteButtonState(favbtn, 'idle', langCode);
+      }, 1600);
     } finally {
-      // 🔓 Busy wieder freigeben
       setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
     }
   });
