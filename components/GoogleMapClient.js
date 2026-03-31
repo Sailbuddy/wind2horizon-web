@@ -405,8 +405,10 @@ function geoJsonToPolygonPaths(g) {
     return res.json();
   }
 
-  // Helper-Funktion zum Speichern in die Default-Liste
- async function saveFavoriteToDefaultCollection({ locationId, langCode }) {
+ // Helper-Funktion zum Speichern in die Default-Liste
+async function saveFavoriteToDefaultCollection({ locationId, langCode }) {
+  console.log('[W2H] saveFavorite START', locationId);
+
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -414,6 +416,7 @@ function geoJsonToPolygonPaths(g) {
   const accessToken = session?.access_token || null;
 
   if (!accessToken) {
+    console.error('[W2H] NO ACCESS TOKEN');
     throw new Error('No access token available.');
   }
 
@@ -426,13 +429,18 @@ function geoJsonToPolygonPaths(g) {
     },
   });
 
+  console.log('[W2H] collections status:', listRes.status);
+
   if (!listRes.ok) {
     const txt = await listRes.text().catch(() => '');
+    console.error('[W2H] collections error:', txt);
     throw new Error(txt || `Collections load failed (${listRes.status})`);
   }
 
   const listJson = await listRes.json();
   const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
+
+  console.log('[W2H] collections loaded:', collections.length);
 
   // 2) Default-Liste finden oder anlegen
   let targetCollection =
@@ -442,6 +450,8 @@ function geoJsonToPolygonPaths(g) {
     null;
 
   if (!targetCollection) {
+    console.log('[W2H] creating default collection');
+
     const createRes = await fetch('/api/favorites/collections', {
       method: 'POST',
       headers: {
@@ -458,8 +468,11 @@ function geoJsonToPolygonPaths(g) {
       }),
     });
 
+    console.log('[W2H] create collection status:', createRes.status);
+
     if (!createRes.ok) {
       const txt = await createRes.text().catch(() => '');
+      console.error('[W2H] create collection error:', txt);
       throw new Error(txt || `Collection create failed (${createRes.status})`);
     }
 
@@ -468,10 +481,15 @@ function geoJsonToPolygonPaths(g) {
   }
 
   if (!targetCollection?.id) {
+    console.error('[W2H] NO TARGET COLLECTION');
     throw new Error('No target collection available.');
   }
 
+  console.log('[W2H] using collection:', targetCollection.id);
+
   // 3) Marker in Liste speichern
+  console.log('[W2H] inserting item...', locationId);
+
   const saveRes = await fetch('/api/favorites/items', {
     method: 'POST',
     headers: {
@@ -486,12 +504,19 @@ function geoJsonToPolygonPaths(g) {
     }),
   });
 
+  console.log('[W2H] item status:', saveRes.status);
+
   if (!saveRes.ok) {
     const txt = await saveRes.text().catch(() => '');
+    console.error('[W2H] item error:', txt);
     throw new Error(txt || `Favorite save failed (${saveRes.status})`);
   }
 
-  return saveRes.json();
+  const result = await saveRes.json();
+
+  console.log('[W2H] SUCCESS', result);
+
+  return result;
 }
 
 
