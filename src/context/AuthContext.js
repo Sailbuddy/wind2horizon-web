@@ -9,6 +9,8 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
+  const [accessToken, setAccessToken] = useState(null);
+  const [refreshToken, setRefreshToken] = useState(null);
   const [profile, setProfile] = useState(null);
   const [entitlements, setEntitlements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +37,7 @@ export function AuthProvider({ children }) {
     setEntitlements(entData || []);
   }
 
-    useEffect(() => {
+  useEffect(() => {
     let active = true;
 
     async function boot() {
@@ -47,6 +49,8 @@ export function AuthProvider({ children }) {
 
       setSession(currentSession);
       setUser(currentUser);
+      setAccessToken(currentSession?.access_token ?? null);
+      setRefreshToken(currentSession?.refresh_token ?? null);
 
       if (currentUser?.id) {
         await loadProfileAndEntitlements(currentUser.id);
@@ -73,6 +77,8 @@ export function AuthProvider({ children }) {
 
       setSession(newSession ?? null);
       setUser(newUser);
+      setAccessToken(newSession?.access_token ?? null);
+      setRefreshToken(newSession?.refresh_token ?? null);
 
       if (newUser?.id) {
         await loadProfileAndEntitlements(newUser.id);
@@ -95,7 +101,7 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe();
     };
   }, []);
- 
+
   async function signOut() {
     await supabase.auth.signOut();
     setAuthModalOpen(false);
@@ -105,6 +111,8 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       session,
+      accessToken,
+      refreshToken,
       profile,
       entitlements,
       loading,
@@ -114,7 +122,17 @@ export function AuthProvider({ children }) {
       lastIntent,
       setLastIntent,
     }),
-    [user, session, profile, entitlements, loading, authModalOpen, lastIntent]
+    [
+      user,
+      session,
+      accessToken,
+      refreshToken,
+      profile,
+      entitlements,
+      loading,
+      authModalOpen,
+      lastIntent,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
