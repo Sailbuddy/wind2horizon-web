@@ -1,59 +1,49 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { NextResponse } from "next/server";
+import { createSupabaseRouteClient } from "@/lib/supabase/route";
 
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const locationIdRaw = searchParams.get('locationId');
+    const locationIdRaw = searchParams.get("locationId");
     const locationId = Number(locationIdRaw);
 
     if (!Number.isFinite(locationId)) {
       return NextResponse.json(
-        { error: 'locationId is required' },
+        { error: "locationId is required" },
         { status: 400 }
       );
     }
 
-    const authHeader = req.headers.get('authorization') || '';
-    const token = authHeader.startsWith('Bearer ')
-      ? authHeader.slice(7).trim()
-      : '';
+    const supabase = createSupabaseRouteClient(req);
 
-    if (!token) {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !authData?.user) {
       return NextResponse.json({
         isFavorite: false,
         authenticated: false,
       });
     }
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser(token);
+    const userId = authData.user.id;
 
-    if (userError || !user) {
-      return NextResponse.json({
-        isFavorite: false,
-        authenticated: false,
-      });
-    }
-
+    // 🔥 WICHTIG: richtige Tabelle + Spalte
     const { data: collections, error: collectionsError } = await supabase
-      .from('collections')
-      .select('id,is_default,collection_type')
-      .eq('user_id', user.id);
+      .from("favorite_collections")
+      .select("id,is_default,collection_type")
+      .eq("owner_user_id", userId);
 
     if (collectionsError) {
-      console.error('[favorites/status] collections error:', collectionsError);
+      console.error("[favorites/status] collections error:", collectionsError);
       return NextResponse.json(
-        { error: 'Could not load collections' },
+        { error: collectionsError.message },
         { status: 500 }
       );
     }
 
     const targetCollection =
       collections?.find((c) => c?.is_default) ||
-      collections?.find((c) => c?.collection_type === 'favorites') ||
+      collections?.find((c) => c?.collection_type === "favorites") ||
       collections?.[0] ||
       null;
 
@@ -64,17 +54,18 @@ export async function GET(req) {
       });
     }
 
+    // 🔥 WICHTIG: richtige Items-Tabelle
     const { data: item, error: itemError } = await supabase
-      .from('items')
-      .select('id')
-      .eq('collection_id', Number(targetCollection.id))
-      .eq('location_id', locationId)
+      .from("favorite_collection_items")
+      .select("id")
+      .eq("collection_id", Number(targetCollection.id))
+      .eq("location_id", locationId)
       .maybeSingle();
 
     if (itemError) {
-      console.error('[favorites/status] item error:', itemError);
+      console.error("[favorites/status] item error:", itemError);
       return NextResponse.json(
-        { error: 'Could not check favorite status' },
+        { error: itemError.message },
         { status: 500 }
       );
     }
@@ -84,9 +75,9 @@ export async function GET(req) {
       authenticated: true,
     });
   } catch (err) {
-    console.error('[favorites/status] unexpected error:', err);
+    console.error("[favorites/status] unexpected error:", err);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }
