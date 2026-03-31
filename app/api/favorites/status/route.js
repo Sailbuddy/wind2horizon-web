@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { supabase } from '@/lib/supabaseClient';
 
 export async function GET(req) {
   try {
@@ -15,18 +14,28 @@ export async function GET(req) {
       );
     }
 
-    const supabase = createRouteHandlerClient({ cookies });
+    const authHeader = req.headers.get('authorization') || '';
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : '';
+
+    if (!token) {
+      return NextResponse.json({
+        isFavorite: false,
+        authenticated: false,
+      });
+    }
 
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser();
+    } = await supabase.auth.getUser(token);
 
     if (userError || !user) {
-      return NextResponse.json(
-        { isFavorite: false, authenticated: false },
-        { status: 200 }
-      );
+      return NextResponse.json({
+        isFavorite: false,
+        authenticated: false,
+      });
     }
 
     const { data: collections, error: collectionsError } = await supabase
