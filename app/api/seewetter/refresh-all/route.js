@@ -2,6 +2,7 @@
 
 import * as cheerio from 'cheerio';
 import { put } from '@vercel/blob';
+console.log('FETCH START', lang, sourceUrl);
 
 const URLS = {
   de: 'https://meteo.hr/prognoze_e.php?section=prognoze_specp&param=jadran&el=jadran_n',
@@ -340,6 +341,8 @@ async function refreshOneLang(lang) {
     cache: 'no-store',
   });
 
+  console.log('FETCH STATUS', lang, res.status);
+
   if (!res.ok) {
     return { lang, ok: false, sourceUrl, error: `upstream ${res.status}` };
   }
@@ -359,12 +362,15 @@ async function refreshOneLang(lang) {
     blocks,
   };
 
+  console.log('WRITING BLOB', pathname);
+
   const pathname = `${BLOB_PREFIX}${lang}.json`;
   await put(pathname, JSON.stringify(payload, null, 2), {
     access: 'public',
     contentType: 'application/json; charset=utf-8',
     allowOverwrite: true,
   });
+  console.log('BLOB WRITTEN', pathname);
 
   return {
     lang,
@@ -396,10 +402,13 @@ console.log('SEEWETTER VERSION 2 - ALWAYS WRITE - OFFSET FIX ACTIVE');
   const results = [];
   for (const lang of langs) {
     try {
-      results.push(await refreshOneLang(lang));
-    } catch (e) {
-      results.push({ lang, ok: false, error: e?.message || 'unknown error' });
-    }
+  const r = await refreshOneLang(lang);
+  console.log('SUCCESS', lang, r);
+  results.push(r);
+} catch (e) {
+  console.error('ERROR LANG', lang, e);
+  results.push({ lang, ok: false, error: e?.message || 'unknown error' });
+}
   }
 
   const anyOk = results.some(r => r.ok);
