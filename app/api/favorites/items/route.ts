@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/route";
+import {
+  resolveActiveCollectionId,
+  createSupabaseAdminClient,
+} from "@/lib/server/favorites/resolveActiveCollectionId";
+
+function parseOptionalNumber(value: any): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
 async function checkCollectionOwnership(
   supabase: any,
@@ -18,6 +27,49 @@ async function checkCollectionOwnership(
   }
 
   return collection;
+}
+
+async function resolveCollectionIdOrThrow({
+  supabaseAdmin,
+  userId,
+  requestedCollectionId,
+}: {
+  supabaseAdmin: any;
+  userId: string;
+  requestedCollectionId: number | null;
+}) {
+  if (requestedCollectionId != null) {
+    const { data, error } = await supabaseAdmin
+      .from("favorite_collections")
+      .select("id")
+      .eq("id", requestedCollectionId)
+      .eq("owner_user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data?.id) {
+      throw new Error("No access to collection");
+    }
+
+    return Number(data.id);
+  }
+
+  const resolved = await resolveActiveCollectionId(supabaseAdmin, userId);
+
+  if (!resolved.activeCollectionId) {
+    throw new Error("No active collection available");
+  }
+
+  return Number(resolved.activeCollectionId);
+}
+
+function mapResolverErrorToStatus(message: string) {
+  if (message === "No access to collection") return 403;
+  if (message === "No active collection available") return 409;
+  return 500;
 }
 
 // --------------------------------------------------
@@ -39,26 +91,29 @@ export async function POST(req: Request) {
     const userId = authData.user.id;
     const body = await req.json();
 
-    const collectionId = Number(body.collectionId);
-    const locationId = Number(body.locationId);
+    const requestedCollectionId = parseOptionalNumber(body.collectionId);
+    const locationId = parseOptionalNumber(body.locationId);
 
-    if (!Number.isFinite(collectionId) || !Number.isFinite(locationId)) {
+    if (!Number.isFinite(locationId)) {
       return NextResponse.json(
-        { ok: false, error: "Invalid collectionId or locationId" },
+        { ok: false, error: "Invalid locationId" },
         { status: 400 }
       );
     }
 
-    const collection = await checkCollectionOwnership(
-      supabase,
-      collectionId,
-      userId
-    );
+    const supabaseAdmin = createSupabaseAdminClient();
 
-    if (!collection) {
+    let collectionId: number;
+    try {
+      collectionId = await resolveCollectionIdOrThrow({
+        supabaseAdmin,
+        userId,
+        requestedCollectionId,
+      });
+    } catch (err: any) {
       return NextResponse.json(
-        { ok: false, error: "No access to collection" },
-        { status: 403 }
+        { ok: false, error: err.message || "Collection resolve failed" },
+        { status: mapResolverErrorToStatus(err.message || "") }
       );
     }
 
@@ -91,7 +146,11 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, item: data });
+    return NextResponse.json({
+      ok: true,
+      collectionId,
+      item: data,
+    });
   } catch (err) {
     console.error("[favorites items POST]", err);
     return NextResponse.json(
@@ -120,26 +179,29 @@ export async function PATCH(req: Request) {
     const userId = authData.user.id;
     const body = await req.json();
 
-    const collectionId = Number(body.collectionId);
-    const locationId = Number(body.locationId);
+    const requestedCollectionId = parseOptionalNumber(body.collectionId);
+    const locationId = parseOptionalNumber(body.locationId);
 
-    if (!Number.isFinite(collectionId) || !Number.isFinite(locationId)) {
+    if (!Number.isFinite(locationId)) {
       return NextResponse.json(
-        { ok: false, error: "Invalid collectionId or locationId" },
+        { ok: false, error: "Invalid locationId" },
         { status: 400 }
       );
     }
 
-    const collection = await checkCollectionOwnership(
-      supabase,
-      collectionId,
-      userId
-    );
+    const supabaseAdmin = createSupabaseAdminClient();
 
-    if (!collection) {
+    let collectionId: number;
+    try {
+      collectionId = await resolveCollectionIdOrThrow({
+        supabaseAdmin,
+        userId,
+        requestedCollectionId,
+      });
+    } catch (err: any) {
       return NextResponse.json(
-        { ok: false, error: "No access to collection" },
-        { status: 403 }
+        { ok: false, error: err.message || "Collection resolve failed" },
+        { status: mapResolverErrorToStatus(err.message || "") }
       );
     }
 
@@ -173,7 +235,11 @@ export async function PATCH(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, item: data });
+    return NextResponse.json({
+      ok: true,
+      collectionId,
+      item: data,
+    });
   } catch (err) {
     console.error("[favorites items PATCH]", err);
     return NextResponse.json(
@@ -202,26 +268,29 @@ export async function DELETE(req: Request) {
     const userId = authData.user.id;
     const body = await req.json();
 
-    const collectionId = Number(body.collectionId);
-    const locationId = Number(body.locationId);
+    const requestedCollectionId = parseOptionalNumber(body.collectionId);
+    const locationId = parseOptionalNumber(body.locationId);
 
-    if (!Number.isFinite(collectionId) || !Number.isFinite(locationId)) {
+    if (!Number.isFinite(locationId)) {
       return NextResponse.json(
-        { ok: false, error: "Invalid collectionId or locationId" },
+        { ok: false, error: "Invalid locationId" },
         { status: 400 }
       );
     }
 
-    const collection = await checkCollectionOwnership(
-      supabase,
-      collectionId,
-      userId
-    );
+    const supabaseAdmin = createSupabaseAdminClient();
 
-    if (!collection) {
+    let collectionId: number;
+    try {
+      collectionId = await resolveCollectionIdOrThrow({
+        supabaseAdmin,
+        userId,
+        requestedCollectionId,
+      });
+    } catch (err: any) {
       return NextResponse.json(
-        { ok: false, error: "No access to collection" },
-        { status: 403 }
+        { ok: false, error: err.message || "Collection resolve failed" },
+        { status: mapResolverErrorToStatus(err.message || "") }
       );
     }
 
@@ -239,7 +308,10 @@ export async function DELETE(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      collectionId,
+    });
   } catch (err) {
     console.error("[favorites items DELETE]", err);
     return NextResponse.json(
