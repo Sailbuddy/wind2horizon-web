@@ -2089,6 +2089,38 @@ function Lightbox({ gallery: g, onClose }) {
     }
   }
 
+function stripFirstPathStrokeAttrs(pathTag) {
+  return pathTag
+    .replace(/\sstroke="[^"]*"/i, '')
+    .replace(/\sstroke-width="[^"]*"/i, '')
+    .replace(/\sstroke-linejoin="[^"]*"/i, '')
+    .replace(/\sstroke-linecap="[^"]*"/i, '')
+    .replace(/\svector-effect="[^"]*"/i, '')
+    .replace(/\spaint-order="[^"]*"/i, '');
+}
+
+function getFavoriteMarkerSvg(svgMarkup) {
+  const rawSvg =
+    svgMarkup && String(svgMarkup).trim().startsWith('<')
+      ? String(svgMarkup)
+      : defaultMarkerSvg;
+
+  const favoriteStroke = '#d4af37';
+  const favoriteStrokeWidth = '2.2';
+
+  let firstPathDone = false;
+
+  const out = rawSvg.replace(/<path\b[^>]*>/gi, (match) => {
+    if (firstPathDone) return match;
+    firstPathDone = true;
+
+    const cleaned = stripFirstPathStrokeAttrs(match).replace(/\/?>$/, '');
+    return `${cleaned} stroke="${favoriteStroke}" stroke-width="${favoriteStrokeWidth}" stroke-linejoin="round" vector-effect="non-scaling-stroke" paint-order="stroke fill" />`;
+  });
+
+  return out;
+}
+
   function getMarkerIcon(catId, svgMarkup) {
     if (DEBUG_MARKERS && typeof google !== 'undefined' && google.maps && google.maps.SymbolPath) {
       return { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillOpacity: 0.9, strokeWeight: 2 };
@@ -2115,6 +2147,24 @@ function Lightbox({ gallery: g, onClose }) {
     iconCache.current.set(key, icon);
     return icon;
   }
+
+  function refreshMarkerIcon(row) {
+  if (!row) return;
+
+  const marker = markerMapRef.current.get(row.id);
+  if (!marker) return;
+
+  const baseSvg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
+  const isFavorite = favoriteStatusCache[row.id] === true;
+  const markerSvg = isFavorite ? getFavoriteMarkerSvg(baseSvg) : baseSvg;
+
+  marker.setIcon(
+    getMarkerIcon(
+      isFavorite ? `fav-${row.category_id}` : row.category_id,
+      markerSvg
+    )
+  );
+}
 
   function createDebugOverlay(map, locations) {
     if (!DEBUG_BOUNDING) return;
@@ -3353,18 +3403,24 @@ polygonMapRef.current = new Map(); // ok (oder clear)
 
 
     // Marker erzeugen
-    locList.forEach((row) => {
-      const title = pickName(row, langCode);
-      const svg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
+locList.forEach((row) => {
+  const title = pickName(row, langCode);
+  const baseSvg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
 
-      const marker = new google.maps.Marker({
-        position: { lat: row.lat, lng: row.lng },
-        title,
-        icon: getMarkerIcon(row.category_id, svg),
-        map: mapObj.current,
-        zIndex: 1000 + (row.category_id || 0),
-        clickable: true,
-      });
+  const isFavorite = favoriteStatusCache[row.id] === true;
+  const markerSvg = isFavorite ? getFavoriteMarkerSvg(baseSvg) : baseSvg;
+
+  const marker = new google.maps.Marker({
+    position: { lat: row.lat, lng: row.lng },
+    title,
+    icon: getMarkerIcon(
+      isFavorite ? `fav-${row.category_id}` : row.category_id,
+      markerSvg
+    ),
+    map: mapObj.current,
+    zIndex: 1000 + (row.category_id || 0),
+    clickable: true,
+  });
 
       marker._cat = String(row.category_id);
       markerMapRef.current.set(row.id, marker);
@@ -3550,26 +3606,27 @@ if (!favbtn) {
   setFavoriteButtonState(favbtn, 'checking', langCode);
 
   (async () => {
-    try {
-      const isFavorite = await fetchFavoriteStatus(row.id);
+  try {
+    const isFavorite = await fetchFavoriteStatus(row.id);
 
-      if (favbtn.dataset.locationId !== currentLocationId) return;
+    if (favbtn.dataset.locationId !== currentLocationId) return;
 
-      if (user && !accessToken) {
-        console.warn('[W2H] skip final favorite state: token not ready yet');
-        setFavoriteButtonState(favbtn, 'idle', langCode);
-        return;
-      }
-
-      setFavoriteButtonState(favbtn, isFavorite ? 'saved' : 'idle', langCode);
-    } catch (err) {
-      console.error('[W2H] favorite status check failed:', err);
-
-      if (favbtn.dataset.locationId !== currentLocationId) return;
-
+    if (user && !accessToken) {
+      console.warn('[W2H] skip final favorite state: token not ready yet');
       setFavoriteButtonState(favbtn, 'idle', langCode);
+      return;
     }
-  })();
+
+    setFavoriteButtonState(favbtn, isFavorite ? 'saved' : 'idle', langCode);
+    refreshMarkerIcon(row);
+  } catch (err) {
+    console.error('[W2H] favorite status check failed:', err);
+
+    if (favbtn.dataset.locationId !== currentLocationId) return;
+
+    setFavoriteButtonState(favbtn, 'idle', langCode);
+  }
+})();
 
   favbtn.addEventListener('click', async () => {
     console.log('[W2H] CLICK FIRED', row.id);
@@ -3621,6 +3678,7 @@ if (!favbtn) {
 
       console.log('[W2H] favorite saved');
       setFavoriteButtonState(favbtn, 'saved', langCode);
+      refreshMarkerIcon(row);
     } catch (e) {
       console.error('[W2H] favorite save failed', e);
       setFavoriteButtonState(favbtn, 'error', langCode);
