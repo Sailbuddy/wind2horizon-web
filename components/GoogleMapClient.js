@@ -765,6 +765,73 @@ async function saveFavoriteToDefaultCollection({ locationId, langCode, accessTok
   return result;
 }
 
+async function removeFavoriteFromDefaultCollection({ locationId, accessToken }) {
+  console.log('[W2H] removeFavorite START', locationId);
+
+  if (!accessToken) {
+    console.error('[W2H] NO ACCESS TOKEN');
+    throw new Error('No access token available.');
+  }
+
+  // 1) Listen laden
+  const listRes = await fetch('/api/favorites/collections', {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  console.log('[W2H] collections status (remove):', listRes.status);
+
+  if (!listRes.ok) {
+    const txt = await listRes.text().catch(() => '');
+    console.error('[W2H] collections error (remove):', txt);
+    throw new Error(txt || `Collections load failed (${listRes.status})`);
+  }
+
+  const listJson = await listRes.json();
+  const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
+
+  const targetCollection =
+    collections.find((c) => c?.is_default) ||
+    collections.find((c) => c?.collection_type === 'favorites') ||
+    collections[0] ||
+    null;
+
+  if (!targetCollection?.id) {
+    throw new Error('No target collection available for remove.');
+  }
+
+  // 2) Eintrag aus Default-Liste entfernen
+  const removeRes = await fetch('/api/favorites/items', {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      collectionId: Number(targetCollection.id),
+      locationId: Number(locationId),
+    }),
+  });
+
+  console.log('[W2H] remove item status:', removeRes.status);
+
+  if (!removeRes.ok) {
+    const txt = await removeRes.text().catch(() => '');
+    console.error('[W2H] remove item error:', txt);
+    throw new Error(txt || `Favorite remove failed (${removeRes.status})`);
+  }
+
+  const result = await removeRes.json().catch(() => ({}));
+
+  console.log('[W2H] REMOVE SUCCESS', result);
+
+  return result;
+}
+
   // Load SeaWarning 
   //------------------------------
   
