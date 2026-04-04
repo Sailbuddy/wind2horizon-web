@@ -315,7 +315,7 @@ const labels = {
   checking: label('favoriteChecking', langCode),
   saving: label('favoriteSaving', langCode),
   removing: label('favoriteRemoving', langCode),
-  saved: label('favoriteSavedShort', langCode),
+  remove: label('favoriteRemove', langCode),
   error: label('favoriteSaveErrorShort', langCode),
 };
 
@@ -326,7 +326,7 @@ buttonEl.classList.remove(
   'iw-btn-fav-checking',
   'iw-btn-fav-saving',
   'iw-btn-fav-removing',
-  'iw-btn-fav-saved',
+  'iw-btn-fav-remove',
   'iw-btn-fav-error'
 );
 
@@ -1889,6 +1889,14 @@ function Lightbox({ gallery: g, onClose }) {
       it: 'Salvataggio...',
       hr: 'Spremanje...',
       fr: 'Enregistrement...',
+    },
+
+    favoriteRemove: {
+      de: 'Aus Favoriten entfernen',
+      en: 'Remove from favorites',
+      it: 'Rimuovi dai preferiti',
+      hr: 'Ukloni iz favorita',
+      fr: 'Retirer des favoris',
     },
 
      favoriteRemoving: {
@@ -3747,7 +3755,7 @@ if (!favbtn) {
       favoriteIdsRef.current.delete(Number(row.id));
     }
 
-    setFavoriteButtonState(favbtn, isFavorite ? 'saved' : 'idle', langCode);
+    setFavoriteButtonState(favbtn, isFavorite ? 'remove' : 'idle', langCode);
     refreshMarkerIcon(row);
   } catch (err) {
     console.error('[W2H] favorite status check failed:', err);
@@ -3827,7 +3835,7 @@ if (!favbtn) {
     delete favoriteStatusPromiseCache[row.id];
 
     console.log('[W2H] favorite saved');
-    setFavoriteButtonState(favbtn, 'saved', langCode);
+    setFavoriteButtonState(favbtn, 'remove', langCode);
     refreshMarkerIcon(row);
   } catch (e) {
     console.error('[W2H] favorite toggle failed', e);
@@ -3839,7 +3847,7 @@ if (!favbtn) {
 
     window.setTimeout(() => {
       if (favoriteStatusCache[row.id] === true) {
-        setFavoriteButtonState(favbtn, 'saved', langCode);
+        setFavoriteButtonState(favbtn, 'remove', langCode);
       } else {
         setFavoriteButtonState(favbtn, 'idle', langCode);
       }
