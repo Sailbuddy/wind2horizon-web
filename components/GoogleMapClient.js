@@ -2105,8 +2105,8 @@ function getFavoriteMarkerSvg(svgMarkup) {
       ? String(svgMarkup)
       : defaultMarkerSvg;
 
-  const favoriteStroke = '#d4af37';
-  const favoriteStrokeWidth = '2.2';
+  const favoriteStroke = '#f4c542';
+  const favoriteStrokeWidth = '3.6';
 
   let firstPathDone = false;
 
@@ -2114,7 +2114,9 @@ function getFavoriteMarkerSvg(svgMarkup) {
     if (firstPathDone) return match;
     firstPathDone = true;
 
-    const cleaned = stripFirstPathStrokeAttrs(match).replace(/\/?>$/, '');
+    const cleaned = stripFirstPathStrokeAttrs(match)
+      .replace(/\sfill="[^"]*"/i, ' fill="#173b63"')
+      .replace(/\/?>$/, '');
     return `${cleaned} stroke="${favoriteStroke}" stroke-width="${favoriteStrokeWidth}" stroke-linejoin="round" vector-effect="non-scaling-stroke" paint-order="stroke fill" />`;
   });
 
@@ -3068,6 +3070,19 @@ useEffect(() => {
       seen.add(key);
       locList.push(row);
     }
+
+// Favoritenstatus vorladen, damit Marker schon beim ersten Render korrekt erscheinen
+if (user && accessToken && locList.length) {
+  await Promise.all(
+    locList.map(async (row) => {
+      try {
+        await fetchFavoriteStatus(row.id);
+      } catch (err) {
+        console.warn('[W2H] preload favorite status failed for', row.id, err);
+      }
+    })
+  );
+}
 
     const locIds = locList.map((l) => l.id);
     // ------------------------------
