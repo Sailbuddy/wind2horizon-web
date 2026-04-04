@@ -3471,7 +3471,7 @@ return poly;
         const meta = kvByLoc.get(row.id) || {};
         let html;
         try {
-          html = buildInfoContent(row, meta, svg, langCode);
+          html = buildInfoContent(row, meta, markerSvg, langCode);
         } catch (errBI) {
           console.error('[w2h] buildInfoContent failed for location', row.id, errBI, { row, meta });
           html = buildErrorInfoContent(row.id);
