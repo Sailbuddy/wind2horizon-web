@@ -175,6 +175,7 @@ function isFavoriteBusy(id) {
   const polygonMapRef = useRef(new Map());  // ✅ neu
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
   const favoriteIdsRef = useRef(new Set());
+  const activeCollectionIdRef = useRef(null);
 
 
   // 🔹 Meta pro Location (für Suche/InfoWindow)
@@ -227,13 +228,22 @@ async function fetchFavoriteStatus(locationId) {
         hasAccessToken: !!accessToken,
       });
 
-      const res = await fetch(
-        `/api/favorites/status?locationId=${encodeURIComponent(locationId)}`,
-        {
-          method: 'GET',
-          headers,
-        }
-      );
+      const activeCollectionId =
+  activeCollectionIdRef.current != null
+    ? activeCollectionIdRef.current
+    : await fetchActiveCollectionId();
+
+const qs = new URLSearchParams();
+qs.set('locationId', String(locationId));
+
+if (activeCollectionId != null) {
+  qs.set('collectionId', String(activeCollectionId));
+}
+
+const res = await fetch(`/api/favorites/status?${qs.toString()}`, {
+  method: 'GET',
+  headers,
+});
 
       if (!res.ok) {
         console.warn('[W2H] favorite status request failed:', res.status);
@@ -241,8 +251,19 @@ async function fetchFavoriteStatus(locationId) {
       }
 
       const data = await res.json();
-      const isFavorite = !!data?.isFavorite;
-      const authenticated = !!data?.authenticated;
+
+const resolvedCollectionId =
+  data?.collectionId != null && Number.isFinite(Number(data.collectionId))
+    ? Number(data.collectionId)
+    : null;
+
+if (resolvedCollectionId != null) {
+  activeCollectionIdRef.current = resolvedCollectionId;
+}
+
+const isFavorite = !!data?.isFavorite;
+const authenticated = !!data?.authenticated;
+      
 
       console.log('[W2H] favorite status response', {
         locationId,
@@ -270,11 +291,22 @@ async function fetchFavoriteStatus(locationId) {
 async function fetchAllFavoriteIds() {
   if (!user || !accessToken) {
     favoriteIdsRef.current = new Set();
+    activeCollectionIdRef.current = null;
     return favoriteIdsRef.current;
   }
 
   try {
-    const res = await fetch('/api/favorites/status-all', {
+    const activeCollectionId =
+      activeCollectionIdRef.current != null
+        ? activeCollectionIdRef.current
+        : await fetchActiveCollectionId();
+
+    const qs =
+      activeCollectionId != null
+        ? `?collectionId=${encodeURIComponent(String(activeCollectionId))}`
+        : '';
+
+    const res = await fetch(`/api/favorites/status-all${qs}`, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
@@ -288,6 +320,14 @@ async function fetchAllFavoriteIds() {
     }
 
     const data = await res.json();
+
+    const resolvedCollectionId =
+      data?.collectionId != null && Number.isFinite(Number(data.collectionId))
+        ? Number(data.collectionId)
+        : null;
+
+    activeCollectionIdRef.current = resolvedCollectionId;
+
     const ids = Array.isArray(data?.favoriteLocationIds)
       ? data.favoriteLocationIds.map((x) => Number(x)).filter(Number.isFinite)
       : [];
@@ -303,6 +343,43 @@ async function fetchAllFavoriteIds() {
     console.error('[W2H] fetchAllFavoriteIds failed:', err);
     favoriteIdsRef.current = new Set();
     return favoriteIdsRef.current;
+  }
+}
+
+async function fetchActiveCollectionId() {
+  if (!user || !accessToken) {
+    activeCollectionIdRef.current = null;
+    return null;
+  }
+
+  try {
+    const res = await fetch('/api/favorites/active-collection', {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `Active collection load failed (${res.status})`);
+    }
+
+    const data = await res.json();
+
+    const id =
+      data?.activeCollectionId != null &&
+      Number.isFinite(Number(data.activeCollectionId))
+        ? Number(data.activeCollectionId)
+        : null;
+
+    activeCollectionIdRef.current = id;
+    return id;
+  } catch (err) {
+    console.error('[W2H] fetchActiveCollectionId failed:', err);
+    activeCollectionIdRef.current = null;
+    return null;
   }
 }
 
@@ -446,11 +523,11 @@ useEffect(() => {
 
   (async () => {
     try {
-      await saveFavoriteToDefaultCollection({
+      await saveFavoriteToActiveCollection({
         locationId,
         langCode,
         accessToken,
-      });
+  });
 
       favoriteStatusCache[locationId] = true;
 
@@ -476,6 +553,9 @@ useEffect(() => {
   Object.keys(favoriteStatusPromiseCache).forEach((k) => {
     delete favoriteStatusPromiseCache[k];
   });
+
+  activeCollectionIdRef.current = null;
+  favoriteIdsRef.current = new Set();
 }, [user, accessToken]);
 
 
@@ -590,8 +670,7 @@ function geoJsonToPolygonPaths(g) {
     return res.json();
   }
 
-// Helper-Funktion zum Speichern in die Default-Liste
-async function saveFavoriteToDefaultCollection({ locationId, langCode, accessToken }) {
+async function saveFavoriteToActiveCollection({ locationId, langCode, accessToken }) {
   console.log('[W2H] saveFavorite START', locationId);
 
   if (!accessToken) {
@@ -599,142 +678,15 @@ async function saveFavoriteToDefaultCollection({ locationId, langCode, accessTok
     throw new Error('No access token available.');
   }
 
-  async function removeFavoriteFromDefaultCollection({ locationId, accessToken }) {
-  console.log('[W2H] removeFavorite START', locationId);
+  let collectionId = activeCollectionIdRef.current;
 
-  if (!accessToken) {
-    console.error('[W2H] NO ACCESS TOKEN');
-    throw new Error('No access token available.');
+  if (collectionId == null) {
+    collectionId = await fetchActiveCollectionId();
   }
 
-  // 1) Listen laden
-  const listRes = await fetch('/api/favorites/collections', {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  console.log('[W2H] collections status (remove):', listRes.status);
-
-  if (!listRes.ok) {
-    const txt = await listRes.text().catch(() => '');
-    console.error('[W2H] collections error (remove):', txt);
-    throw new Error(txt || `Collections load failed (${listRes.status})`);
+  if (collectionId == null) {
+    throw new Error('No active collection available.');
   }
-
-  const listJson = await listRes.json();
-  const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
-
-  let targetCollection =
-    collections.find((c) => c?.is_default) ||
-    collections.find((c) => c?.collection_type === 'favorites') ||
-    collections[0] ||
-    null;
-
-  if (!targetCollection?.id) {
-    throw new Error('No target collection available for remove.');
-  }
-
-  // 2) Eintrag aus Default-Liste entfernen
-  const removeRes = await fetch('/api/favorites/items', {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      collectionId: Number(targetCollection.id),
-      locationId: Number(locationId),
-    }),
-  });
-
-  console.log('[W2H] remove item status:', removeRes.status);
-
-  if (!removeRes.ok) {
-    const txt = await removeRes.text().catch(() => '');
-    console.error('[W2H] remove item error:', txt);
-    throw new Error(txt || `Favorite remove failed (${removeRes.status})`);
-  }
-
-  const result = await removeRes.json().catch(() => ({}));
-
-  console.log('[W2H] REMOVE SUCCESS', result);
-
-  return result;
-}
-
-  // 1) Listen laden
-  const listRes = await fetch('/api/favorites/collections', {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  console.log('[W2H] collections status:', listRes.status);
-
-  if (!listRes.ok) {
-    const txt = await listRes.text().catch(() => '');
-    console.error('[W2H] collections error:', txt);
-    throw new Error(txt || `Collections load failed (${listRes.status})`);
-  }
-
-  const listJson = await listRes.json();
-  const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
-
-  console.log('[W2H] collections loaded:', collections.length);
-
-  // 2) Default-Liste finden oder anlegen
-  let targetCollection =
-    collections.find((c) => c?.is_default) ||
-    collections.find((c) => c?.collection_type === 'favorites') ||
-    collections[0] ||
-    null;
-
-  if (!targetCollection) {
-    console.log('[W2H] creating default collection');
-
-    const createRes = await fetch('/api/favorites/collections', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        title: langCode === 'de' ? 'Meine Favoriten' : 'My Favorites',
-        description: null,
-        visibility: 'private',
-        collectionType: 'favorites',
-        isDefault: true,
-      }),
-    });
-
-    console.log('[W2H] create collection status:', createRes.status);
-
-    if (!createRes.ok) {
-      const txt = await createRes.text().catch(() => '');
-      console.error('[W2H] create collection error:', txt);
-      throw new Error(txt || `Collection create failed (${createRes.status})`);
-    }
-
-    const createJson = await createRes.json();
-    targetCollection = createJson?.collection || null;
-  }
-
-  if (!targetCollection?.id) {
-    console.error('[W2H] NO TARGET COLLECTION');
-    throw new Error('No target collection available.');
-  }
-
-  console.log('[W2H] using collection:', targetCollection.id);
-
-  // 3) Marker in Liste speichern
-  console.log('[W2H] inserting item...', locationId);
 
   const saveRes = await fetch('/api/favorites/items', {
     method: 'POST',
@@ -744,7 +696,7 @@ async function saveFavoriteToDefaultCollection({ locationId, langCode, accessTok
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      collectionId: Number(targetCollection.id),
+      collectionId: Number(collectionId),
       locationId: Number(locationId),
       status: 'saved',
     }),
@@ -758,14 +710,20 @@ async function saveFavoriteToDefaultCollection({ locationId, langCode, accessTok
     throw new Error(txt || `Favorite save failed (${saveRes.status})`);
   }
 
-  const result = await saveRes.json();
+  const result = await saveRes.json().catch(() => ({}));
 
-  console.log('[W2H] SUCCESS', result);
+  if (Number.isFinite(Number(result?.collectionId))) {
+    activeCollectionIdRef.current = Number(result.collectionId);
+  } else {
+    activeCollectionIdRef.current = Number(collectionId);
+  }
+
+  console.log('[W2H] SAVE SUCCESS', result);
 
   return result;
 }
 
-async function removeFavoriteFromDefaultCollection({ locationId, accessToken }) {
+async function removeFavoriteFromActiveCollection({ locationId, accessToken }) {
   console.log('[W2H] removeFavorite START', locationId);
 
   if (!accessToken) {
@@ -773,37 +731,16 @@ async function removeFavoriteFromDefaultCollection({ locationId, accessToken }) 
     throw new Error('No access token available.');
   }
 
-  // 1) Listen laden
-  const listRes = await fetch('/api/favorites/collections', {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  let collectionId = activeCollectionIdRef.current;
 
-  console.log('[W2H] collections status (remove):', listRes.status);
-
-  if (!listRes.ok) {
-    const txt = await listRes.text().catch(() => '');
-    console.error('[W2H] collections error (remove):', txt);
-    throw new Error(txt || `Collections load failed (${listRes.status})`);
+  if (collectionId == null) {
+    collectionId = await fetchActiveCollectionId();
   }
 
-  const listJson = await listRes.json();
-  const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
-
-  const targetCollection =
-    collections.find((c) => c?.is_default) ||
-    collections.find((c) => c?.collection_type === 'favorites') ||
-    collections[0] ||
-    null;
-
-  if (!targetCollection?.id) {
-    throw new Error('No target collection available for remove.');
+  if (collectionId == null) {
+    throw new Error('No active collection available for remove.');
   }
 
-  // 2) Eintrag aus Default-Liste entfernen
   const removeRes = await fetch('/api/favorites/items', {
     method: 'DELETE',
     headers: {
@@ -812,7 +749,7 @@ async function removeFavoriteFromDefaultCollection({ locationId, accessToken }) 
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      collectionId: Number(targetCollection.id),
+      collectionId: Number(collectionId),
       locationId: Number(locationId),
     }),
   });
@@ -827,10 +764,17 @@ async function removeFavoriteFromDefaultCollection({ locationId, accessToken }) 
 
   const result = await removeRes.json().catch(() => ({}));
 
+  if (Number.isFinite(Number(result?.collectionId))) {
+    activeCollectionIdRef.current = Number(result.collectionId);
+  } else {
+    activeCollectionIdRef.current = Number(collectionId);
+  }
+
   console.log('[W2H] REMOVE SUCCESS', result);
 
   return result;
 }
+
 
   // Load SeaWarning 
   //------------------------------
@@ -2570,6 +2514,7 @@ function getFavoriteMarkerSvg(svgMarkup) {
 
     const btnWind = showWindBtn ? `<button id="windbtn-${row.id}" class="iw-btn iw-btn-wind">💨 ${label('wind', langCode)}</button>` : '';
 
+
     // ✅ Favoriten Button
     const btnFav = `<button id="favbtn-${row.id}" class="iw-btn iw-btn-fav iw-btn-fav-idle" type="button">${label('favoriteSave', langCode)}</button>`;
   
@@ -3873,7 +3818,7 @@ if (!favbtn) {
       console.log('[W2H] removing favorite...', row.id);
       setFavoriteButtonState(favbtn, 'removing', langCode);
 
-      await removeFavoriteFromDefaultCollection({
+      await removeFavoriteFromActiveCollection({
         locationId: row.id,
         accessToken,
       });
@@ -3891,7 +3836,7 @@ if (!favbtn) {
     console.log('[W2H] saving favorite...', row.id);
     setFavoriteButtonState(favbtn, 'saving', langCode);
 
-    await saveFavoriteToDefaultCollection({
+    await saveFavoriteToActiveCollection({
       locationId: row.id,
       langCode,
       accessToken,
