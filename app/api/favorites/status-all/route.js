@@ -44,7 +44,7 @@ export async function GET(req) {
     const { data: collections, error: colError } = await supabase
       .from('favorite_collections')
       .select('id, is_default, collection_type')
-      .eq('user_id', user.id);
+      .eq('owner_user_id', user.id);
 
     if (colError) {
       return NextResponse.json(
@@ -75,7 +75,7 @@ export async function GET(req) {
       return NextResponse.json(
         { error: itemError.message, favoriteLocationIds: [] },
         { status: 500 }
-      );
+      .eq('owner_user_id', user.id);
     }
 
     const favoriteLocationIds = (items || [])
