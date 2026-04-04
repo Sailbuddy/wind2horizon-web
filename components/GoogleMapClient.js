@@ -174,6 +174,8 @@ function isFavoriteBusy(id) {
   const markerMapRef = useRef(new Map()); // location_id -> Marker
   const polygonMapRef = useRef(new Map());  // ✅ neu
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
+  const favoriteIdsRef = useRef(new Set());
+
 
   // 🔹 Meta pro Location (für Suche/InfoWindow)
   const metaByLocRef = useRef(new Map()); // location_id -> aggregated meta (kv)
@@ -263,6 +265,45 @@ async function fetchFavoriteStatus(locationId) {
   })();
 
   return favoriteStatusPromiseCache[locationId];
+}
+
+async function fetchAllFavoriteIds() {
+  if (!user || !accessToken) {
+    favoriteIdsRef.current = new Set();
+    return favoriteIdsRef.current;
+  }
+
+  try {
+    const res = await fetch('/api/favorites/status-all', {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `Favorites bulk load failed (${res.status})`);
+    }
+
+    const data = await res.json();
+    const ids = Array.isArray(data?.favoriteLocationIds)
+      ? data.favoriteLocationIds.map((x) => Number(x)).filter(Number.isFinite)
+      : [];
+
+    favoriteIdsRef.current = new Set(ids);
+
+    for (const id of ids) {
+      favoriteStatusCache[id] = true;
+    }
+
+    return favoriteIdsRef.current;
+  } catch (err) {
+    console.error('[W2H] fetchAllFavoriteIds failed:', err);
+    favoriteIdsRef.current = new Set();
+    return favoriteIdsRef.current;
+  }
 }
 
 // Helper: Favoriten-Button-Zustand setzen (Text + Farbe + disabled)
@@ -2234,7 +2275,7 @@ function getFavoriteMarkerSvg(svgMarkup) {
   if (!marker) return;
 
   const baseSvg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
-  const isFavorite = favoriteStatusCache[row.id] === true;
+  const isFavorite = favoriteIdsRef.current.has(Number(row.id));
   const markerSvg = isFavorite ? getFavoriteMarkerSvg(baseSvg) : baseSvg;
 
   marker.setIcon(
@@ -3148,7 +3189,8 @@ useEffect(() => {
       locList.push(row);
     }
 
-// Favoritenstatus vorladen, damit Marker schon beim ersten Render korrekt erscheinen
+// Favoriten gesammelt laden (ein Request statt ein Request pro Marker)
+await fetchAllFavoriteIds();
 
 
     const locIds = locList.map((l) => l.id);
@@ -3489,7 +3531,7 @@ locList.forEach((row) => {
   const title = pickName(row, langCode);
   const baseSvg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
 
-  const isFavorite = favoriteStatusCache[row.id] === true;
+  const isFavorite = favoriteIdsRef.current.has(Number(row.id));
   const markerSvg = isFavorite ? getFavoriteMarkerSvg(baseSvg) : baseSvg;
 
   const marker = new google.maps.Marker({
@@ -3699,6 +3741,12 @@ if (!favbtn) {
       return;
     }
 
+    if (isFavorite) {
+      favoriteIdsRef.current.add(Number(row.id));
+    } else {
+      favoriteIdsRef.current.delete(Number(row.id));
+    }
+
     setFavoriteButtonState(favbtn, isFavorite ? 'saved' : 'idle', langCode);
     refreshMarkerIcon(row);
   } catch (err) {
@@ -3756,6 +3804,7 @@ if (!favbtn) {
       });
 
       favoriteStatusCache[row.id] = false;
+      favoriteIdsRef.current.delete(Number(row.id));
       delete favoriteStatusPromiseCache[row.id];
 
       console.log('[W2H] favorite removed');
@@ -3774,6 +3823,7 @@ if (!favbtn) {
     });
 
     favoriteStatusCache[row.id] = true;
+    favoriteIdsRef.current.add(Number(row.id));
     delete favoriteStatusPromiseCache[row.id];
 
     console.log('[W2H] favorite saved');
