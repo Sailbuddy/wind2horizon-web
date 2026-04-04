@@ -3433,7 +3433,7 @@ locList.forEach((row) => {
       markerSvg
     ),
     map: mapObj.current,
-    zIndex: 1000 + (row.category_id || 0),
+    zIndex: (isFavorite ? 2000 : 1000) + (row.category_id || 0),
     clickable: true,
   });
 
