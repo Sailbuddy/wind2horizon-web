@@ -269,27 +269,29 @@ async function fetchFavoriteStatus(locationId) {
 function setFavoriteButtonState(buttonEl, state, langCode) {
   if (!buttonEl) return;
 
-  const labels = {
-    idle: label('favoriteSave', langCode),
-    checking: label('favoriteChecking', langCode),
-    saving: label('favoriteSaving', langCode),
-    saved: label('favoriteSavedShort', langCode),
-    error: label('favoriteSaveErrorShort', langCode),
-  };
+const labels = {
+  idle: label('favoriteSave', langCode),
+  checking: label('favoriteChecking', langCode),
+  saving: label('favoriteSaving', langCode),
+  removing: label('favoriteRemoving', langCode),
+  saved: label('favoriteSavedShort', langCode),
+  error: label('favoriteSaveErrorShort', langCode),
+};
 
   buttonEl.textContent = labels[state] || labels.idle;
 
-  buttonEl.classList.remove(
-    'iw-btn-fav-idle',
-    'iw-btn-fav-checking',
-    'iw-btn-fav-saving',
-    'iw-btn-fav-saved',
-    'iw-btn-fav-error'
-  );
+buttonEl.classList.remove(
+  'iw-btn-fav-idle',
+  'iw-btn-fav-checking',
+  'iw-btn-fav-saving',
+  'iw-btn-fav-removing',
+  'iw-btn-fav-saved',
+  'iw-btn-fav-error'
+);
 
   buttonEl.classList.add(`iw-btn-fav-${state}`);
 
-  if (state === 'saving' || state === 'checking') {
+  if (state === 'saving' || state === 'checking' || state === 'removing') {
     buttonEl.disabled = true;
     buttonEl.setAttribute('aria-busy', 'true');
   } else {
@@ -555,6 +557,73 @@ async function saveFavoriteToDefaultCollection({ locationId, langCode, accessTok
     console.error('[W2H] NO ACCESS TOKEN');
     throw new Error('No access token available.');
   }
+
+  async function removeFavoriteFromDefaultCollection({ locationId, accessToken }) {
+  console.log('[W2H] removeFavorite START', locationId);
+
+  if (!accessToken) {
+    console.error('[W2H] NO ACCESS TOKEN');
+    throw new Error('No access token available.');
+  }
+
+  // 1) Listen laden
+  const listRes = await fetch('/api/favorites/collections', {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  console.log('[W2H] collections status (remove):', listRes.status);
+
+  if (!listRes.ok) {
+    const txt = await listRes.text().catch(() => '');
+    console.error('[W2H] collections error (remove):', txt);
+    throw new Error(txt || `Collections load failed (${listRes.status})`);
+  }
+
+  const listJson = await listRes.json();
+  const collections = Array.isArray(listJson?.collections) ? listJson.collections : [];
+
+  let targetCollection =
+    collections.find((c) => c?.is_default) ||
+    collections.find((c) => c?.collection_type === 'favorites') ||
+    collections[0] ||
+    null;
+
+  if (!targetCollection?.id) {
+    throw new Error('No target collection available for remove.');
+  }
+
+  // 2) Eintrag aus Default-Liste entfernen
+  const removeRes = await fetch('/api/favorites/items', {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      collectionId: Number(targetCollection.id),
+      locationId: Number(locationId),
+    }),
+  });
+
+  console.log('[W2H] remove item status:', removeRes.status);
+
+  if (!removeRes.ok) {
+    const txt = await removeRes.text().catch(() => '');
+    console.error('[W2H] remove item error:', txt);
+    throw new Error(txt || `Favorite remove failed (${removeRes.status})`);
+  }
+
+  const result = await removeRes.json().catch(() => ({}));
+
+  console.log('[W2H] REMOVE SUCCESS', result);
+
+  return result;
+}
 
   // 1) Listen laden
   const listRes = await fetch('/api/favorites/collections', {
@@ -1779,6 +1848,14 @@ function Lightbox({ gallery: g, onClose }) {
       it: 'Salvataggio...',
       hr: 'Spremanje...',
       fr: 'Enregistrement...',
+    },
+
+     favoriteRemoving: {
+      de: 'Entfernt...',
+      en: 'Removing...',
+      it: 'Rimozione...',
+      hr: 'Uklanjanje...',
+      fr: 'Suppression...',
     },
 
     favoriteSavedShort: {
@@ -3644,26 +3721,22 @@ if (!favbtn) {
 })();
 
   favbtn.addEventListener('click', async () => {
-    console.log('[W2H] CLICK FIRED', row.id);
+  console.log('[W2H] CLICK FIRED', row.id);
 
-    try {
-      if (favoriteBusyIds[row.id]) {
-        console.log('[W2H] already saving → skip', row.id);
-        return;
-      }
+  try {
+    if (favoriteBusyIds[row.id]) {
+      console.log('[W2H] already processing → skip', row.id);
+      return;
+    }
 
-      if (favoriteStatusCache[row.id] === true) {
-        setFavoriteButtonState(favbtn, 'saved', langCode);
-        return;
-      }
+    const isCurrentlyFavorite = favoriteStatusCache[row.id] === true;
 
-      setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
-      setFavoriteButtonState(favbtn, 'saving', langCode);
+    setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
 
-      if (!user) {
-        setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
-        setFavoriteButtonState(favbtn, 'idle', langCode);
+    if (!user) {
+      setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
 
+      if (!isCurrentlyFavorite) {
         setAuthIntent({
           type: 'favorite_add',
           locationId: row.id,
@@ -3672,43 +3745,69 @@ if (!favbtn) {
         });
 
         setAuthModalOpen(true);
-        return;
       }
 
-      if (!accessToken) {
-        console.warn('[W2H] no access token yet, cannot save favorite');
-        setFavoriteButtonState(favbtn, 'idle', langCode);
-        return;
-      }
+      return;
+    }
 
-      console.log('[W2H] saving favorite...', row.id);
+    if (!accessToken) {
+      console.warn('[W2H] no access token yet, cannot change favorite state');
+      setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
+      return;
+    }
 
-      await saveFavoriteToDefaultCollection({
+    if (isCurrentlyFavorite) {
+      console.log('[W2H] removing favorite...', row.id);
+      setFavoriteButtonState(favbtn, 'removing', langCode);
+
+      await removeFavoriteFromDefaultCollection({
         locationId: row.id,
-        langCode,
         accessToken,
       });
 
-      favoriteStatusCache[row.id] = true;
+      favoriteStatusCache[row.id] = false;
+      delete favoriteStatusPromiseCache[row.id];
 
-      console.log('[W2H] favorite saved');
-      setFavoriteButtonState(favbtn, 'saved', langCode);
+      console.log('[W2H] favorite removed');
+      setFavoriteButtonState(favbtn, 'idle', langCode);
       refreshMarkerIcon(row);
-    } catch (e) {
-      console.error('[W2H] favorite save failed', e);
-      setFavoriteButtonState(favbtn, 'error', langCode);
-
-      window.setTimeout(() => {
-        if (favoriteStatusCache[row.id] === true) {
-          setFavoriteButtonState(favbtn, 'saved', langCode);
-        } else {
-          setFavoriteButtonState(favbtn, 'idle', langCode);
-        }
-      }, 1600);
-    } finally {
-      setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
+      return;
     }
-  });
+
+    console.log('[W2H] saving favorite...', row.id);
+    setFavoriteButtonState(favbtn, 'saving', langCode);
+
+    await saveFavoriteToDefaultCollection({
+      locationId: row.id,
+      langCode,
+      accessToken,
+    });
+
+    favoriteStatusCache[row.id] = true;
+    delete favoriteStatusPromiseCache[row.id];
+
+    console.log('[W2H] favorite saved');
+    setFavoriteButtonState(favbtn, 'saved', langCode);
+    refreshMarkerIcon(row);
+  } catch (e) {
+    console.error('[W2H] favorite toggle failed', e);
+    setFavoriteButtonState(
+      favbtn,
+      favoriteStatusCache[row.id] === true ? 'saved' : 'error',
+      langCode
+    );
+
+    window.setTimeout(() => {
+      if (favoriteStatusCache[row.id] === true) {
+        setFavoriteButtonState(favbtn, 'saved', langCode);
+      } else {
+        setFavoriteButtonState(favbtn, 'idle', langCode);
+      }
+    }, 1600);
+  } finally {
+    setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
+  }
+});
 }
             // ---------------------------
             // KI-Report Button (Lazy Fetch)
