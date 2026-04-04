@@ -75,7 +75,7 @@ export async function GET(req) {
       return NextResponse.json(
         { error: itemError.message, favoriteLocationIds: [] },
         { status: 500 }
-      .eq('owner_user_id', user.id);
+      );
     }
 
     const favoriteLocationIds = (items || [])
