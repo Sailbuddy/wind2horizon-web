@@ -3149,17 +3149,7 @@ useEffect(() => {
     }
 
 // Favoritenstatus vorladen, damit Marker schon beim ersten Render korrekt erscheinen
-if (user && accessToken && locList.length) {
-  await Promise.all(
-    locList.map(async (row) => {
-      try {
-        await fetchFavoriteStatus(row.id);
-      } catch (err) {
-        console.warn('[W2H] preload favorite status failed for', row.id, err);
-      }
-    })
-  );
-}
+
 
     const locIds = locList.map((l) => l.id);
     // ------------------------------
