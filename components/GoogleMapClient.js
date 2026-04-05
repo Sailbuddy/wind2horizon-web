@@ -13,6 +13,7 @@ import PanelHost from '@/components/panels/PanelHost';
 import BoraPanel from '@/components/panels/BoraPanel';
 import { boraTexts } from '@/lib/i18n/boraTexts';
 import SeaWeatherPanel from '@/components/panels/SeaWeatherPanel';
+import CollectionsPanel from '@/components/panels/CollectionsPanel';
 import { useAuth } from '@/context/AuthContext';
 import { setAuthIntent } from '@/lib/authIntent';
 
@@ -151,6 +152,10 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [activePanel, setActivePanel] = useState(null);
   const [seaWarning, setSeaWarning] = useState(null);
   const [seaWarningClosed, setSeaWarningClosed] = useState(false);
+  const [collections, setCollections] = useState([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [collectionsError, setCollectionsError] = useState('');
+  const [activeCollectionMeta, setActiveCollectionMeta] = useState(null);
   const { user, accessToken, setAuthModalOpen, lastIntent, setLastIntent } = useAuth();
   const [favoriteBusyIds, setFavoriteBusyIds] = useState({});
 
@@ -380,6 +385,133 @@ async function fetchActiveCollectionId() {
     console.error('[W2H] fetchActiveCollectionId failed:', err);
     activeCollectionIdRef.current = null;
     return null;
+  }
+}
+
+async function loadCollections() {
+  if (!user || !accessToken) {
+    setCollections([]);
+    setActiveCollectionMeta(null);
+    activeCollectionIdRef.current = null;
+    return [];
+  }
+
+  setCollectionsLoading(true);
+  setCollectionsError('');
+
+  try {
+    const res = await fetch('/api/favorites/collections', {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `Collections load failed (${res.status})`);
+    }
+
+    const data = await res.json();
+
+    const list = Array.isArray(data?.collections) ? data.collections : [];
+
+    const resolvedActiveId =
+      data?.activeCollectionId != null &&
+      Number.isFinite(Number(data.activeCollectionId))
+        ? Number(data.activeCollectionId)
+        : null;
+
+    setCollections(list);
+
+    if (resolvedActiveId != null) {
+      activeCollectionIdRef.current = resolvedActiveId;
+    }
+
+    const activeMeta =
+      list.find((item) => Number(item.id) === Number(resolvedActiveId)) || null;
+
+    setActiveCollectionMeta(activeMeta);
+
+    return list;
+  } catch (err) {
+    console.error('[W2H] loadCollections failed:', err);
+    setCollections([]);
+    setActiveCollectionMeta(null);
+    setCollectionsError(String(err?.message || err));
+    return [];
+  } finally {
+    setCollectionsLoading(false);
+  }
+}
+
+async function setActiveCollection(collectionId) {
+  if (!user || !accessToken) {
+    throw new Error('Not authenticated.');
+  }
+
+  const nextId = Number(collectionId);
+  if (!Number.isFinite(nextId)) {
+    throw new Error('Invalid collectionId.');
+  }
+
+  try {
+    setCollectionsError('');
+
+    const res = await fetch('/api/favorites/active-collection', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        activeCollectionId: nextId,
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `Set active collection failed (${res.status})`);
+    }
+
+    const data = await res.json().catch(() => ({}));
+
+    const resolvedId =
+      data?.activeCollectionId != null &&
+      Number.isFinite(Number(data.activeCollectionId))
+        ? Number(data.activeCollectionId)
+        : nextId;
+
+    activeCollectionIdRef.current = resolvedId;
+
+    const nextMeta =
+      collections.find((item) => Number(item.id) === resolvedId) || null;
+
+    setActiveCollectionMeta(nextMeta);
+
+    // Alte Status-Caches leeren, damit wirklich der neue Listenstatus geladen wird
+    Object.keys(favoriteStatusCache).forEach((k) => {
+      delete favoriteStatusCache[k];
+    });
+
+    Object.keys(favoriteStatusPromiseCache).forEach((k) => {
+      delete favoriteStatusPromiseCache[k];
+    });
+
+    // Favoriten der neuen aktiven Liste neu laden
+    await fetchAllFavoriteIds();
+
+    // Marker-Icons anhand des neuen Favoritenstatus neu setzen
+    const rows = locationsRef.current || [];
+    rows.forEach((row) => refreshMarkerIcon(row));
+
+    return resolvedId;
+  } catch (err) {
+    console.error('[W2H] setActiveCollection failed:', err);
+    setCollectionsError(String(err?.message || err));
+    throw err;
   }
 }
 
@@ -4132,6 +4264,36 @@ if (!favbtn) {
   </div>
 
 
+// Testweise einen Button zum manuellen Triggern des Collections-Panel laden (statt Listen-Button im InfoWindow)
+
+<div
+  style={{
+    position: 'absolute',
+    top: 64,
+    right: 14,
+    zIndex: 20,
+  }}
+>
+  <button
+    type="button"
+    onClick={async () => {
+      await loadCollections();
+      setActivePanel((p) => (p === 'collections' ? null : 'collections'));
+    }}
+    style={{
+      padding: '10px 12px',
+      borderRadius: 10,
+      border: '1px solid rgba(0,0,0,.12)',
+      background: 'rgba(255,255,255,0.94)',
+      boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+      fontWeight: 800,
+      cursor: 'pointer',
+    }}
+  >
+    Listen
+  </button>
+</div>
+
   {seaWarning && !seaWarningClosed && (
     <div
       style={{
@@ -4491,7 +4653,24 @@ if (!favbtn) {
         <SeaWeatherPanel lang={lang} label={label} />
         </PanelHost>
 
-
+        
+        {/* ✅ Collections Panel Overlay */}
+        <PanelHost
+          open={activePanel === 'collections'}
+          title={activeCollectionMeta?.title || activeCollectionMeta?.name || 'Listen'}
+          onClose={() => setActivePanel(null)}
+>
+        <CollectionsPanel
+          lang={lang}
+          collections={collections}
+          loading={collectionsLoading}
+          error={collectionsError}
+          activeCollectionId={activeCollectionIdRef.current}
+          activeCollection={activeCollectionMeta}
+          onReload={loadCollections}
+          onSelectCollection={setActiveCollection}
+        />
+        </PanelHost>
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
       <style jsx>{`
