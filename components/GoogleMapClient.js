@@ -423,6 +423,10 @@ async function loadCollections() {
         ? Number(data.activeCollectionId)
         : null;
 
+    console.log('[W2H] collections RAW:', data);
+    console.log('[W2H] collections LIST:', list);
+    console.log('[W2H] activeCollectionId:', resolvedActiveId);    
+
     setCollections(list);
 
     if (resolvedActiveId != null) {
@@ -430,7 +434,11 @@ async function loadCollections() {
     }
 
     const activeMeta =
-      list.find((item) => Number(item.id) === Number(resolvedActiveId)) || null;
+      list.find(
+    (item) =>
+      String(item.id) === String(resolvedActiveId) ||
+      Number(item.id) === Number(resolvedActiveId)
+  ) || null;
 
     setActiveCollectionMeta(activeMeta);
 
