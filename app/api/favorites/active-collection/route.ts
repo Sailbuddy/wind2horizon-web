@@ -58,7 +58,7 @@ async function resolveFallbackActiveCollectionId(adminClient, userId) {
   const { data, error } = await adminClient
     .from('favorite_collections')
     .select('id')
-    .eq('user_id', userId)
+    .eq('owner_user_id', userId)
     .order('id', { ascending: true })
     .limit(1);
 
@@ -97,10 +97,9 @@ export async function GET(req) {
     }
 
     return NextResponse.json({
-  ok: true,
-  activeCollectionId,
-});
-
+      ok: true,
+      activeCollectionId,
+    });
   } catch (err) {
     console.error('[api/favorites/active-collection][GET] failed:', err);
 
@@ -136,12 +135,11 @@ export async function PATCH(req) {
       );
     }
 
-    // Sicherheitscheck: gehört diese Collection wirklich dem User?
     const { data: ownedCollection, error: ownError } = await adminClient
       .from('favorite_collections')
       .select('id')
       .eq('id', activeCollectionId)
-      .eq('user_id', user.id)
+      .eq('owner_user_id', user.id)
       .maybeSingle();
 
     if (ownError) throw ownError;
