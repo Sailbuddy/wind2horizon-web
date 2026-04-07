@@ -111,46 +111,44 @@ export async function GET(req: Request) {
     }
 
     const { data, error } = await supabase
-      .from("favorite_collection_items")
-      .select(`
+  .from("favorite_collection_items")
+  .select(`
+    collection_id,
+    location_id,
+    note,
+    sort_order,
+    status,
+    planned_date,
+    planned_time,
+    visited_at,
+    purpose,
+    stay_type,
+    priority,
+    highlight,
+    caution_note,
+    rating_personal,
+    would_return,
+    report_note,
+    created_at,
+    locations:location_id (
+      id,
+      display_name,
+      name_de,
+      name_en,
+      name_it,
+      name_fr,
+      name_hr,
+      category_id,
+      categories:category_id (
         id,
-        collection_id,
-        location_id,
-        note,
-        sort_order,
-        status,
-        planned_date,
-        planned_time,
-        visited_at,
-        purpose,
-        stay_type,
-        priority,
-        highlight,
-        caution_note,
-        rating_personal,
-        would_return,
-        report_note,
-        created_at,
-        updated_at,
-        locations:location_id (
-          id,
-          display_name,
-          name_de,
-          name_en,
-          name_it,
-          name_fr,
-          name_hr,
-          category_id,
-          categories:category_id (
-            id,
-            name_de,
-            name_en,
-            name_it,
-            name_fr,
-            name_hr
-          )
-        )
-      `)
+        name_de,
+        name_en,
+        name_it,
+        name_fr,
+        name_hr
+      )
+    )
+  `)
       .eq("collection_id", collectionId)
       .order("sort_order", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: true });
