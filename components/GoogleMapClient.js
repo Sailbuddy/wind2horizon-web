@@ -4817,7 +4817,13 @@ if (!favbtn) {
           onReload={loadCollections}
           onSelectCollection={setActiveCollection}
           onCreateCollection={createCollection}
-          onOpenItem={openCollectionItem}
+          onOpenItem={(locationId) => {
+            setActivePanel(null);
+
+            window.setTimeout(() => {
+              openCollectionItem(locationId);
+            }, 120);
+          }}
         />
         </PanelHost>
 
