@@ -156,6 +156,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsError, setCollectionsError] = useState('');
   const [activeCollectionMeta, setActiveCollectionMeta] = useState(null);
+  const [createCollectionBusy, setCreateCollectionBusy] = useState(false);
   const { user, accessToken, setAuthModalOpen, lastIntent, setLastIntent } = useAuth();
   const [favoriteBusyIds, setFavoriteBusyIds] = useState({});
 
@@ -520,6 +521,61 @@ async function setActiveCollection(collectionId) {
     console.error('[W2H] setActiveCollection failed:', err);
     setCollectionsError(String(err?.message || err));
     throw err;
+  }
+}
+
+// ✅ Helper: Neue Collection erstellen und aktiv setzen
+async function createCollection({ title, collectionType }) {
+  if (!user || !accessToken) {
+    throw new Error('Not authenticated.');
+  }
+
+  const cleanTitle = String(title || '').trim();
+  if (!cleanTitle) {
+    throw new Error('Title is required.');
+  }
+
+  const allowedTypes = new Set(['favorites', 'trip_plan', 'trip_report']);
+  const safeType = allowedTypes.has(collectionType) ? collectionType : 'favorites';
+
+  try {
+    setCollectionsError('');
+    setCreateCollectionBusy(true);
+
+    const res = await fetch('/api/favorites/collections', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        title: cleanTitle,
+        collectionType: safeType,
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `Create collection failed (${res.status})`);
+    }
+
+    const data = await res.json().catch(() => ({}));
+    const created = data?.collection || null;
+
+    await loadCollections();
+
+    if (created?.id != null) {
+      await setActiveCollection(created.id);
+    }
+
+    return created;
+  } catch (err) {
+    console.error('[W2H] createCollection failed:', err);
+    setCollectionsError(String(err?.message || err));
+    throw err;
+  } finally {
+    setCreateCollectionBusy(false);
   }
 }
 
@@ -4675,8 +4731,10 @@ if (!favbtn) {
           error={collectionsError}
           activeCollectionId={activeCollectionIdRef.current}
           activeCollection={activeCollectionMeta}
+          createBusy={createCollectionBusy}
           onReload={loadCollections}
           onSelectCollection={setActiveCollection}
+          onCreateCollection={createCollection}
         />
         </PanelHost>
 
