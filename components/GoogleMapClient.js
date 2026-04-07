@@ -608,17 +608,16 @@ async function loadActiveCollectionItems(collectionId) {
     setActiveCollectionItemsLoading(true);
     setActiveCollectionItemsError('');
 
-    const res = await fetch('/api/favorites/items', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        collectionId: resolvedId,
-      }),
-    });
+    const res = await fetch(
+      `/api/favorites/items?collectionId=${encodeURIComponent(String(resolvedId))}`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
 
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
@@ -626,7 +625,6 @@ async function loadActiveCollectionItems(collectionId) {
     }
 
     const data = await res.json().catch(() => ({}));
-
     const items = Array.isArray(data?.items) ? data.items : [];
 
     setActiveCollectionItems(items);

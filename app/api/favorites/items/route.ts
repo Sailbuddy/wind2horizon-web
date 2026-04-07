@@ -73,6 +73,111 @@ function mapResolverErrorToStatus(message: string) {
 }
 
 // --------------------------------------------------
+// GET → Alle Items einer Collection laden
+// --------------------------------------------------
+export async function GET(req: Request) {
+  try {
+    const supabase = createSupabaseRouteClient(req);
+
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !authData?.user) {
+      return NextResponse.json(
+        { ok: false, error: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+
+    const userId = authData.user.id;
+    const url = new URL(req.url);
+    const requestedCollectionId = parseOptionalNumber(
+      url.searchParams.get("collectionId")
+    );
+
+    const supabaseAdmin = createSupabaseAdminClient();
+
+    let collectionId: number;
+    try {
+      collectionId = await resolveCollectionIdOrThrow({
+        supabaseAdmin,
+        userId,
+        requestedCollectionId,
+      });
+    } catch (err: any) {
+      return NextResponse.json(
+        { ok: false, error: err.message || "Collection resolve failed" },
+        { status: mapResolverErrorToStatus(err.message || "") }
+      );
+    }
+
+    const { data, error } = await supabase
+      .from("favorite_collection_items")
+      .select(`
+        id,
+        collection_id,
+        location_id,
+        note,
+        sort_order,
+        status,
+        planned_date,
+        planned_time,
+        visited_at,
+        purpose,
+        stay_type,
+        priority,
+        highlight,
+        caution_note,
+        rating_personal,
+        would_return,
+        report_note,
+        created_at,
+        updated_at,
+        locations:location_id (
+          id,
+          display_name,
+          name_de,
+          name_en,
+          name_it,
+          name_fr,
+          name_hr,
+          category_id,
+          categories:category_id (
+            id,
+            name_de,
+            name_en,
+            name_it,
+            name_fr,
+            name_hr
+          )
+        )
+      `)
+      .eq("collection_id", collectionId)
+      .order("sort_order", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("[favorites items GET error]", error);
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      collectionId,
+      items: data ?? [],
+    });
+  } catch (err) {
+    console.error("[favorites items GET]", err);
+    return NextResponse.json(
+      { ok: false, error: "Server error" },
+      { status: 500 }
+    );
+  }
+}
+
+// --------------------------------------------------
 // POST → Marker zu Collection hinzufügen
 // --------------------------------------------------
 export async function POST(req: Request) {
