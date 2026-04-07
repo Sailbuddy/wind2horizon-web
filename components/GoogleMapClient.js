@@ -157,6 +157,9 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [collectionsError, setCollectionsError] = useState('');
   const [activeCollectionMeta, setActiveCollectionMeta] = useState(null);
   const [createCollectionBusy, setCreateCollectionBusy] = useState(false);
+  const [activeCollectionItems, setActiveCollectionItems] = useState([]);
+  const [activeCollectionItemsLoading, setActiveCollectionItemsLoading] = useState(false);
+  const [activeCollectionItemsError, setActiveCollectionItemsError] = useState('');
   const { user, accessToken, setAuthModalOpen, lastIntent, setLastIntent } = useAuth();
   const [favoriteBusyIds, setFavoriteBusyIds] = useState({});
 
@@ -443,7 +446,15 @@ async function loadCollections() {
 
     setActiveCollectionMeta(activeMeta);
 
+    if (resolvedActiveId != null) {
+      await loadActiveCollectionItems(resolvedActiveId);
+    }   else {
+      setActiveCollectionItems([]);
+      setActiveCollectionItemsError('');
+    }
+
     return list;
+
   } catch (err) {
     console.error('[W2H] loadCollections failed:', err);
     setCollections([]);
@@ -511,6 +522,7 @@ async function setActiveCollection(collectionId) {
 
     // Favoriten der neuen aktiven Liste neu laden
     await fetchAllFavoriteIds();
+    await loadActiveCollectionItems(resolvedId);
 
     // Marker-Icons anhand des neuen Favoritenstatus neu setzen
     const rows = locationsRef.current || [];
@@ -578,6 +590,57 @@ async function createCollection({ title, collectionType }) {
     setCreateCollectionBusy(false);
   }
 }
+
+// Load items of active collection (used for "My Favorites" panel)
+async function loadActiveCollectionItems(collectionId) {
+  const resolvedId =
+    collectionId != null
+      ? Number(collectionId)
+      : Number(activeCollectionIdRef.current);
+
+  if (!user || !accessToken || !Number.isFinite(resolvedId)) {
+    setActiveCollectionItems([]);
+    setActiveCollectionItemsError('');
+    return [];
+  }
+
+  try {
+    setActiveCollectionItemsLoading(true);
+    setActiveCollectionItemsError('');
+
+    const res = await fetch('/api/favorites/items', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        collectionId: resolvedId,
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `Load collection items failed (${res.status})`);
+    }
+
+    const data = await res.json().catch(() => ({}));
+
+    const items = Array.isArray(data?.items) ? data.items : [];
+
+    setActiveCollectionItems(items);
+    return items;
+  } catch (err) {
+    console.error('[W2H] loadActiveCollectionItems failed:', err);
+    setActiveCollectionItems([]);
+    setActiveCollectionItemsError(String(err?.message || err));
+    return [];
+  } finally {
+    setActiveCollectionItemsLoading(false);
+  }
+}
+
 
 // Helper: Favoriten-Button-Zustand setzen (Text + Farbe + disabled)
 function setFavoriteButtonState(buttonEl, state, langCode) {
@@ -3055,6 +3118,24 @@ function applyLayerVisibilityToMarkersAndPolys() {
     exitSearchFocus();
   }
 
+  function openCollectionItem(locationId) {
+  const id = Number(locationId);
+  if (!Number.isFinite(id)) return;
+
+  const marker = markerMapRef.current.get(id);
+
+  if (marker && window.google && window.google.maps && google.maps.event) {
+    google.maps.event.trigger(marker, 'click');
+    return;
+  }
+
+  const row = (locationsRef.current || []).find((x) => Number(x.id) === id);
+  if (row && mapObj.current) {
+    mapObj.current.panTo({ lat: row.lat, lng: row.lng });
+    mapObj.current.setZoom(16);
+  }
+}
+
   function openResult(row) {
     const marker = markerMapRef.current.get(row.id);
     if (marker && window.google && window.google.maps && google.maps.event) {
@@ -4732,9 +4813,13 @@ if (!favbtn) {
           activeCollectionId={activeCollectionIdRef.current}
           activeCollection={activeCollectionMeta}
           createBusy={createCollectionBusy}
+          activeItems={activeCollectionItems}
+          activeItemsLoading={activeCollectionItemsLoading}
+          activeItemsError={activeCollectionItemsError}
           onReload={loadCollections}
           onSelectCollection={setActiveCollection}
           onCreateCollection={createCollection}
+          onOpenItem={openCollectionItem}
         />
         </PanelHost>
 

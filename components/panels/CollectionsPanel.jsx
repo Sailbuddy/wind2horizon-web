@@ -153,7 +153,73 @@ function uiText(lang = 'de') {
       lang === 'fr' ? 'Veuillez saisir un titre.' :
       lang === 'hr' ? 'Unesite naziv.' :
       'Bitte einen Titel eingeben.',
+
+    activeItems:
+      lang === 'de' ? 'Inhalt der aktiven Liste' :
+      lang === 'en' ? 'Items in active list' :
+      lang === 'it' ? 'Contenuto della lista attiva' :
+      lang === 'fr' ? 'Contenu de la liste active' :
+      lang === 'hr' ? 'Sadržaj aktivne liste' :
+      'Inhalt der aktiven Liste',
+
+    noItems:
+      lang === 'de' ? 'Diese Liste ist noch leer.' :
+      lang === 'en' ? 'This list is empty.' :
+      lang === 'it' ? 'Questa lista è vuota.' :
+      lang === 'fr' ? 'Cette liste est vide.' :
+      lang === 'hr' ? 'Ova lista je prazna.' :
+      'Diese Liste ist noch leer.',
+
+    openOnMap:
+      lang === 'de' ? 'Auf Karte öffnen' :
+      lang === 'en' ? 'Open on map' :
+      lang === 'it' ? 'Apri sulla mappa' :
+      lang === 'fr' ? 'Ouvrir sur la carte' :
+      lang === 'hr' ? 'Otvori na karti' :
+      'Auf Karte öffnen',
   };
+}
+
+function getItemTitle(item) {
+  return (
+    item?.display_name ||
+    item?.title ||
+    item?.name ||
+    item?.location_name ||
+    item?.locations?.display_name ||
+    item?.locations?.name ||
+    (item?.location_id != null ? `#${item.location_id}` : '—')
+  );
+}
+
+function getItemSubtitle(item, lang) {
+  const type =
+    item?.collection_type ||
+    item?.type ||
+    item?.locations?.collection_type ||
+    '';
+
+  if (type) return getTypeLabel(type, lang);
+
+  const category =
+    item?.category_name ||
+    item?.locations?.category_name ||
+    item?.locations?.categories?.name_de ||
+    item?.locations?.categories?.name_en ||
+    '';
+
+  return category || '';
+}
+
+function getItemLocationId(item) {
+  const id =
+    item?.location_id ??
+    item?.locationId ??
+    item?.locations?.id ??
+    null;
+
+  const n = Number(id);
+  return Number.isFinite(n) ? n : null;
 }
 
 export default function CollectionsPanel({
@@ -164,9 +230,13 @@ export default function CollectionsPanel({
   activeCollectionId = null,
   activeCollection = null,
   createBusy = false,
+  activeItems = [],
+  activeItemsLoading = false,
+  activeItemsError = '',
   onReload,
   onSelectCollection,
   onCreateCollection,
+  onOpenItem,
 }) {
   const [newTitle, setNewTitle] = useState('');
   const [newType, setNewType] = useState('favorites');
@@ -311,6 +381,49 @@ export default function CollectionsPanel({
         </div>
       </section>
 
+      <section className="w2h-card">
+        <div className="w2h-h2">{txt.activeItems}</div>
+
+        {activeItemsError ? <div className="w2h-err">{activeItemsError}</div> : null}
+
+        {activeItemsLoading ? (
+          <div className="w2h-empty">{txt.loading}</div>
+        ) : !activeItems || activeItems.length === 0 ? (
+          <div className="w2h-empty">{txt.noItems}</div>
+        ) : (
+          <div className="w2h-items">
+            {activeItems.map((item, idx) => {
+              const locationId = getItemLocationId(item);
+
+              return (
+                <button
+                  key={item.id || `${locationId || 'item'}-${idx}`}
+                  type="button"
+                  className="w2h-item-row"
+                  onClick={() => {
+                    if (locationId != null && typeof onOpenItem === 'function') {
+                      onOpenItem(locationId);
+                    }
+                  }}
+                  disabled={locationId == null}
+                >
+                  <div className="w2h-item-main">
+                    <div className="w2h-item-title">{getItemTitle(item)}</div>
+                    <div className="w2h-item-meta">
+                      {getItemSubtitle(item, lang) || (locationId != null ? `#${locationId}` : '')}
+                    </div>
+                  </div>
+
+                  <div className="w2h-item-side">
+                    {locationId != null ? txt.openOnMap : '—'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <style jsx>{`
         .w2h-collections-wrap {
           display: flex;
@@ -426,13 +539,15 @@ export default function CollectionsPanel({
           border-color: rgba(2, 132, 199, 0.45);
         }
 
-        .w2h-list {
+        .w2h-list,
+        .w2h-items {
           display: flex;
           flex-direction: column;
           gap: 10px;
         }
 
-        .w2h-row {
+        .w2h-row,
+        .w2h-item-row {
           width: 100%;
           display: flex;
           align-items: center;
@@ -451,27 +566,32 @@ export default function CollectionsPanel({
           background: rgba(2, 132, 199, 0.05);
         }
 
-        .w2h-row:disabled {
+        .w2h-row:disabled,
+        .w2h-item-row:disabled {
           cursor: default;
           opacity: 0.85;
         }
 
-        .w2h-row-main {
+        .w2h-row-main,
+        .w2h-item-main {
           min-width: 0;
         }
 
-        .w2h-row-title {
+        .w2h-row-title,
+        .w2h-item-title {
           font-size: 14px;
           font-weight: 800;
         }
 
-        .w2h-row-meta {
+        .w2h-row-meta,
+        .w2h-item-meta {
           margin-top: 4px;
           font-size: 12px;
           color: #64748b;
         }
 
-        .w2h-row-side {
+        .w2h-row-side,
+        .w2h-item-side {
           flex: 0 0 auto;
           font-size: 12px;
           font-weight: 800;
