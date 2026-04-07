@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/route";
 
 // --------------------------------------------------
-// GET → Alle Collections des Users laden
+// GET -> Alle Collections des Users laden
+//        + aktive Collection ID mitliefern
 // --------------------------------------------------
 export async function GET(req: Request) {
   try {
@@ -19,21 +20,44 @@ export async function GET(req: Request) {
 
     const userId = authData.user.id;
 
-    const { data, error } = await supabase
+    const { data: collections, error: collectionsError } = await supabase
       .from("favorite_collections")
       .select("*")
       .eq("owner_user_id", userId)
       .order("is_default", { ascending: false })
       .order("updated_at", { ascending: false });
 
-    if (error) {
+    if (collectionsError) {
       return NextResponse.json(
-        { ok: false, error: error.message },
+        { ok: false, error: collectionsError.message },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, collections: data ?? [] });
+    const { data: stateRow, error: stateError } = await supabase
+      .from("user_collection_state")
+      .select("active_collection_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (stateError) {
+      return NextResponse.json(
+        { ok: false, error: stateError.message },
+        { status: 500 }
+      );
+    }
+
+    let activeCollectionId = stateRow?.active_collection_id ?? null;
+
+    if (!activeCollectionId && (collections?.length ?? 0) > 0) {
+      activeCollectionId = collections![0].id;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      activeCollectionId,
+      collections: collections ?? [],
+    });
   } catch (err) {
     console.error("[favorites collections GET]", err);
     return NextResponse.json(
@@ -44,7 +68,7 @@ export async function GET(req: Request) {
 }
 
 // --------------------------------------------------
-// POST → Neue Collection erstellen
+// POST -> Neue Collection erstellen
 // --------------------------------------------------
 export async function POST(req: Request) {
   try {

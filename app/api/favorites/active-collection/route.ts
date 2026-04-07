@@ -97,9 +97,10 @@ export async function GET(req) {
     }
 
     return NextResponse.json({
-      ok: true,
-      activeCollectionId,
-    });
+  ok: true,
+  activeCollectionId,
+  collections,
+});
   } catch (err) {
     console.error('[api/favorites/active-collection][GET] failed:', err);
 
