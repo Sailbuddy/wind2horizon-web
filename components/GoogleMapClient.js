@@ -3695,7 +3695,7 @@ function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
         });
 
         // Map idle Event setzen
-        window.google.maps.event.addListenerOnce(mapObj.current, 'idle', () => {
+        window.google.maps.event.addListener(mapObj.current, 'idle', () => {
         setMapLoaded(true);
         });
 
