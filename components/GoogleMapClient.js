@@ -867,12 +867,14 @@ useEffect(() => {
 
   // ✅ Helper: InfoWindow schließen
   const closeInfoWindow = () => {
-    try {
-      if (infoWin.current) infoWin.current.close();
-    } catch {
-      // ignore
-    }
-  };
+  try {
+    if (infoWin.current) infoWin.current.close();
+  } catch {
+    // ignore
+  }
+  openInfoLocationIdRef.current = null;
+  openInfoMarkerRef.current = null;
+};
 
 // ------------------------------
 // GeoJSON -> Google Maps helpers
@@ -3975,6 +3977,8 @@ return poly;
 
       marker.addListener('click', () => {
         infoWinOpenedByMarkerRef.current = true;
+        openInfoLocationIdRef.current = Number(row.id);
+        openInfoMarkerRef.current = marker;
 
         const meta = kvByLoc.get(row.id) || {};
         let html;
