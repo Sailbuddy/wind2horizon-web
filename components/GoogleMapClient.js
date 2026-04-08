@@ -2800,18 +2800,6 @@ const activeListTypeLabel =
     ? 'Törnbericht'
     : activeListType;
 
-  const collectionsRef = useRef([]);
-  const activeCollectionMetaRef = useRef(null);
-
-const activeListName =
-  activeCollectionResolved?.title ||
-  activeCollectionResolved?.name ||
-  '';
-
-const activeListType =
-  activeCollectionResolved?.collection_type ||
-  activeCollectionResolved?.type ||
-  '';
 
 const activeListTypeLabel =
   activeListType === 'favorites'
