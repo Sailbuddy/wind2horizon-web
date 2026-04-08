@@ -2801,15 +2801,6 @@ const activeListTypeLabel =
     : activeListType;
 
 
-const activeListTypeLabel =
-  activeListType === 'favorites'
-    ? 'Favoriten'
-    : activeListType === 'trip_plan'
-    ? 'Planung'
-    : activeListType === 'trip_report'
-    ? 'Törnbericht'
-    : activeListType;  
-
 const btnFav = `
   <div class="iw-action-block">
     <button id="favbtn-${row.id}" class="iw-btn iw-btn-fav iw-btn-fav-idle" type="button">
