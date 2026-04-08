@@ -2774,8 +2774,31 @@ function getFavoriteMarkerSvg(svgMarkup) {
 
     // ✅ Favoriten Button
 
-    const activeListName = activeCollectionMeta?.title || '';
-const activeListType = activeCollectionMeta?.collection_type || '';
+    const activeCollectionResolved =
+  activeCollectionMeta ||
+  (collections || []).find(
+    (c) => Number(c?.id) === Number(activeCollectionIdRef.current)
+  ) ||
+  null;
+
+const activeListName =
+  activeCollectionResolved?.title ||
+  activeCollectionResolved?.name ||
+  '';
+
+const activeListType =
+  activeCollectionResolved?.collection_type ||
+  activeCollectionResolved?.type ||
+  '';
+
+const activeListTypeLabel =
+  activeListType === 'favorites'
+    ? 'Favoriten'
+    : activeListType === 'trip_plan'
+    ? 'Planung'
+    : activeListType === 'trip_report'
+    ? 'Törnbericht'
+    : activeListType;  
 
 const btnFav = `
   <div class="iw-action-block">
@@ -2789,8 +2812,8 @@ const btnFav = `
       <div class="iw-active-list">
         Liste: ${escapeHtml(activeListName)}
         ${
-          activeListType
-            ? `<span class="iw-active-type">(${escapeHtml(activeListType)})</span>`
+          activeListTypeLabel
+            ? `<span class="iw-active-type">(${escapeHtml(activeListTypeLabel)})</span>`
             : ''
         }
       </div>
