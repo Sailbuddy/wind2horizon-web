@@ -3213,7 +3213,10 @@ function refreshOpenInfoWindow() {
 
   infoWin.current.setContent(html);
   infoWin.current.open({ map: mapObj.current, anchor: marker });
+  bindInfoWindowDomHandlers(row, marker, lang, meta);
 }
+
+
 
   function openResult(row) {
     const marker = markerMapRef.current.get(row.id);
@@ -3341,6 +3344,269 @@ function refreshOpenInfoWindow() {
 
   setSearchMode({ active: true, query: raw, results: limited, message: '', matchedCategories: catHits });
   enterSearchFocus(limited.map((x) => x.row));
+}
+
+
+function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
+  google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+    try {
+      const kvNow = metaByLocRef.current.get(row.id) || metaFallback;
+
+      // ---------------------------
+      // Fotos Button: User + Google
+      // ---------------------------
+      const btn = document.getElementById(`phbtn-${row.id}`);
+      if (btn) {
+        btn.addEventListener('click', async () => {
+          try {
+            const titleNow = pickName(row, langCode);
+
+            const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+            const userPhotos = await hydrateUserPhotos(row.id, langCode);
+
+            const seen = new Set();
+            const merged = [];
+
+            const pushUnique = (p) => {
+              if (!p) return;
+
+              const gRef = p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref;
+              if (gRef) {
+                const k = `g:${String(gRef)}`;
+                if (seen.has(k)) return;
+                seen.add(k);
+                merged.push(p);
+                return;
+              }
+
+              const u = p.public_url || p.url || p.thumb || p.image_url;
+              if (u) {
+                const k = `u:${String(u)}`;
+                if (seen.has(k)) return;
+                seen.add(k);
+                merged.push(p);
+              }
+            };
+
+            (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
+            googlePhotos.forEach(pushUnique);
+
+            if (merged.length) {
+              setGallery({ title: titleNow, photos: merged, row });
+            }
+          } catch (e) {
+            console.warn('[w2h] merge gallery failed', e);
+            const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
+            if (googlePhotos.length) {
+              setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
+            }
+          }
+        });
+      }
+
+      // ---------------------------
+      // Wind Button
+      // ---------------------------
+      const wbtn = document.getElementById(`windbtn-${row.id}`);
+      if (wbtn) {
+        wbtn.addEventListener('click', () => {
+          setWindModal({
+            id: row.id,
+            title: pickName(row, langCode),
+            windProfile: kvNow.wind_profile || null,
+            windHint: kvNow.wind_hint || {},
+            liveWindStation: kvNow.livewind_station || null,
+            liveWindStationName: kvNow.livewind_station_name || null,
+          });
+        });
+      }
+
+      // ---------------------------
+      // Favoriten / Listen Button
+      // ---------------------------
+      const favbtnId = `favbtn-${row.id}`;
+      console.log('[W2H] looking for button:', favbtnId);
+
+      const favbtn = document.getElementById(favbtnId);
+
+      if (!favbtn) {
+        console.warn('[W2H] button NOT found:', favbtnId);
+      } else {
+        console.log('[W2H] button FOUND:', favbtnId);
+
+        const currentLocationId = String(row.id);
+        favbtn.dataset.locationId = currentLocationId;
+
+        setFavoriteButtonState(favbtn, 'checking', langCode);
+
+        (async () => {
+          try {
+            const isFavorite = await fetchFavoriteStatus(row.id);
+
+            if (favbtn.dataset.locationId !== currentLocationId) return;
+
+            if (user && !accessToken) {
+              console.warn('[W2H] skip final favorite state: token not ready yet');
+              setFavoriteButtonState(favbtn, 'idle', langCode);
+              return;
+            }
+
+            if (isFavorite) {
+              favoriteIdsRef.current.add(Number(row.id));
+            } else {
+              favoriteIdsRef.current.delete(Number(row.id));
+            }
+
+            setFavoriteButtonState(favbtn, isFavorite ? 'remove' : 'idle', langCode);
+            refreshMarkerIcon(row);
+          } catch (err) {
+            console.error('[W2H] favorite status check failed:', err);
+
+            if (favbtn.dataset.locationId !== currentLocationId) return;
+            setFavoriteButtonState(favbtn, 'idle', langCode);
+          }
+        })();
+
+        favbtn.addEventListener('click', async () => {
+          console.log('[W2H] CLICK FIRED', row.id);
+
+          try {
+            if (favoriteBusyIds[row.id]) {
+              console.log('[W2H] already processing → skip', row.id);
+              return;
+            }
+
+            const isCurrentlyFavorite = favoriteStatusCache[row.id] === true;
+
+            setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
+
+            if (!user) {
+              setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
+
+              if (!isCurrentlyFavorite) {
+                setAuthIntent({
+                  type: 'favorite_add',
+                  locationId: row.id,
+                  lang: langCode,
+                  ts: Date.now(),
+                });
+
+                setAuthModalOpen(true);
+              }
+
+              return;
+            }
+
+            if (!accessToken) {
+              console.warn('[W2H] no access token yet, cannot change favorite state');
+              setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
+              return;
+            }
+
+            if (isCurrentlyFavorite) {
+              console.log('[W2H] removing favorite...', row.id);
+              setFavoriteButtonState(favbtn, 'removing', langCode);
+
+              await removeFavoriteFromActiveCollection({
+                locationId: row.id,
+                accessToken,
+              });
+
+              favoriteStatusCache[row.id] = false;
+              favoriteIdsRef.current.delete(Number(row.id));
+              delete favoriteStatusPromiseCache[row.id];
+
+              console.log('[W2H] favorite removed');
+              setFavoriteButtonState(favbtn, 'idle', langCode);
+              refreshMarkerIcon(row);
+              return;
+            }
+
+            console.log('[W2H] saving favorite...', row.id);
+            setFavoriteButtonState(favbtn, 'saving', langCode);
+
+            await saveFavoriteToActiveCollection({
+              locationId: row.id,
+              langCode,
+              accessToken,
+            });
+
+            favoriteStatusCache[row.id] = true;
+            favoriteIdsRef.current.add(Number(row.id));
+            delete favoriteStatusPromiseCache[row.id];
+
+            console.log('[W2H] favorite saved');
+            setFavoriteButtonState(favbtn, 'remove', langCode);
+            refreshMarkerIcon(row);
+          } catch (e) {
+            console.error('[W2H] favorite toggle failed', e);
+            setFavoriteButtonState(
+              favbtn,
+              favoriteStatusCache[row.id] === true ? 'saved' : 'error',
+              langCode
+            );
+
+            window.setTimeout(() => {
+              if (favoriteStatusCache[row.id] === true) {
+                setFavoriteButtonState(favbtn, 'remove', langCode);
+              } else {
+                setFavoriteButtonState(favbtn, 'idle', langCode);
+              }
+            }, 1600);
+          } finally {
+            setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
+          }
+        });
+      }
+
+      // ---------------------------
+      // KI-Report Button
+      // ---------------------------
+      const kibtn = document.getElementById(`kibtn-${row.id}`);
+      if (kibtn) {
+        kibtn.addEventListener('click', async () => {
+          const titleNow = pickName(row, langCode);
+
+          setKiModal({
+            locationId: row.id,
+            title: titleNow,
+            loading: true,
+            error: '',
+            report: null,
+            createdAt: null,
+          });
+
+          try {
+            const data = await fetchKiReport({ locationId: row.id, langCode });
+            const reportObj = data.report_json || data.report || data;
+            const createdAt = data.created_at || reportObj?.created_at || null;
+
+            setKiModal((prev) => ({
+              ...(prev || {}),
+              locationId: row.id,
+              title: titleNow,
+              loading: false,
+              error: '',
+              report: reportObj,
+              createdAt,
+            }));
+          } catch (e) {
+            setKiModal((prev) => ({
+              ...(prev || {}),
+              locationId: row.id,
+              title: titleNow,
+              loading: false,
+              error: e?.message || 'KI-Report konnte nicht geladen werden.',
+              report: null,
+              createdAt: null,
+            }));
+          }
+        });
+      }
+    } catch (errDom) {
+      console.error('[w2h] domready handler failed for location', row.id, errDom);
+    }
+  });
 }
 
 
@@ -4017,276 +4283,9 @@ return poly;
           }, 0);
         }
 
-        google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
-          try {
-            const kvNow = kvByLoc.get(row.id) || meta;
-
-            // ---------------------------
-            // Fotos Button: User + Google (gemischt)
-            // ---------------------------
-            const btn = document.getElementById(`phbtn-${row.id}`);
-            if (btn) {
-              btn.addEventListener('click', async () => {
-                try {
-                  const titleNow = pickName(row, langCode);
-
-                  const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-                  const userPhotos = await hydrateUserPhotos(row.id, langCode);
-
-                  // Dedupe (Google: photo_reference | User: url/public_url/thumb/image_url)
-                  const seen = new Set();
-                  const merged = [];
-
-                  const pushUnique = (p) => {
-                    if (!p) return;
-
-                    const gRef = p.photo_reference || p.photoreference || p.photoRef || p.photo_ref || p.ref;
-                    if (gRef) {
-                      const k = `g:${String(gRef)}`;
-                      if (seen.has(k)) return;
-                      seen.add(k);
-                      merged.push(p);
-                      return;
-                    }
-
-                    const u = p.public_url || p.url || p.thumb || p.image_url;
-                    if (u) {
-                      const k = `u:${String(u)}`;
-                      if (seen.has(k)) return;
-                      seen.add(k);
-                      merged.push(p);
-                    }
-                  };
-
-                  
-
-
-                  // Reihenfolge: User zuerst, dann Google
-                  (Array.isArray(userPhotos) ? userPhotos : []).forEach(pushUnique);
-                  googlePhotos.forEach(pushUnique);
-  
-              
-                  
-                  if (merged.length) {
-                    setGallery({ title: titleNow, photos: merged, row });
-                  }
-                } catch (e) {
-                  console.warn('[w2h] merge gallery failed', e);
-                  const googlePhotos = kvNow.photos && Array.isArray(kvNow.photos) ? kvNow.photos : [];
-
-
-                  if (googlePhotos.length) {
-                    setGallery({ title: pickName(row, langCode), photos: googlePhotos, row });
-                  }
-                }
-              });
-            }
-
-            // ---------------------------
-            // Wind Button
-            // ---------------------------
-            const wbtn = document.getElementById(`windbtn-${row.id}`);
-            if (wbtn) {
-              wbtn.addEventListener('click', () => {
-                setWindModal({
-                  id: row.id,
-                  title: pickName(row, langCode),
-                  windProfile: kvNow.wind_profile || null,
-                  windHint: kvNow.wind_hint || {},
-                  liveWindStation: kvNow.livewind_station || null,
-                  liveWindStationName: kvNow.livewind_station_name || null,
-                });
-              });
-            }
-
-// ---------------------------
-// Favoriten Button
-// ---------------------------
-const favbtnId = `favbtn-${row.id}`;
-console.log('[W2H] looking for button:', favbtnId);
-
-const favbtn = document.getElementById(favbtnId);
-
-if (!favbtn) {
-  console.warn('[W2H] button NOT found:', favbtnId);
-} else {
-  console.log('[W2H] button FOUND:', favbtnId);
-
-  const currentLocationId = String(row.id);
-  favbtn.dataset.locationId = currentLocationId;
-
-  setFavoriteButtonState(favbtn, 'checking', langCode);
-
-  (async () => {
-  try {
-    const isFavorite = await fetchFavoriteStatus(row.id);
-
-    if (favbtn.dataset.locationId !== currentLocationId) return;
-
-    if (user && !accessToken) {
-      console.warn('[W2H] skip final favorite state: token not ready yet');
-      setFavoriteButtonState(favbtn, 'idle', langCode);
-      return;
-    }
-
-    if (isFavorite) {
-      favoriteIdsRef.current.add(Number(row.id));
-    } else {
-      favoriteIdsRef.current.delete(Number(row.id));
-    }
-
-    setFavoriteButtonState(favbtn, isFavorite ? 'remove' : 'idle', langCode);
-    refreshMarkerIcon(row);
-  } catch (err) {
-    console.error('[W2H] favorite status check failed:', err);
-
-    if (favbtn.dataset.locationId !== currentLocationId) return;
-
-    setFavoriteButtonState(favbtn, 'idle', langCode);
-  }
-})();
-
-  favbtn.addEventListener('click', async () => {
-  console.log('[W2H] CLICK FIRED', row.id);
-
-  try {
-    if (favoriteBusyIds[row.id]) {
-      console.log('[W2H] already processing → skip', row.id);
-      return;
-    }
-
-    const isCurrentlyFavorite = favoriteStatusCache[row.id] === true;
-
-    setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
-
-    if (!user) {
-      setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
-
-      if (!isCurrentlyFavorite) {
-        setAuthIntent({
-          type: 'favorite_add',
-          locationId: row.id,
-          lang: langCode,
-          ts: Date.now(),
-        });
-
-        setAuthModalOpen(true);
-      }
-
-      return;
-    }
-
-    if (!accessToken) {
-      console.warn('[W2H] no access token yet, cannot change favorite state');
-      setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
-      return;
-    }
-
-    if (isCurrentlyFavorite) {
-      console.log('[W2H] removing favorite...', row.id);
-      setFavoriteButtonState(favbtn, 'removing', langCode);
-
-      await removeFavoriteFromActiveCollection({
-        locationId: row.id,
-        accessToken,
-      });
-
-      favoriteStatusCache[row.id] = false;
-      favoriteIdsRef.current.delete(Number(row.id));
-      delete favoriteStatusPromiseCache[row.id];
-
-      console.log('[W2H] favorite removed');
-      setFavoriteButtonState(favbtn, 'idle', langCode);
-      refreshMarkerIcon(row);
-      return;
-    }
-
-    console.log('[W2H] saving favorite...', row.id);
-    setFavoriteButtonState(favbtn, 'saving', langCode);
-
-    await saveFavoriteToActiveCollection({
-      locationId: row.id,
-      langCode,
-      accessToken,
-    });
-
-    favoriteStatusCache[row.id] = true;
-    favoriteIdsRef.current.add(Number(row.id));
-    delete favoriteStatusPromiseCache[row.id];
-
-    console.log('[W2H] favorite saved');
-    setFavoriteButtonState(favbtn, 'remove', langCode);
-    refreshMarkerIcon(row);
-  } catch (e) {
-    console.error('[W2H] favorite toggle failed', e);
-    setFavoriteButtonState(
-      favbtn,
-      favoriteStatusCache[row.id] === true ? 'saved' : 'error',
-      langCode
-    );
-
-    window.setTimeout(() => {
-      if (favoriteStatusCache[row.id] === true) {
-        setFavoriteButtonState(favbtn, 'remove', langCode);
-      } else {
-        setFavoriteButtonState(favbtn, 'idle', langCode);
-      }
-    }, 1600);
-  } finally {
-    setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
-  }
-});
-}
-            // ---------------------------
-            // KI-Report Button (Lazy Fetch)
-            // ---------------------------
-            const kibtn = document.getElementById(`kibtn-${row.id}`);
-            if (kibtn) {
-              kibtn.addEventListener('click', async () => {
-                const titleNow = pickName(row, langCode);
-
-                // Modal sofort öffnen (Loading)
-                setKiModal({
-                  locationId: row.id,
-                  title: titleNow,
-                  loading: true,
-                  error: '',
-                  report: null,
-                  createdAt: null,
-                });
-
-                try {
-                  const data = await fetchKiReport({ locationId: row.id, langCode });
-                  const reportObj = data.report_json || data.report || data;
-                  const createdAt = data.created_at || reportObj?.created_at || null;
-
-                  setKiModal((prev) => ({
-                    ...(prev || {}),
-                    locationId: row.id,
-                    title: titleNow,
-                    loading: false,
-                    error: '',
-                    report: reportObj,
-                    createdAt,
-                  }));
-                } catch (e) {
-                  setKiModal((prev) => ({
-                    ...(prev || {}),
-                    locationId: row.id,
-                    title: titleNow,
-                    loading: false,
-                    error: e?.message || 'KI-Report konnte nicht geladen werden.',
-                    report: null,
-                    createdAt: null,
-                  }));
-                }
-              });
-            }
-          } catch (errDom) {
-            console.error('[w2h] domready handler failed for location', row.id, errDom);
-          }
-        });
-      });
+      bindInfoWindowDomHandlers(row, marker, langCode, meta);
+        
+      
 
       markers.current.push(marker);
     });
