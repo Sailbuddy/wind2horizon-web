@@ -2773,8 +2773,32 @@ function getFavoriteMarkerSvg(svgMarkup) {
 
 
     // ✅ Favoriten Button
-    const btnFav = `<button id="favbtn-${row.id}" class="iw-btn iw-btn-fav iw-btn-fav-idle" type="button">${label('favoriteSave', langCode)}</button>`;
-  
+
+    const activeListName = activeCollectionMeta?.title || '';
+const activeListType = activeCollectionMeta?.collection_type || '';
+
+const btnFav = `
+  <div class="iw-action-block">
+    <button id="favbtn-${row.id}" class="iw-btn iw-btn-fav iw-btn-fav-idle" type="button">
+      ${label('favoriteSave', langCode)}
+    </button>
+
+    ${
+      activeListName
+        ? `
+      <div class="iw-active-list">
+        Liste: ${escapeHtml(activeListName)}
+        ${
+          activeListType
+            ? `<span class="iw-active-type">(${escapeHtml(activeListType)})</span>`
+            : ''
+        }
+      </div>
+    `
+        : ''
+    }
+  </div>
+`;
   
     // ✅ KI-Report Button (nur nach Klick; kein Preload)
     const btnKi = `<button id="kibtn-${row.id}" class="iw-btn iw-btn-ki">🧠 ${label('kiReport', langCode)}</button>`;
@@ -4987,13 +5011,28 @@ if (!favbtn) {
  
 
 `}</style>
-    <style jsx global>{`
-        .gm-style .w2h-iw {
-          max-width: 340px;
-          font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          color: #1a1a1a;
-        }
-      `}</style>
+<style jsx global>{`
+  .gm-style .w2h-iw {
+    max-width: 340px;
+    font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    color: #1a1a1a;
+  }
+
+  .gm-style .w2h-iw .iw-action-block {
+    margin-top: 6px;
+  }
+
+  .gm-style .w2h-iw .iw-active-list {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #64748b;
+  }
+
+  .gm-style .w2h-iw .iw-active-type {
+    margin-left: 6px;
+    opacity: 0.8;
+  }
+`}</style>
     </>
   );
 
