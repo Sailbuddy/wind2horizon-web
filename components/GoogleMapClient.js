@@ -2128,27 +2128,27 @@ function Lightbox({ gallery: g, onClose }) {
 
     // ✅ Favoriten UI 
     favoriteSave: {
-       de: 'Zu Favoriten',
-       en: 'Save to favorites',
-       it: 'Salva nei preferiti',
-       hr: 'Spremi u favorite',
-       fr: 'Ajouter aux favoris',
-     },
+  de: 'Zur Liste',
+  en: 'Add to list',
+  it: 'Alla lista',
+  fr: 'Ajouter à la liste',
+  hr: 'Na listu',
+},
  
      favoriteSaved: {
-       de: 'In Favoriten gespeichert.',
-       en: 'Saved to favorites.',
-       it: 'Salvato nei preferiti.',
-       hr: 'Spremljeno u favorite.',
-       fr: 'Ajouté aux favoris.',
+       de: 'In Liste gespeichert.',
+       en: 'Saved to list.',
+       it: 'Salvato nella lista.',
+       hr: 'Spremljeno u listu.',
+       fr: 'Ajouté à la liste.',
      },
  
      favoriteSaveFailed: {
-       de: 'Favorit konnte nicht gespeichert werden.',
-       en: 'Could not save favorite.',
-       it: 'Impossibile salvare il preferito.',
-       hr: 'Spremanje favorita nije uspjelo.',
-       fr: 'Impossible d’enregistrer le favori.',
+       de: 'Element konnte nicht zur Liste hinzugefügt werden.',
+       en: 'Could not add item to list.',
+       it: 'Impossibile aggiungere l’elemento alla lista.',
+       hr: 'Dodavanje elementa na listu nije uspjelo.',
+       fr: 'Impossible d’ajouter l’élément à la liste.',
      },
 
      favoriteSaving: {
@@ -2160,12 +2160,12 @@ function Lightbox({ gallery: g, onClose }) {
     },
 
     favoriteRemove: {
-      de: 'Aus Favoriten entfernen',
-      en: 'Remove from favorites',
-      it: 'Rimuovi dai preferiti',
-      hr: 'Ukloni iz favorita',
-      fr: 'Retirer des favoris',
-    },
+  de: 'Aus Liste entfernen',
+  en: 'Remove from list',
+  it: 'Rimuovi dalla lista',
+  fr: 'Retirer de la liste',
+  hr: 'Ukloni s liste',
+},
 
      favoriteRemoving: {
       de: 'Entfernt...',
@@ -2192,11 +2192,11 @@ function Lightbox({ gallery: g, onClose }) {
     },
 
     favoriteSave: {
-      de: 'Zu Favoriten',
-      en: 'Save to favorites',
-      it: 'Salva nei preferiti',
-      hr: 'Spremi u favorite',
-      fr: 'Ajouter aux favoris',
+      de: 'Zu Liste hinzufügen',
+      en: 'Add to list',
+      it: 'Aggiungi alla lista',
+      hr: 'Dodaj na listu',
+      fr: 'Ajouter à la liste',
     },
 
     favoriteChecking: {
@@ -2208,11 +2208,11 @@ function Lightbox({ gallery: g, onClose }) {
     },
 
     favoriteSaved: {
-      de: 'In Favoriten gespeichert.',
-      en: 'Saved to favorites.',
-      it: 'Salvato nei preferiti.',
-      hr: 'Spremljeno u favorite.',
-      fr: 'Ajouté aux favoris.',
+      de: 'In Liste gespeichert.',
+      en: 'Saved to list.',
+      it: 'Salvato nella lista.',
+      hr: 'Spremljeno u listu.',
+      fr: 'Ajouté à la liste.',
     },
 
       // ✅ KI-Report UI
@@ -2775,11 +2775,33 @@ function getFavoriteMarkerSvg(svgMarkup) {
     // ✅ Favoriten Button
 
     const activeCollectionResolved =
-  activeCollectionMeta ||
-  (collections || []).find(
+  activeCollectionMetaRef.current ||
+  (collectionsRef.current || []).find(
     (c) => Number(c?.id) === Number(activeCollectionIdRef.current)
   ) ||
   null;
+
+const activeListName =
+  activeCollectionResolved?.title ||
+  activeCollectionResolved?.name ||
+  '';
+
+const activeListType =
+  activeCollectionResolved?.collection_type ||
+  activeCollectionResolved?.type ||
+  '';
+
+const activeListTypeLabel =
+  activeListType === 'favorites'
+    ? 'Favoriten'
+    : activeListType === 'trip_plan'
+    ? 'Planung'
+    : activeListType === 'trip_report'
+    ? 'Törnbericht'
+    : activeListType;
+
+  const collectionsRef = useRef([]);
+  const activeCollectionMetaRef = useRef(null);
 
 const activeListName =
   activeCollectionResolved?.title ||
@@ -3353,6 +3375,16 @@ function applyLayerVisibilityToMarkersAndPolys() {
 
   return () => { alive = false; };
   }, [mapLoaded, regionMode, welcomeClosed, lang]);
+
+  // Refs synchron halten für Listen im InfoWindow
+
+  useEffect(() => {
+  collectionsRef.current = collections || [];
+}, [collections]);
+
+  useEffect(() => {
+  activeCollectionMetaRef.current = activeCollectionMeta || null;
+}, [activeCollectionMeta]);
 
 
   // ✅ Sobald Regions geladen sind: wenn wir schon eine Position haben -> Region nachziehen
