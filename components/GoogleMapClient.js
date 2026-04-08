@@ -185,7 +185,8 @@ function isFavoriteBusy(id) {
   const locationsRef = useRef([]); // aktuell sichtbare Locations (nach Deduplizierung)
   const favoriteIdsRef = useRef(new Set());
   const activeCollectionIdRef = useRef(null);
-
+  const collectionsRef = useRef([]);
+  const activeCollectionMetaRef = useRef(null);
 
   // 🔹 Meta pro Location (für Suche/InfoWindow)
   const metaByLocRef = useRef(new Map()); // location_id -> aggregated meta (kv)
@@ -2191,14 +2192,7 @@ function Lightbox({ gallery: g, onClose }) {
       fr: 'Erreur',
     },
 
-    favoriteSave: {
-      de: 'Zu Liste hinzufügen',
-      en: 'Add to list',
-      it: 'Aggiungi alla lista',
-      hr: 'Dodaj na listu',
-      fr: 'Ajouter à la liste',
-    },
-
+   
     favoriteChecking: {
       de: 'Prüfe...',
       en: 'Checking...',
@@ -2207,14 +2201,7 @@ function Lightbox({ gallery: g, onClose }) {
       fr: 'Vérification...',
     },
 
-    favoriteSaved: {
-      de: 'In Liste gespeichert.',
-      en: 'Saved to list.',
-      it: 'Salvato nella lista.',
-      hr: 'Spremljeno u listu.',
-      fr: 'Ajouté à la liste.',
-    },
-
+    
       // ✅ KI-Report UI
       kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
       refreshReport: { de: 'Aktualisieren', en: 'Refresh', it: 'Aggiorna', hr: 'Osvježi', fr: 'Actualiser' },
