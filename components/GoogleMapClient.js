@@ -160,6 +160,7 @@ export default function GoogleMapClient({ lang = 'de' }) {
   const [activeCollectionItems, setActiveCollectionItems] = useState([]);
   const [activeCollectionItemsLoading, setActiveCollectionItemsLoading] = useState(false);
   const [activeCollectionItemsError, setActiveCollectionItemsError] = useState('');
+  
   const { user, accessToken, setAuthModalOpen, lastIntent, setLastIntent } = useAuth();
   const [favoriteBusyIds, setFavoriteBusyIds] = useState({});
 
@@ -187,6 +188,8 @@ function isFavoriteBusy(id) {
   const activeCollectionIdRef = useRef(null);
   const collectionsRef = useRef([]);
   const activeCollectionMetaRef = useRef(null);
+  const openInfoLocationIdRef = useRef(null);
+  const openInfoMarkerRef = useRef(null);
 
   // 🔹 Meta pro Location (für Suche/InfoWindow)
   const metaByLocRef = useRef(new Map()); // location_id -> aggregated meta (kv)
@@ -528,6 +531,7 @@ async function setActiveCollection(collectionId) {
     // Marker-Icons anhand des neuen Favoritenstatus neu setzen
     const rows = locationsRef.current || [];
     rows.forEach((row) => refreshMarkerIcon(row));
+    refreshOpenInfoWindow();
 
     return resolvedId;
   } catch (err) {
@@ -3181,6 +3185,32 @@ function applyLayerVisibilityToMarkersAndPolys() {
     mapObj.current.panTo({ lat: row.lat, lng: row.lng });
     mapObj.current.setZoom(16);
   }
+}
+
+function refreshOpenInfoWindow() {
+  const locationId = Number(openInfoLocationIdRef.current);
+  const marker = openInfoMarkerRef.current;
+
+  if (!Number.isFinite(locationId) || !marker || !infoWin.current) return;
+
+  const row = (locationsRef.current || []).find((x) => Number(x.id) === locationId);
+  if (!row) return;
+
+  const meta = metaByLocRef.current.get(locationId) || {};
+  const baseSvg = (row.categories && row.categories.icon_svg) || defaultMarkerSvg;
+  const isFavoriteNow = favoriteIdsRef.current.has(Number(row.id));
+  const currentMarkerSvg = isFavoriteNow ? getFavoriteMarkerSvg(baseSvg) : baseSvg;
+
+  let html;
+  try {
+    html = buildInfoContent(row, meta, currentMarkerSvg, lang);
+  } catch (err) {
+    console.error('[W2H] refreshOpenInfoWindow failed:', err);
+    html = buildErrorInfoContent(row.id);
+  }
+
+  infoWin.current.setContent(html);
+  infoWin.current.open({ map: mapObj.current, anchor: marker });
 }
 
   function openResult(row) {
