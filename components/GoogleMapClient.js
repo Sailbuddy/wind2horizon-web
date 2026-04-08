@@ -4241,51 +4241,51 @@ return poly;
         console.warn('[w2h] polygon render failed for', row?.id, e);
       }
 
-      marker.addListener('click', () => {
-        infoWinOpenedByMarkerRef.current = true;
-        openInfoLocationIdRef.current = Number(row.id);
-        openInfoMarkerRef.current = marker;
+  marker.addListener('click', () => {
+  infoWinOpenedByMarkerRef.current = true;
+  openInfoLocationIdRef.current = Number(row.id);
+  openInfoMarkerRef.current = marker;
 
-        const meta = kvByLoc.get(row.id) || {};
-        let html;
-        try {
-          html = buildInfoContent(row, meta, markerSvg, langCode);
-        } catch (errBI) {
-          console.error('[w2h] buildInfoContent failed for location', row.id, errBI, { row, meta });
-          html = buildErrorInfoContent(row.id);
+  const meta = kvByLoc.get(row.id) || {};
+  let html;
+  try {
+    html = buildInfoContent(row, meta, markerSvg, langCode);
+  } catch (errBI) {
+    console.error('[w2h] buildInfoContent failed for location', row.id, errBI, { row, meta });
+    html = buildErrorInfoContent(row.id);
+  }
+
+  infoWin.current.setContent(html);
+  infoWin.current.open({ map: mapObj.current, anchor: marker });
+
+  if (mapObj.current && typeof mapObj.current.panBy === 'function') {
+    setTimeout(() => {
+      try {
+        let offsetX = 160;
+        let offsetY = -140;
+
+        if (typeof window !== 'undefined') {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          if (w <= 1024) {
+            offsetX = 140;
+            offsetY = -160;
+          }
+          if (w <= 640 && h > w) {
+            offsetX = 120;
+            offsetY = -220;
+          }
         }
 
-        infoWin.current.setContent(html);
-        infoWin.current.open({ map: mapObj.current, anchor: marker });
+        mapObj.current.panBy(offsetX, offsetY);
+      } catch (e) {
+        console.warn('[w2h] panBy failed', e);
+      }
+    }, 0);
+  }
 
-        if (mapObj.current && typeof mapObj.current.panBy === 'function') {
-          setTimeout(() => {
-            try {
-              let offsetX = 160;
-              let offsetY = -140;
-
-              if (typeof window !== 'undefined') {
-                const w = window.innerWidth;
-                const h = window.innerHeight;
-                if (w <= 1024) {
-                  offsetX = 140;
-                  offsetY = -160;
-                }
-                if (w <= 640 && h > w) {
-                  offsetX = 120;
-                  offsetY = -220;
-                }
-              }
-              mapObj.current.panBy(offsetX, offsetY);
-            } catch (e) {
-              console.warn('[w2h] panBy failed', e);
-            }
-          }, 0);
-        }
-
-      bindInfoWindowDomHandlers(row, marker, langCode, meta);
-        
-      
+  bindInfoWindowDomHandlers(row, marker, langCode, meta);
+});  
 
       markers.current.push(marker);
     });
