@@ -816,6 +816,20 @@ useEffect(() => {
   favoriteIdsRef.current = new Set();
 }, [user, accessToken]);
 
+// ✅ Collections bei Login automatisch laden
+
+useEffect(() => {
+  if (!user || !accessToken) {
+    setCollections([]);
+    setActiveCollectionMeta(null);
+    activeCollectionIdRef.current = null;
+    return;
+  }
+
+  loadCollections().catch((err) => {
+    console.error('[W2H] auto loadCollections failed:', err);
+  });
+}, [user, accessToken]);
 
   // Such-Query-State
   const [searchQuery, setSearchQuery] = useState('');
