@@ -3348,7 +3348,7 @@ function refreshOpenInfoWindow() {
 
 
 function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
-  google.maps.event.addListenerOnce(infoWin.current, 'domready', () => {
+  google.maps.event.addListener(infoWin.current, 'domready', () => {
     try {
       const kvNow = metaByLocRef.current.get(row.id) || metaFallback;
 
