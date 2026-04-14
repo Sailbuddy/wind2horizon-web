@@ -2883,7 +2883,7 @@ const btnFav = `
         <div class="iw-block-hd">${escapeHtml(label('dataBlock', langCode))}</div>
         <div class="iw-block-bd">
           ${thumbHtml}
-          ${address ? `<div class="iw-row iw-addr">📌 ${address}</div>` : ''}
+          ${address ? `<div class="iw-row iw-addr" style="margin-bottom:10px;"> ${address}</div>` : ''}
           ${desc ? `<div class="iw-row iw-desc" style="white-space:pre-line;">${desc}</div>` : ''}
           ${ratingHtml}
           ${priceHtml}
