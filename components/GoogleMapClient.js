@@ -3489,97 +3489,115 @@ function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
           }
         })();
 
-        favbtn.addEventListener('click', async () => {
-          console.log('[W2H] CLICK FIRED', row.id);
+favbtn.addEventListener('click', async () => {
+  console.log('[W2H] CLICK FIRED', row.id);
 
-          try {
-            if (favoriteBusyIds[row.id]) {
-              console.log('[W2H] already processing → skip', row.id);
-              return;
-            }
+  try {
+    if (favoriteBusyIds[row.id]) {
+      console.log('[W2H] already processing → skip', row.id);
+      return;
+    }
 
-            const isCurrentlyFavorite = favoriteStatusCache[row.id] === true;
+    const isCurrentlyFavorite = favoriteStatusCache[row.id] === true;
 
-            setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
+    setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: true }));
 
-            if (!user) {
-              setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
+    if (!user) {
+      setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
 
-              if (!isCurrentlyFavorite) {
-                setAuthIntent({
-                  type: 'favorite_add',
-                  locationId: row.id,
-                  lang: langCode,
-                  ts: Date.now(),
-                });
+      if (!isCurrentlyFavorite) {
+        setAuthIntent({
+          type: 'favorite_add',
+          locationId: row.id,
+          lang: langCode,
+          ts: Date.now(),
+        });
 
-                setAuthModalOpen(true);
-              }
+        setAuthModalOpen(true);
+      }
 
-              return;
-            }
+      return;
+    }
 
-            if (!accessToken) {
-              console.warn('[W2H] no access token yet, cannot change favorite state');
-              setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
-              return;
-            }
+    if (!accessToken) {
+      console.warn('[W2H] no access token yet, cannot change favorite state');
+      setFavoriteButtonState(favbtn, isCurrentlyFavorite ? 'saved' : 'idle', langCode);
+      return;
+    }
 
-            if (isCurrentlyFavorite) {
-              console.log('[W2H] removing favorite...', row.id);
-              setFavoriteButtonState(favbtn, 'removing', langCode);
+    if (isCurrentlyFavorite) {
+      console.log('[W2H] removing favorite...', row.id);
+      setFavoriteButtonState(favbtn, 'removing', langCode);
 
-              await removeFavoriteFromActiveCollection({
-                locationId: row.id,
-                accessToken,
-              });
+      await removeFavoriteFromActiveCollection({
+        locationId: row.id,
+        accessToken,
+      });
 
-              favoriteStatusCache[row.id] = false;
-              favoriteIdsRef.current.delete(Number(row.id));
-              delete favoriteStatusPromiseCache[row.id];
+      favoriteStatusCache[row.id] = false;
+      favoriteIdsRef.current.delete(Number(row.id));
+      delete favoriteStatusPromiseCache[row.id];
 
-              console.log('[W2H] favorite removed');
-                setFavoriteButtonState(favbtn, 'removed', langCode);
-                refreshMarkerIcon(row);
+      console.log('[W2H] favorite removed');
+      setFavoriteButtonState(favbtn, 'removed', langCode);
+      refreshMarkerIcon(row);
 
-                window.setTimeout(() => {
-                if (favoriteStatusCache[row.id] !== true) {
-                setFavoriteButtonState(favbtn, 'idle', langCode);
-                }
-                }, 900);
+      window.setTimeout(() => {
+        if (favoriteStatusCache[row.id] !== true) {
+          setFavoriteButtonState(favbtn, 'idle', langCode);
+        }
+      }, 900);
 
-              return;
-            }
+      return;
+    }
 
-            console.log('[W2H] saving favorite...', row.id);
-            setFavoriteButtonState(favbtn, 'saving', langCode);
+    console.log('[W2H] saving favorite...', row.id);
+    setFavoriteButtonState(favbtn, 'saving', langCode);
 
-            await saveFavoriteToActiveCollection({
-              locationId: row.id,
-              langCode,
-              accessToken,
-            });
+    await saveFavoriteToActiveCollection({
+      locationId: row.id,
+      langCode,
+      accessToken,
+    });
 
-            favoriteStatusCache[row.id] = true;
-            favoriteIdsRef.current.add(Number(row.id));
-            delete favoriteStatusPromiseCache[row.id];
+    favoriteStatusCache[row.id] = true;
+    favoriteIdsRef.current.add(Number(row.id));
+    delete favoriteStatusPromiseCache[row.id];
 
-            console.log('[W2H] favorite saved');
-              setFavoriteButtonState(favbtn, 'saved', langCode);
-              refreshMarkerIcon(row);
+    console.log('[W2H] favorite saved');
+    setFavoriteButtonState(favbtn, 'saved', langCode);
+    refreshMarkerIcon(row);
 
-            window.setTimeout(() => {
-              if (favoriteStatusCache[row.id] === true) {
-              setFavoriteButtonState(favbtn, 'remove', langCode);
-              }
-              }, 900);
-          } catch (e) {
-  console.error('[W2H] favorite toggle failed', e);
+    window.setTimeout(() => {
+      if (favoriteStatusCache[row.id] === true) {
+        setFavoriteButtonState(favbtn, 'remove', langCode);
+      }
+    }, 900);
 
-  const msg = String(e?.message || '');
+  } catch (e) {
+    console.error('[W2H] favorite toggle failed', e);
 
-  if (msg.includes('Maximum items per collection reached')) {
-    setFavoriteButtonState(favbtn, 'full', langCode);
+    const msg = String(e?.message || e || '');
+
+    if (msg.includes('Maximum items per collection reached')) {
+      setFavoriteButtonState(favbtn, 'full', langCode);
+
+      window.setTimeout(() => {
+        if (favoriteStatusCache[row.id] === true) {
+          setFavoriteButtonState(favbtn, 'remove', langCode);
+        } else {
+          setFavoriteButtonState(favbtn, 'idle', langCode);
+        }
+      }, 1800);
+
+      return;
+    }
+
+    setFavoriteButtonState(
+      favbtn,
+      favoriteStatusCache[row.id] === true ? 'remove' : 'error',
+      langCode
+    );
 
     window.setTimeout(() => {
       if (favoriteStatusCache[row.id] === true) {
@@ -3587,29 +3605,12 @@ function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
       } else {
         setFavoriteButtonState(favbtn, 'idle', langCode);
       }
-    }, 1800);
+    }, 1600);
 
-    return;
+  } finally {
+    setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
   }
-
-  setFavoriteButtonState(
-    favbtn,
-    favoriteStatusCache[row.id] === true ? 'remove' : 'error',
-    langCode
-  );
-
-  window.setTimeout(() => {
-    if (favoriteStatusCache[row.id] === true) {
-      setFavoriteButtonState(favbtn, 'remove', langCode);
-    } else {
-      setFavoriteButtonState(favbtn, 'idle', langCode);
-    }
-  }, 1600);
-}
-          } finally {
-            setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
-          }
-        });
+});
       }
 
       // ---------------------------
