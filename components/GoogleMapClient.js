@@ -649,25 +649,29 @@ async function loadActiveCollectionItems(collectionId) {
 function setFavoriteButtonState(buttonEl, state, langCode) {
   if (!buttonEl) return;
 
-const labels = {
-  idle: label('favoriteSave', langCode),
-  checking: label('favoriteChecking', langCode),
-  saving: label('favoriteSaving', langCode),
-  removing: label('favoriteRemoving', langCode),
-  remove: label('favoriteRemove', langCode),
-  error: label('favoriteSaveErrorShort', langCode),
-};
+  const labels = {
+    idle: label('favoriteSave', langCode),
+    checking: label('favoriteChecking', langCode),
+    saving: label('favoriteSaving', langCode),
+    removing: label('favoriteRemoving', langCode),
+    remove: label('favoriteRemove', langCode),
+    saved: label('favoriteSavedShort', langCode),
+    removed: label('favoriteRemovedShort', langCode),
+    error: label('favoriteSaveErrorShort', langCode),
+  };
 
   buttonEl.textContent = labels[state] || labels.idle;
 
-buttonEl.classList.remove(
-  'iw-btn-fav-idle',
-  'iw-btn-fav-checking',
-  'iw-btn-fav-saving',
-  'iw-btn-fav-removing',
-  'iw-btn-fav-remove',
-  'iw-btn-fav-error'
-);
+  buttonEl.classList.remove(
+    'iw-btn-fav-idle',
+    'iw-btn-fav-checking',
+    'iw-btn-fav-saving',
+    'iw-btn-fav-removing',
+    'iw-btn-fav-remove',
+    'iw-btn-fav-saved',
+    'iw-btn-fav-removed',
+    'iw-btn-fav-error'
+  );
 
   buttonEl.classList.add(`iw-btn-fav-${state}`);
 
@@ -2204,6 +2208,14 @@ function Lightbox({ gallery: g, onClose }) {
       fr: 'Enregistré',
     },
 
+    favoriteRemovedShort: {
+      de: 'Entfernt',
+      en: 'Removed',
+      it: 'Rimosso',
+      hr: 'Uklonjeno',
+      fr: 'Retiré',
+    },
+
     favoriteSaveErrorShort: {
       de: 'Fehler',
       en: 'Error',
@@ -2877,6 +2889,7 @@ const btnFav = `
       if (blocks) dynamicHtml = `<div class="iw-dyn">${blocks}</div>`;
     }
 
+const descIcon = '📝';    
     // ✅ Datenblock immer sichtbar (optische Kapselung, keine Funktionseinschränkung)
     const dataBlock = `
       <div class="iw-block iw-block-data">
@@ -2884,7 +2897,7 @@ const btnFav = `
         <div class="iw-block-bd">
           ${thumbHtml}
           ${address ? `<div class="iw-row iw-addr" style="margin-bottom:10px;">📌 ${address}</div>` : ''}
-          ${desc ? `<div class="iw-row iw-desc" style="white-space:pre-line;">${desc}</div>` : ''}
+          ${desc ? `<div class="iw-row iw-desc" style="white-space:pre-line;">${descIcon} ${desc}</div>` : ''}
           ${ratingHtml}
           ${priceHtml}
           ${openingHtml}
@@ -3517,8 +3530,15 @@ function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
               delete favoriteStatusPromiseCache[row.id];
 
               console.log('[W2H] favorite removed');
-              setFavoriteButtonState(favbtn, 'idle', langCode);
-              refreshMarkerIcon(row);
+                setFavoriteButtonState(favbtn, 'removed', langCode);
+                refreshMarkerIcon(row);
+
+                window.setTimeout(() => {
+                if (favoriteStatusCache[row.id] !== true) {
+                setFavoriteButtonState(favbtn, 'idle', langCode);
+                }
+                }, 900);
+
               return;
             }
 
@@ -3536,8 +3556,14 @@ function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
             delete favoriteStatusPromiseCache[row.id];
 
             console.log('[W2H] favorite saved');
-            setFavoriteButtonState(favbtn, 'remove', langCode);
-            refreshMarkerIcon(row);
+              setFavoriteButtonState(favbtn, 'saved', langCode);
+              refreshMarkerIcon(row);
+
+            window.setTimeout(() => {
+              if (favoriteStatusCache[row.id] === true) {
+              setFavoriteButtonState(favbtn, 'remove', langCode);
+              }
+              }, 900);
           } catch (e) {
             console.error('[W2H] favorite toggle failed', e);
             setFavoriteButtonState(
