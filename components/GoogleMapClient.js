@@ -658,6 +658,7 @@ function setFavoriteButtonState(buttonEl, state, langCode) {
     saved: label('favoriteSavedShort', langCode),
     removed: label('favoriteRemovedShort', langCode),
     error: label('favoriteSaveErrorShort', langCode),
+    full: label('favoriteListFullShort', langCode),
   };
 
   buttonEl.textContent = labels[state] || labels.idle;
@@ -2233,6 +2234,14 @@ function Lightbox({ gallery: g, onClose }) {
       fr: 'Vérification...',
     },
 
+    favoriteListFullShort: {
+  de: 'Liste voll',
+  en: 'List full',
+  it: 'Lista piena',
+  hr: 'Lista puna',
+  fr: 'Liste pleine',
+},
+
     
       // ✅ KI-Report UI
       kiReport: { de: 'KI-Report', en: 'AI report', it: 'Report AI', hr: 'AI izvještaj', fr: 'Rapport IA' },
@@ -3565,20 +3574,38 @@ function bindInfoWindowDomHandlers(row, marker, langCode, metaFallback = {}) {
               }
               }, 900);
           } catch (e) {
-            console.error('[W2H] favorite toggle failed', e);
-            setFavoriteButtonState(
-              favbtn,
-              favoriteStatusCache[row.id] === true ? 'saved' : 'error',
-              langCode
-            );
+  console.error('[W2H] favorite toggle failed', e);
 
-            window.setTimeout(() => {
-              if (favoriteStatusCache[row.id] === true) {
-                setFavoriteButtonState(favbtn, 'remove', langCode);
-              } else {
-                setFavoriteButtonState(favbtn, 'idle', langCode);
-              }
-            }, 1600);
+  const msg = String(e?.message || '');
+
+  if (msg.includes('Maximum items per collection reached')) {
+    setFavoriteButtonState(favbtn, 'full', langCode);
+
+    window.setTimeout(() => {
+      if (favoriteStatusCache[row.id] === true) {
+        setFavoriteButtonState(favbtn, 'remove', langCode);
+      } else {
+        setFavoriteButtonState(favbtn, 'idle', langCode);
+      }
+    }, 1800);
+
+    return;
+  }
+
+  setFavoriteButtonState(
+    favbtn,
+    favoriteStatusCache[row.id] === true ? 'remove' : 'error',
+    langCode
+  );
+
+  window.setTimeout(() => {
+    if (favoriteStatusCache[row.id] === true) {
+      setFavoriteButtonState(favbtn, 'remove', langCode);
+    } else {
+      setFavoriteButtonState(favbtn, 'idle', langCode);
+    }
+  }, 1600);
+}
           } finally {
             setFavoriteBusyIds((prev) => ({ ...prev, [row.id]: false }));
           }
