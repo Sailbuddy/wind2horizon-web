@@ -3797,6 +3797,11 @@ useEffect(() => {
 
 {/* Floating Lists Button kommt jetzt aus initFloatingTools */}  
 
+if (floatingCleanupRef.current?.destroy) {
+  floatingCleanupRef.current.destroy();
+  floatingCleanupRef.current = null;
+}
+
 floatingCleanupRef.current = initFloatingTools({
   mapContainer: mapRef.current,
   langCode: lang,
@@ -3829,12 +3834,12 @@ actions: {
 });
 
   return () => {
-    if (typeof floatingCleanupRef.current === 'function') {
-      floatingCleanupRef.current();
+    if (floatingCleanupRef.current?.destroy) {
+      floatingCleanupRef.current.destroy();
       floatingCleanupRef.current = null;
     }
   };
-}, [booted, lang]);
+}, [booted, lang, user]);
 
 
   // ✅ Regions laden (Supabase)
