@@ -3812,6 +3812,14 @@ floatingCleanupRef.current = initFloatingTools({
       await loadCollections();
       setActivePanel((p) => (p === 'collections' ? null : 'collections'));
     },
+    openLogin: () => {
+    if (user) {
+      setActivePanel((p) => (p === 'user' ? null : 'user'));
+      return;
+    }
+
+    setAuthModalOpen(true);
+  },
   },
 });
 
@@ -4515,48 +4523,7 @@ return poly;
 <div className="w2h-map-wrap">
   <div ref={mapRef} className="w2h-map" />
 
-    {/* Auth Test Button */}
-  <div
-    style={{
-      position: 'absolute',
-      top: 70,
-      right: 14,
-      zIndex: 20,
-    }}
-  >
-    {user ? (
-      <button
-        type="button"
-        style={{
-          padding: '10px 12px',
-          borderRadius: 10,
-          border: '1px solid rgba(0,0,0,.12)',
-          background: 'rgba(255,255,255,0.94)',
-          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-          fontWeight: 800,
-          cursor: 'default',
-        }}
-      >
-        Eingeloggt
-      </button>
-    ) : (
-      <button
-        type="button"
-        onClick={() => setAuthModalOpen(true)}
-        style={{
-          padding: '10px 12px',
-          borderRadius: 10,
-          border: '1px solid rgba(0,0,0,.12)',
-          background: 'rgba(255,255,255,0.94)',
-          boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-          fontWeight: 800,
-          cursor: 'pointer',
-        }}
-      >
-        Login Link senden
-      </button>
-    )}
-  </div>
+  
 
 
 {/* Floating Lists Button kommt jetzt aus initFloatingTools */}
@@ -4952,6 +4919,73 @@ return poly;
           }}
         />
         </PanelHost>
+
+        {activePanel === 'user' && (
+  <div
+    style={{
+      position: 'absolute',
+      top: 80,
+      right: 14,
+      width: 320,
+      background: 'rgba(255,255,255,0.96)',
+      border: '1px solid rgba(0,0,0,.10)',
+      borderRadius: 16,
+      boxShadow: '0 10px 30px rgba(0,0,0,.22)',
+      zIndex: 60,
+      padding: 16,
+    }}
+  >
+    <div style={{ fontWeight: 700, marginBottom: 10 }}>
+      Mein Account
+    </div>
+
+    {user ? (
+      <>
+        <div style={{ fontSize: 13, marginBottom: 10 }}>
+          Eingeloggt als:
+          <br />
+          <b>{user.email}</b>
+        </div>
+
+        <button
+          onClick={() => {
+            setActivePanel(null);
+            signOut();
+          }}
+          style={{
+            padding: '10px 12px',
+            borderRadius: 10,
+            border: '1px solid rgba(0,0,0,.12)',
+            background: 'rgba(0,0,0,.05)',
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          Logout
+        </button>
+      </>
+    ) : (
+      <button
+        onClick={() => {
+          setActivePanel(null);
+          setAuthModalOpen(true);
+        }}
+        style={{
+          padding: '10px 12px',
+          borderRadius: 10,
+          border: '1px solid rgba(0,0,0,.12)',
+          background: 'rgba(59,130,246,.10)',
+          cursor: 'pointer',
+          width: '100%',
+          fontWeight: 700,
+        }}
+      >
+        Login
+      </button>
+    )}
+  </div>
+)}
+
 
       {/* ✅ styles MUST be inside the same return parent (Fragment) */}
       <style jsx>{`

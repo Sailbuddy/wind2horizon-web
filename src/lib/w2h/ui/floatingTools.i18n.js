@@ -15,6 +15,12 @@ export const floatingToolsTranslations = {
     listsTitle: 'Meine Listen',
     listsHint: 'Favoriten, Törnplanung und Sammlungen öffnen.',
 
+    login: 'Login',
+    loginTitle: 'Login',
+    loginHint: 'Login-Link senden oder Benutzerstatus anzeigen.',
+    loggedIn: 'Eingeloggt',
+    sendLoginLink: 'Login-Link senden',
+
     emergency: 'Notfall',
     emergencyTitle: 'Notfallkontakte Adria',
     emergencyHint: 'Wichtige Kontakte & Funk.',
@@ -47,6 +53,12 @@ export const floatingToolsTranslations = {
     lists: 'Lists',
     listsTitle: 'My Lists',
     listsHint: 'Open favorites, trip planning and collections.',
+
+    login: 'Login',
+    loginTitle: 'Login',
+    loginHint: 'Send login link or show user status.',
+    loggedIn: 'Logged in',
+    sendLoginLink: 'Send login link',
 
     emergency: 'Emergency',
     emergencyTitle: 'Emergency Contacts Adriatic',
@@ -81,6 +93,12 @@ export const floatingToolsTranslations = {
     listsTitle: 'Mes listes',
     listsHint: 'Ouvrir favoris, planification et collections.',
 
+    login: 'Login',
+    loginTitle: 'Login',
+    loginHint: 'Invia link di accesso o mostra stato utente.',
+    loggedIn: 'Accesso attivo',
+    sendLoginLink: 'Invia link di accesso',
+
     emergency: 'Emergenza',
     emergencyTitle: 'Contatti di emergenza Adriatico',
     emergencyHint: 'Contatti importanti e radio.',
@@ -114,6 +132,12 @@ fr: {
   listsTitle: 'Mes listes',
   listsHint: 'Ouvrir favoris, planification et collections.',
 
+  login: 'Connexion',
+  loginTitle: 'Connexion',
+  loginHint: 'Envoyer le lien de connexion ou afficher le statut utilisateur.',
+  loggedIn: 'Connecté',
+  sendLoginLink: 'Envoyer le lien',
+
   emergency: 'Urgence',
   emergencyTitle: 'Contacts d’urgence Adriatique',
   emergencyHint: 'Contacts importants & radio.',
@@ -146,6 +170,12 @@ fr: {
     lists: 'Liste',
     listsTitle: 'Moje liste',
     listsHint: 'Otvori favorite, planiranje i zbirke.',
+
+    login: 'Prijava',
+    loginTitle: 'Prijava',
+    loginHint: 'Pošalji poveznicu za prijavu ili prikaži status korisnika.',
+    loggedIn: 'Prijavljen',
+    sendLoginLink: 'Pošalji prijavu',
 
     emergency: 'Hitno',
     emergencyTitle: 'Hitni kontakti Jadran',

@@ -122,6 +122,15 @@ function buildDefaultTools({ texts }) {
     },
 
     {
+      id: 'login',
+      icon: '🔐',
+      kind: 'action',
+      label: safe('login', 'Login'),
+      title: safe('loginTitle', 'Login'),
+      actionKey: 'openLogin',
+    },
+
+    {
       id: 'notfall',
       icon: '🚨',
       kind: 'panel',
@@ -288,6 +297,14 @@ export function initFloatingTools(options = {}) {
         return;
       }
 
+      // Login => open auth modal / user action via callback only
+      if (tool.id === 'login') {
+        if (DEBUG_FLOATINGTOOLS) console.log('[w2h] LOGIN BUTTON CLICKED -> actions.openLogin()');
+        setOpen(false);
+        actions.openLogin?.();
+        actions.onAction?.('login-open');
+      return;
+      }
 
       // If same panel-tool active -> toggle close
       if (tool.kind === 'panel' && activeToolId === tool.id && isOpen) {
