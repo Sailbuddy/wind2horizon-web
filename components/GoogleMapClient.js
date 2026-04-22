@@ -3795,19 +3795,25 @@ useEffect(() => {
 
   const texts = floatingToolsTranslations?.[lang];
 
-  floatingCleanupRef.current = initFloatingTools({
-    mapContainer: mapRef.current, // WICHTIG: Container, nicht mapObj
-    langCode: lang,
-    texts,
-    actions: {
-      onOpenBoraOverlay: () => {
-        setActivePanel((p) => (p === 'bora' ? null : 'bora'));
-      },
-      openSeaWeather: () => {
-        setActivePanel((p) => (p === 'seewetter' ? null : 'seewetter'));
-      },
+{/* Floating Lists Button kommt jetzt aus initFloatingTools */}  
+
+floatingCleanupRef.current = initFloatingTools({
+  mapContainer: mapRef.current,
+  langCode: lang,
+  texts,
+  actions: {
+    onOpenBoraOverlay: () => {
+      setActivePanel((p) => (p === 'bora' ? null : 'bora'));
     },
-  });
+    openSeaWeather: () => {
+      setActivePanel((p) => (p === 'seewetter' ? null : 'seewetter'));
+    },
+    openCollections: async () => {
+      await loadCollections();
+      setActivePanel((p) => (p === 'collections' ? null : 'collections'));
+    },
+  },
+});
 
   return () => {
     if (typeof floatingCleanupRef.current === 'function') {
@@ -4553,35 +4559,9 @@ return poly;
   </div>
 
 
-// Testweise einen Button zum manuellen Triggern des Collections-Panel laden (statt Listen-Button im InfoWindow)
+{/* Floating Lists Button kommt jetzt aus initFloatingTools */}
 
-<div
-  style={{
-    position: 'absolute',
-    top: 64,
-    right: 14,
-    zIndex: 20,
-  }}
->
-  <button
-    type="button"
-    onClick={async () => {
-      await loadCollections();
-      setActivePanel((p) => (p === 'collections' ? null : 'collections'));
-    }}
-    style={{
-      padding: '10px 12px',
-      borderRadius: 10,
-      border: '1px solid rgba(0,0,0,.12)',
-      background: 'rgba(255,255,255,0.94)',
-      boxShadow: '0 6px 18px rgba(0,0,0,.15)',
-      fontWeight: 800,
-      cursor: 'pointer',
-    }}
-  >
-    Listen
-  </button>
-</div>
+
 
   {seaWarning && !seaWarningClosed && (
     <div

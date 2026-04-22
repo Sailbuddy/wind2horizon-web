@@ -112,6 +112,14 @@ function buildDefaultTools({ texts }) {
       actionKey: 'openSeaWeather', // ✅ nur Kennung, kein actions-Aufruf hier
     },
   
+    {
+      id: 'collections',
+      icon: '📋',
+      kind: 'action',
+      label: safe('lists', 'Listen'),
+      title: safe('listsTitle', 'Meine Listen'),
+      actionKey: 'openCollections',
+    },
 
     {
       id: 'notfall',
@@ -268,6 +276,15 @@ export function initFloatingTools(options = {}) {
         setOpen(false);
         actions.openSeaWeather?.();
         actions.onAction?.('seewetter-open-overlay');
+        return;
+      }
+
+      // Collections => open real overlay via callback only
+      if (tool.id === 'collections') {
+        if (DEBUG_FLOATINGTOOLS) console.log('[w2h] COLLECTIONS BUTTON CLICKED -> actions.openCollections()');
+        setOpen(false);
+        actions.openCollections?.();
+        actions.onAction?.('collections-open-overlay');
         return;
       }
 

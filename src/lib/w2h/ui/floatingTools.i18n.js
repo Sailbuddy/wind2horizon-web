@@ -11,6 +11,10 @@ export const floatingToolsTranslations = {
     seaWeatherHint: 'Offizieller Seewetterbericht.',
     openOfficial: 'Offizielle Quelle öffnen',
 
+    lists: 'Listen',
+    listsTitle: 'Meine Listen',
+    listsHint: 'Favoriten, Törnplanung und Sammlungen öffnen.',
+
     emergency: 'Notfall',
     emergencyTitle: 'Notfallkontakte Adria',
     emergencyHint: 'Wichtige Kontakte & Funk.',
@@ -39,6 +43,10 @@ export const floatingToolsTranslations = {
     seaWeatherTitle: 'Sea Weather Report Split',
     seaWeatherHint: 'Official sea weather report.',
     openOfficial: 'Open official source',
+
+    lists: 'Lists',
+    listsTitle: 'My Lists',
+    listsHint: 'Open favorites, trip planning and collections.',
 
     emergency: 'Emergency',
     emergencyTitle: 'Emergency Contacts Adriatic',
@@ -69,6 +77,10 @@ export const floatingToolsTranslations = {
     seaWeatherHint: 'Bollettino meteo ufficiale.',
     openOfficial: 'Apri fonte ufficiale',
 
+    lists: 'Listes',
+    listsTitle: 'Mes listes',
+    listsHint: 'Ouvrir favoris, planification et collections.',
+
     emergency: 'Emergenza',
     emergencyTitle: 'Contatti di emergenza Adriatico',
     emergencyHint: 'Contatti importanti e radio.',
@@ -98,6 +110,10 @@ fr: {
   seaWeatherHint: 'Bulletin météo officiel.',
   openOfficial: 'Ouvrir la source officielle',
 
+  lists: 'Listes',
+  listsTitle: 'Mes listes',
+  listsHint: 'Ouvrir favoris, planification et collections.',
+
   emergency: 'Urgence',
   emergencyTitle: 'Contacts d’urgence Adriatique',
   emergencyHint: 'Contacts importants & radio.',
@@ -126,6 +142,10 @@ fr: {
     seaWeatherTitle: 'Pomorska prognoza Split',
     seaWeatherHint: 'Službena pomorska prognoza.',
     openOfficial: 'Otvori službeni izvor',
+
+    lists: 'Liste',
+    listsTitle: 'Moje liste',
+    listsHint: 'Otvori favorite, planiranje i zbirke.',
 
     emergency: 'Hitno',
     emergencyTitle: 'Hitni kontakti Jadran',
