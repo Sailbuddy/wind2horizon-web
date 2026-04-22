@@ -3801,26 +3801,31 @@ floatingCleanupRef.current = initFloatingTools({
   mapContainer: mapRef.current,
   langCode: lang,
   texts,
-  actions: {
-    onOpenBoraOverlay: () => {
-      setActivePanel((p) => (p === 'bora' ? null : 'bora'));
-    },
-    openSeaWeather: () => {
-      setActivePanel((p) => (p === 'seewetter' ? null : 'seewetter'));
-    },
-    openCollections: async () => {
-      await loadCollections();
-      setActivePanel((p) => (p === 'collections' ? null : 'collections'));
-    },
-    openLogin: () => {
+actions: {
+  onOpenBoraOverlay: () => {
+    setActivePanel((p) => (p === 'bora' ? null : 'bora'));
+  },
+
+  openSeaWeather: () => {
+    setActivePanel((p) => (p === 'seewetter' ? null : 'seewetter'));
+  },
+
+  openCollections: async () => {
+    await loadCollections();
+    setActivePanel((p) => (p === 'collections' ? null : 'collections'));
+  },
+
+  openLogin: () => {
     if (user) {
       setActivePanel((p) => (p === 'user' ? null : 'user'));
       return;
     }
-
     setAuthModalOpen(true);
   },
-  },
+
+  // ✅ NEU
+  getUserIcon: () => (user ? '👤' : '🔐'),
+}
 });
 
   return () => {

@@ -91,7 +91,7 @@ function resolveEl(elOrSelector) {
  * - Bora is now a pure ACTION tool: click icon -> actions.onOpenBoraOverlay()
  * - no Bora panel render / no Bora buttons
  */
-function buildDefaultTools({ texts }) {
+function buildDefaultTools({ texts, actions }) {
   const tx = texts || {};
   const safe = (k, fallback) => (typeof tx[k] === 'string' && tx[k].trim() ? tx[k] : fallback);
 
@@ -122,13 +122,13 @@ function buildDefaultTools({ texts }) {
     },
 
     {
-      id: 'login',
-      icon: '🔐',
-      kind: 'action',
-      label: safe('login', 'Login'),
-      title: safe('loginTitle', 'Login'),
-      actionKey: 'openLogin',
-    },
+  id: 'login',
+  icon: actions?.getUserIcon ? actions.getUserIcon() : '🔐',
+  kind: 'action',
+  label: safe('login', 'Login'),
+  title: safe('loginTitle', 'Login'),
+  actionKey: 'openLogin',
+},
 
     {
       id: 'notfall',
@@ -188,7 +188,7 @@ export function initFloatingTools(options = {}) {
   if (computedPos === 'static') host.style.position = 'relative';
 
   const resolvedTools =
-    Array.isArray(tools) && tools.length ? tools : buildDefaultTools({ texts, langCode });
+Array.isArray(tools) && tools.length ? tools : buildDefaultTools({ texts, actions });
 
   if (DEBUG_FLOATINGTOOLS) {
     console.log('[w2h] floatingTools init', { langCode, hasTexts: !!texts, tools: resolvedTools.map(t => t.id) });
