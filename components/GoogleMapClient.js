@@ -4519,7 +4519,7 @@ return poly;
   <div
     style={{
       position: 'absolute',
-      top: 14,
+      top: 70,
       right: 14,
       zIndex: 20,
     }}
